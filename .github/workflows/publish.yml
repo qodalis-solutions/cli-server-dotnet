@@ -1,0 +1,43 @@
+name: Publish NuGet Package
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore src/Qodalis.Cli.sln
+
+      - name: Build all projects
+        run: dotnet build src/Qodalis.Cli.sln --configuration Release --no-restore
+
+      - name: Find and Publish NuGet Packages
+        run: |
+          # Search all folders under src/ for nupkg directories
+          for dir in $(find ./src -type d -name "nupkg"); do
+            echo "Found nupkg folder: $dir"
+
+            # Publish all .nupkg files in the found folder
+            for package in "$dir"/*.nupkg; do
+              if [ -f "$package" ]; then
+                echo "Publishing package: $package"
+                dotnet nuget push "$package" \
+                  --source "https://api.nuget.org/v3/index.json" \
+                  --api-key ${{ secrets.NUGET_API_KEY }} \
+                  --skip-duplicate
+              fi
+            done
+          done
