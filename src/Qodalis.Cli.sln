@@ -5,6 +5,10 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Server", "Qodalis.Cli.Server\Qodalis.Cli.Server.csproj", "{A11FE737-7839-4392-AF71-662935585D72}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Abstractions", "Qodalis.Cli.Abstractions\Qodalis.Cli.Abstractions.csproj", "{17CA8301-D9CE-40CC-93B3-5E07E8A07AEB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli", "Qodalis.Cli\Qodalis.Cli.csproj", "{16F379C4-82E0-4D1D-BCE9-6BFEABF6E1FC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,8 +19,19 @@ Global
 		{A11FE737-7839-4392-AF71-662935585D72}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A11FE737-7839-4392-AF71-662935585D72}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A11FE737-7839-4392-AF71-662935585D72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17CA8301-D9CE-40CC-93B3-5E07E8A07AEB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17CA8301-D9CE-40CC-93B3-5E07E8A07AEB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17CA8301-D9CE-40CC-93B3-5E07E8A07AEB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17CA8301-D9CE-40CC-93B3-5E07E8A07AEB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{16F379C4-82E0-4D1D-BCE9-6BFEABF6E1FC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{16F379C4-82E0-4D1D-BCE9-6BFEABF6E1FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{16F379C4-82E0-4D1D-BCE9-6BFEABF6E1FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{16F379C4-82E0-4D1D-BCE9-6BFEABF6E1FC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {1F2FBA77-E61C-4EFB-937F-AA239D6A38CF}
 	EndGlobalSection
 EndGlobal
