@@ -23,6 +23,11 @@ builder.Services
         cli.AddProcessor<CliTimeCommandProcessor>();
         cli.AddProcessor<CliHelloCommandProcessor>();
         cli.AddProcessor<CliMathCommandProcessor>();
+        cli.AddProcessor<CliSystemCommandProcessor>();
+        cli.AddProcessor<CliHttpCommandProcessor>();
+        cli.AddProcessor<CliHashCommandProcessor>();
+        cli.AddProcessor<CliBase64CommandProcessor>();
+        cli.AddProcessor<CliUuidCommandProcessor>();
     })
     .AddJsonOptions(options =>
     {
