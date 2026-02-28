@@ -21,7 +21,7 @@ public class CliBuilder
 
     public CliBuilder AddProcessor(ICliCommandProcessor processor)
     {
-        _services.AddSingleton(processor);
+        _services.AddSingleton<ICliCommandProcessor>(processor);
         return this;
     }
 
