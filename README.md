@@ -125,7 +125,7 @@ public class MathCommandProcessor : CliCommandProcessor
 ## Docker
 
 ```bash
-docker run -p 8046:8046 qodalis/cli-server-dotnet
+docker run -p 8046:8046 ghcr.io/qodalis-solutions/cli-server-dotnet
 ```
 
 The Docker image runs a demo server with sample processors (echo, status, time, hello, math).
