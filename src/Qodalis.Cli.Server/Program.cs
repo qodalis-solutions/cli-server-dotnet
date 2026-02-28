@@ -17,9 +17,8 @@ builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
-        cli.AddProcessor<EchoCommandProcessor>();
-        cli.AddProcessor<StatusCommandProcessor>();
-        cli.AddProcessor<GuidCommandProcessor>();
+        cli.AddProcessor<CliEchoCommandProcessor>();
+        cli.AddProcessor<CliStatusCommandProcessor>();
     })
     .AddJsonOptions(options =>
     {
