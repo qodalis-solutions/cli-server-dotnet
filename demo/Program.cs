@@ -1,6 +1,6 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
-using Qodalis.Cli.Server.Processors;
+using Qodalis.Cli.Demo.Processors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +20,9 @@ builder.Services
     {
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();
+        cli.AddProcessor<CliTimeCommandProcessor>();
+        cli.AddProcessor<CliHelloCommandProcessor>();
+        cli.AddProcessor<CliMathCommandProcessor>();
     })
     .AddJsonOptions(options =>
     {
