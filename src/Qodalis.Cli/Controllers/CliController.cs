@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Models;
@@ -22,6 +23,33 @@ public class CliController : ControllerBase
     public IActionResult GetVersion()
     {
         return Ok(new { Version = "1.0.0" });
+    }
+
+    [HttpGet("capabilities")]
+    public IActionResult GetCapabilities()
+    {
+        var os = Environment.OSVersion.Platform switch
+        {
+            PlatformID.Win32NT => "win32",
+            PlatformID.Unix => OperatingSystem.IsMacOS() ? "darwin" : "linux",
+            _ => "unknown",
+        };
+
+        var shell = Environment.OSVersion.Platform == PlatformID.Win32NT
+            ? "powershell"
+            : "bash";
+
+        var shellPath = Environment.OSVersion.Platform == PlatformID.Win32NT
+            ? "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            : "/bin/bash";
+
+        return Ok(new
+        {
+            Shell = true,
+            Os = os,
+            ShellPath = shellPath,
+            Version = "1.0.0",
+        });
     }
 
     [HttpGet("commands")]

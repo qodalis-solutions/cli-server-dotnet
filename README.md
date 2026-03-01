@@ -249,6 +249,82 @@ builder.Services
 
 Assembly scanning registers every class implementing `ICliCommandProcessor` found in the given assembly.
 
+## Dependency Injection
+
+Processors registered by type (`AddProcessor<T>()` or `AddProcessorsFromAssembly()`) are resolved through the ASP.NET Core DI container, so constructor injection works automatically:
+
+```csharp
+public class CliWeatherCommandProcessor : CliCommandProcessor
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<CliWeatherCommandProcessor> _logger;
+
+    public CliWeatherCommandProcessor(
+        IHttpClientFactory httpClientFactory,
+        ILogger<CliWeatherCommandProcessor> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
+
+    public override string Command { get; set; } = "weather";
+    public override string Description { get; set; } = "Fetches current weather";
+
+    public override async Task<string> HandleAsync(
+        CliProcessCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var client = _httpClientFactory.CreateClient();
+        var city = command.Value ?? "London";
+        _logger.LogInformation("Fetching weather for {City}", city);
+        // ...
+        return $"Weather in {city}: 22°C, Sunny";
+    }
+}
+```
+
+Register the processor and its dependencies:
+
+```csharp
+builder.Services.AddHttpClient();
+
+builder.Services
+    .AddControllers()
+    .AddCli(cli =>
+    {
+        cli.AddProcessor<CliWeatherCommandProcessor>();
+    });
+```
+
+> **Note:** Processors are registered as **singletons**. If you need to use scoped services (e.g., `DbContext`), inject `IServiceScopeFactory` and create a scope inside `HandleAsync`:
+>
+> ```csharp
+> public class CliUsersCommandProcessor : CliCommandProcessor
+> {
+>     private readonly IServiceScopeFactory _scopeFactory;
+>
+>     public CliUsersCommandProcessor(IServiceScopeFactory scopeFactory)
+>     {
+>         _scopeFactory = scopeFactory;
+>     }
+>
+>     public override string Command { get; set; } = "users";
+>     public override string Description { get; set; } = "Lists users";
+>
+>     public override async Task<string> HandleAsync(
+>         CliProcessCommand command,
+>         CancellationToken cancellationToken = default)
+>     {
+>         using var scope = _scopeFactory.CreateScope();
+>         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+>         var count = await db.Users.CountAsync(cancellationToken);
+>         return $"Total users: {count}";
+>     }
+> }
+> ```
+
+Processors registered with `AddProcessor(instance)` bypass the DI container since the instance is already constructed.
+
 ## Command Input
 
 Every processor receives a `CliProcessCommand` with the parsed command input:
