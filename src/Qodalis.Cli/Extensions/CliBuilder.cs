@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.FileSystem;
 
 namespace Qodalis.Cli.Extensions;
 
@@ -35,6 +36,25 @@ public class CliBuilder
             _services.AddSingleton(typeof(ICliCommandProcessor), type);
         }
 
+        return this;
+    }
+
+    public CliBuilder AddModule(ICliModule module)
+    {
+        foreach (var processor in module.Processors)
+        {
+            _services.AddSingleton<ICliCommandProcessor>(processor);
+        }
+
+        return this;
+    }
+
+    public CliBuilder AddFileSystem(Action<FileSystemOptions>? configure = null)
+    {
+        var options = new FileSystemOptions();
+        configure?.Invoke(options);
+        _services.AddSingleton(options);
+        _services.AddSingleton<FileSystemPathValidator>();
         return this;
     }
 }
