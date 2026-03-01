@@ -29,6 +29,7 @@ public static class MvcBuilderExtensions
 
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<CliEventSocketManager>();
+        builder.Services.AddSingleton<ShellSessionManager>();
 
         return builder;
     }

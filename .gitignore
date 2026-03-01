@@ -1,6 +1,34 @@
-﻿src/.vs
-bin
-obj
-nupkg
-.idea
+# Build output
+bin/
+obj/
+nupkg/
+publish/
+out/
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio
+.vs/
+*.DotSettings.user
+
+# JetBrains Rider
+.idea/
+
+# Test results
+TestResults/
+coverage/
+
+# System files
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
