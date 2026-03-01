@@ -1,6 +1,7 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Demo.Processors;
+using Qodalis.Cli.Plugins.Weather;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,8 @@ builder.Services
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
         cli.AddProcessor<CliUuidCommandProcessor>();
+        cli.AddModule(new WeatherModule());
+        cli.AddFileSystem(o => o.AllowedPaths = new List<string> { "/tmp", "/app", "/home" });
     })
     .AddJsonOptions(options =>
     {
