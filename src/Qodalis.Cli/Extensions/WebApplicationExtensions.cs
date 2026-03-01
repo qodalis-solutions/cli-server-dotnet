@@ -13,7 +13,7 @@ public static class WebApplicationExtensions
         app.Use(async (context, next) =>
         {
             var eventsPath = context.Request.Path.Value;
-            if (eventsPath == "/ws/cli/events" || eventsPath == "/ws/v1/cli/events" || eventsPath == "/ws/v2/cli/events")
+            if (eventsPath == "/ws/v1/cli/events" || eventsPath == "/ws/cli/events")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
@@ -29,8 +29,34 @@ public static class WebApplicationExtensions
                 return;
             }
 
+            var shellPath = context.Request.Path.Value;
+            if (shellPath == "/ws/v1/cli/shell" || shellPath == "/ws/cli/shell")
+            {
+                if (context.WebSockets.IsWebSocketRequest)
+                {
+                    var shellManager = context.RequestServices.GetRequiredService<ShellSessionManager>();
+                    var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+
+                    var query = context.Request.Query;
+                    int.TryParse(query["cols"], out var cols);
+                    int.TryParse(query["rows"], out var rows);
+                    if (cols <= 0) cols = 80;
+                    if (rows <= 0) rows = 24;
+                    var cmd = query["cmd"].FirstOrDefault();
+
+                    await shellManager.HandleShellSessionAsync(
+                        webSocket, cols, rows, cmd, context.RequestAborted);
+                }
+                else
+                {
+                    context.Response.StatusCode = 400;
+                }
+
+                return;
+            }
+
             var terminalPath = context.Request.Path.Value;
-            if (terminalPath == "/ws/cli" || terminalPath == "/ws/v1/cli" || terminalPath == "/ws/v2/cli")
+            if (terminalPath == "/ws/v1/cli" || terminalPath == "/ws/cli")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {

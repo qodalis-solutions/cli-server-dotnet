@@ -11,9 +11,9 @@ public class CliVersionController : ControllerBase
     {
         return Ok(new
         {
-            SupportedVersions = new[] { 1, 2 },
-            PreferredVersion = 2,
-            ServerVersion = "2.0.0",
+            SupportedVersions = new[] { 1 },
+            PreferredVersion = 1,
+            ServerVersion = "1.0.0",
         });
     }
 }

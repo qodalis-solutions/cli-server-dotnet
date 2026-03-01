@@ -1,0 +1,11 @@
+services:
+  cli-server-dotnet:
+    build:
+      context: .
+      dockerfile: demo/Dockerfile
+    container_name: cli-server-dotnet
+    ports:
+      - "8046:8046"
+    environment:
+      - ASPNETCORE_URLS=http://+:8046
+    restart: unless-stopped

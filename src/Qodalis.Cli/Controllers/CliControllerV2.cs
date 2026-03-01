@@ -23,7 +23,7 @@ public class CliControllerV2 : ControllerBase
     [HttpGet("version")]
     public IActionResult GetVersion()
     {
-        return Ok(new { ApiVersion = 2, ServerVersion = "2.0.0" });
+        return Ok(new { ApiVersion = 2, ServerVersion = "1.0.0" });
     }
 
     [HttpGet("commands")]
