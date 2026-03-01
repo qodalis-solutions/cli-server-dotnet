@@ -12,7 +12,8 @@ public static class WebApplicationExtensions
     {
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path == "/ws/cli/events")
+            var eventsPath = context.Request.Path.Value;
+            if (eventsPath == "/ws/cli/events" || eventsPath == "/ws/v1/cli/events" || eventsPath == "/ws/v2/cli/events")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
@@ -28,7 +29,8 @@ public static class WebApplicationExtensions
                 return;
             }
 
-            if (context.Request.Path == "/ws/cli")
+            var terminalPath = context.Request.Path.Value;
+            if (terminalPath == "/ws/cli" || terminalPath == "/ws/v1/cli" || terminalPath == "/ws/v2/cli")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
