@@ -229,7 +229,7 @@ public class MathCommandProcessor : CliCommandProcessor
 
 ## Registration Methods
 
-The `CliBuilder` supports three registration approaches:
+The `CliBuilder` supports four registration approaches:
 
 ```csharp
 builder.Services
@@ -243,11 +243,69 @@ builder.Services
         cli.AddProcessor(new TimeCommandProcessor());
 
         // 3. Auto-discover all processors in an assembly
-        cli.AddProcessorsFromAssembly(typeof(MyPlugin).Assembly);
+        cli.AddProcessorsFromAssembly(typeof(WeatherModule).Assembly);
+
+        // 4. Register an entire module (bundles multiple processors)
+        cli.AddModule(new WeatherModule());
     });
 ```
 
 Assembly scanning registers every class implementing `ICliCommandProcessor` found in the given assembly.
+
+## Modules
+
+Modules group related command processors into a reusable unit. Implement `ICliModule` (or extend the `CliModule` base class) to bundle processors under a single name and version.
+
+### Defining a Module
+
+```csharp
+using Qodalis.Cli.Abstractions;
+
+public class WeatherModule : CliModule
+{
+    public override string Name => "weather";
+    public override string Version => "1.0.0";
+    public override string Description => "Provides weather information commands";
+
+    public override IEnumerable<ICliCommandProcessor> Processors { get; } =
+    [
+        new CliWeatherCommandProcessor(),
+    ];
+}
+```
+
+### Registering a Module
+
+```csharp
+builder.Services
+    .AddControllers()
+    .AddCli(cli =>
+    {
+        cli.AddModule(new WeatherModule());
+    });
+```
+
+`AddModule()` iterates over the module's `Processors` and registers each one, just like calling `AddProcessor()` for each individually.
+
+### ICliModule Interface
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `Name` | `string` | Unique module identifier |
+| `Version` | `string` | Module version |
+| `Description` | `string` | Short description |
+| `Author` | `ICliCommandAuthor` | Author metadata (defaults to library author) |
+| `Processors` | `IEnumerable<ICliCommandProcessor>` | Command processors provided by the module |
+
+### Example: Weather Module
+
+The repository includes a weather module under `plugins/weather/` as a reference implementation. It registers a `weather` command with `current` and `forecast` sub-commands, using the [wttr.in](https://wttr.in) API:
+
+```
+weather                    # Shows current weather (default: London)
+weather current London     # Current conditions for London
+weather forecast --location Paris  # 3-day forecast for Paris
+```
 
 ## Dependency Injection
 
@@ -426,18 +484,20 @@ dotnet run
 ```
 src/
   Qodalis.Cli.Abstractions/   # Interfaces and base classes (NuGet package)
-    ICliCommandProcessor.cs        # Core interface
+    ICliCommandProcessor.cs        # Core processor interface
+    ICliModule.cs                  # Module interface
     CliCommandAuthor.cs            # Author metadata
     CliCommandParameterDescriptor.cs  # Parameter declaration
     CommandParameterType.cs        # Parameter type enum
   Qodalis.Cli/                 # ASP.NET Core integration (NuGet package)
-    CliCommandProcessor.cs         # Base class with defaults
+    CliCommandProcessor.cs         # Processor base class with defaults
+    CliModule.cs                   # Module base class with defaults
     Controllers/
       CliController.cs             # V1 REST API (/api/v1/cli)
       CliControllerV2.cs           # V2 REST API (/api/v2/cli)
       CliVersionController.cs      # Version discovery (/api/cli/versions)
     Extensions/
-      CliBuilder.cs                # Fluent registration API
+      CliBuilder.cs                # Fluent registration API (AddProcessor, AddModule)
       MvcBuilderExtensions.cs      # AddCli() extension method
       WebApplicationExtensions.cs  # UseCli() extension method
     Services/
@@ -450,6 +510,8 @@ src/
       CliServerOutput.cs           # Output types (text, table, list, json, key-value)
       CliServerCommandDescriptor.cs  # Command metadata for /commands endpoint
   Qodalis.Cli.Server/          # Standalone server with Swagger UI
+plugins/
+  weather/                     # Weather module (example plugin)
 demo/                          # Demo app with sample processors
 tests/                         # Unit tests (xUnit)
 ```

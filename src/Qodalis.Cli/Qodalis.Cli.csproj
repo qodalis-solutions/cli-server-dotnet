@@ -35,7 +35,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="2.2.5" />
-    <PackageReference Include="sch.pty.net" Version="0.3.36-pre" />
   </ItemGroup>
 
   <ItemGroup>

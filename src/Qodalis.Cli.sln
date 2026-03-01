@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Demo", "..\demo\Demo.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Tests", "..\tests\Qodalis.Cli.Tests\Qodalis.Cli.Tests.csproj", "{03C906C2-4306-4203-A611-DE57CFE3B72C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeatherModule", "..\plugins\weather\WeatherModule.csproj", "{B1234567-ABCD-1234-EFAB-123456789ABC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{03C906C2-4306-4203-A611-DE57CFE3B72C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{03C906C2-4306-4203-A611-DE57CFE3B72C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{03C906C2-4306-4203-A611-DE57CFE3B72C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1234567-ABCD-1234-EFAB-123456789ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1234567-ABCD-1234-EFAB-123456789ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1234567-ABCD-1234-EFAB-123456789ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1234567-ABCD-1234-EFAB-123456789ABC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
