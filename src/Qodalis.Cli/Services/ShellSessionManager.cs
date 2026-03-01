@@ -1,7 +1,7 @@
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using Pty.Net;
 
 namespace Qodalis.Cli.Services;
 
@@ -20,22 +20,53 @@ public class ShellSessionManager
         CancellationToken cancellationToken)
     {
         var (shell, shellArgs) = GetShellInfo(command);
-        IPtyConnection? pty = null;
+        Process? process = null;
 
         try
         {
-            var options = new PtyOptions
+            var shellCommand = shellArgs.Length > 0
+                ? $"{shell} {string.Join(" ", shellArgs)}"
+                : shell;
+
+            process = new Process
             {
-                Name = "qodalis-shell",
-                Cols = cols,
-                Rows = rows,
-                Cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                App = shell,
-                CommandLine = shellArgs,
-                Environment = GetEnvironment(),
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "script",
+                    ArgumentList =
+                    {
+                        "-q",       // quiet
+                        "-c",       // command
+                        shellCommand,
+                        "/dev/null" // output file (discard)
+                    },
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = GetWorkingDirectory(),
+                    Environment =
+                    {
+                        ["TERM"] = "xterm-256color",
+                        ["COLUMNS"] = cols.ToString(),
+                        ["LINES"] = rows.ToString(),
+                    },
+                },
+                EnableRaisingEvents = true,
             };
 
-            pty = await PtyProvider.SpawnAsync(options, cancellationToken);
+            // Copy existing environment variables
+            foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is string key && entry.Value is string value
+                    && !process.StartInfo.Environment.ContainsKey(key))
+                {
+                    process.StartInfo.Environment[key] = value;
+                }
+            }
+
+            process.Start();
 
             var os = Environment.OSVersion.Platform switch
             {
@@ -52,9 +83,9 @@ public class ShellSessionManager
             }, cancellationToken);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var outputTask = ReadPtyOutputAsync(pty, webSocket, cts.Token);
-            var inputTask = ReadWebSocketInputAsync(webSocket, pty, cts.Token);
-            var exitTask = WaitForExitAsync(pty, webSocket, cts);
+            var outputTask = ReadProcessOutputAsync(process, webSocket, cts.Token);
+            var inputTask = ReadWebSocketInputAsync(webSocket, process, cts.Token);
+            var exitTask = WaitForExitAsync(process, webSocket, cts);
 
             await Task.WhenAny(outputTask, inputTask, exitTask);
             cts.Cancel();
@@ -69,16 +100,29 @@ public class ShellSessionManager
         }
         catch (Exception ex)
         {
-            await SendJsonAsync(webSocket, new
+            Console.Error.WriteLine($"Shell session error: {ex}");
+            try
             {
-                type = "error",
-                message = ex.Message,
-            }, cancellationToken);
+                await SendJsonAsync(webSocket, new
+                {
+                    type = "error",
+                    message = ex.Message,
+                }, CancellationToken.None);
+            }
+            catch { }
         }
         finally
         {
-            pty?.Kill();
-            pty?.Dispose();
+            if (process != null)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch { }
+                process.Dispose();
+            }
 
             if (webSocket.State == WebSocketState.Open)
             {
@@ -94,22 +138,23 @@ public class ShellSessionManager
         }
     }
 
-    private async Task ReadPtyOutputAsync(
-        IPtyConnection pty,
+    private async Task ReadProcessOutputAsync(
+        Process process,
         WebSocket webSocket,
         CancellationToken cancellationToken)
     {
-        var buffer = new byte[4096];
+        var buffer = new char[4096];
         try
         {
             while (!cancellationToken.IsCancellationRequested &&
-                   webSocket.State == WebSocketState.Open)
+                   webSocket.State == WebSocketState.Open &&
+                   !process.HasExited)
             {
-                var bytesRead = await pty.ReaderStream.ReadAsync(
+                var charsRead = await process.StandardOutput.ReadAsync(
                     buffer, cancellationToken);
-                if (bytesRead == 0) break;
+                if (charsRead == 0) break;
 
-                var data = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var data = new string(buffer, 0, charsRead);
                 await SendJsonAsync(webSocket, new
                 {
                     type = "stdout",
@@ -123,14 +168,15 @@ public class ShellSessionManager
 
     private async Task ReadWebSocketInputAsync(
         WebSocket webSocket,
-        IPtyConnection pty,
+        Process process,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[4096];
         try
         {
             while (!cancellationToken.IsCancellationRequested &&
-                   webSocket.State == WebSocketState.Open)
+                   webSocket.State == WebSocketState.Open &&
+                   !process.HasExited)
             {
                 var result = await webSocket.ReceiveAsync(
                     new ArraySegment<byte>(buffer), cancellationToken);
@@ -148,16 +194,22 @@ public class ShellSessionManager
                         var data = doc.RootElement.GetProperty("data").GetString();
                         if (data != null)
                         {
-                            var bytes = Encoding.UTF8.GetBytes(data);
-                            await pty.WriterStream.WriteAsync(bytes, cancellationToken);
-                            await pty.WriterStream.FlushAsync(cancellationToken);
+                            await process.StandardInput.WriteAsync(data);
+                            await process.StandardInput.FlushAsync();
                         }
                         break;
 
                     case "resize":
+                        // script doesn't support runtime resize, but we can try stty
                         var newCols = doc.RootElement.GetProperty("cols").GetInt32();
                         var newRows = doc.RootElement.GetProperty("rows").GetInt32();
-                        pty.Resize(newCols, newRows);
+                        try
+                        {
+                            await process.StandardInput.WriteAsync(
+                                $"stty cols {newCols} rows {newRows}\n");
+                            await process.StandardInput.FlushAsync();
+                        }
+                        catch { }
                         break;
                 }
             }
@@ -167,29 +219,20 @@ public class ShellSessionManager
     }
 
     private async Task WaitForExitAsync(
-        IPtyConnection pty,
+        Process process,
         WebSocket webSocket,
         CancellationTokenSource cts)
     {
         try
         {
-            // sch.pty.net WaitForExit takes int timeout (ms), not CancellationToken.
-            // Poll with short intervals to respect cancellation.
-            await Task.Run(() =>
-            {
-                while (!cts.Token.IsCancellationRequested)
-                {
-                    if (pty.WaitForExit(500))
-                        break;
-                }
-            }, cts.Token);
+            await process.WaitForExitAsync(cts.Token);
 
             if (!cts.Token.IsCancellationRequested && webSocket.State == WebSocketState.Open)
             {
                 await SendJsonAsync(webSocket, new
                 {
                     type = "exit",
-                    code = pty.ExitCode,
+                    code = process.ExitCode,
                 }, CancellationToken.None);
             }
         }
@@ -225,25 +268,32 @@ public class ShellSessionManager
         }
         else
         {
-            var shell = "/bin/bash";
+            var shell = DetectShell();
             return command != null
                 ? (shell, new[] { "-c", command })
                 : (shell, Array.Empty<string>());
         }
     }
 
-    private static Dictionary<string, string> GetEnvironment()
+    private static string DetectShell()
     {
-        var env = new Dictionary<string, string>();
-        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        var envShell = Environment.GetEnvironmentVariable("SHELL");
+        if (!string.IsNullOrEmpty(envShell) && File.Exists(envShell))
+            return envShell;
+
+        string[] candidates = ["/bin/bash", "/usr/bin/bash", "/bin/sh"];
+        foreach (var candidate in candidates)
         {
-            if (entry.Key is string key && entry.Value is string value)
-            {
-                env[key] = value;
-            }
+            if (File.Exists(candidate))
+                return candidate;
         }
 
-        env["TERM"] = "xterm-256color";
-        return env;
+        return "/bin/sh";
+    }
+
+    private static string GetWorkingDirectory()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return !string.IsNullOrEmpty(home) && Directory.Exists(home) ? home : "/";
     }
 }

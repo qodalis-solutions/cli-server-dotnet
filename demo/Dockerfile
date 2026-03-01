@@ -3,6 +3,7 @@ WORKDIR /src
 
 COPY src/Qodalis.Cli.Abstractions/Qodalis.Cli.Abstractions.csproj src/Qodalis.Cli.Abstractions/
 COPY src/Qodalis.Cli/Qodalis.Cli.csproj src/Qodalis.Cli/
+COPY plugins/weather/WeatherModule.csproj plugins/weather/
 COPY demo/Demo.csproj demo/
 RUN dotnet restore demo/Demo.csproj
 
@@ -11,6 +12,7 @@ COPY README.md ./
 COPY assets/ assets/
 
 COPY src/ src/
+COPY plugins/ plugins/
 COPY demo/ demo/
 RUN dotnet publish demo/Demo.csproj -c Release -o /app/publish
 
