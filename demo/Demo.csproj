@@ -14,6 +14,7 @@
 
     <ItemGroup>
         <ProjectReference Include="../src/Qodalis.Cli/Qodalis.Cli.csproj" />
+        <ProjectReference Include="../plugins/weather/WeatherModule.csproj" />
     </ItemGroup>
 
 </Project>
