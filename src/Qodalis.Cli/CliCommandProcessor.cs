@@ -10,6 +10,7 @@ public abstract class CliCommandProcessor : ICliCommandProcessor
     public virtual bool? AllowUnlistedCommands { get; set; }
     public virtual bool? ValueRequired { get; set; }
     public virtual string Version { get; set; } = "1.0.0";
+    public virtual int ApiVersion { get; set; } = 1;
 
     public virtual IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 

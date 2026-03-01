@@ -7,6 +7,7 @@ public class CliServerCommandDescriptor
     public required string Command { get; set; }
     public string? Description { get; set; }
     public string? Version { get; set; }
+    public int? ApiVersion { get; set; }
     public List<CliCommandParameterDescriptorDto>? Parameters { get; set; }
     public List<CliServerCommandDescriptor>? Processors { get; set; }
 }
