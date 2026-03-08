@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemPlugin", "..\plug
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemJsonPlugin", "..\plugins\filesystem-json\FileSystemJsonPlugin.csproj", "{D3456789-CDEF-3456-ABCD-345678901ABC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemSqlitePlugin", "..\plugins\filesystem-sqlite\FileSystemSqlitePlugin.csproj", "{E4567890-DEFA-4567-BCDE-456789012ABC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +59,10 @@ Global
 		{D3456789-CDEF-3456-ABCD-345678901ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D3456789-CDEF-3456-ABCD-345678901ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D3456789-CDEF-3456-ABCD-345678901ABC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E4567890-DEFA-4567-BCDE-456789012ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E4567890-DEFA-4567-BCDE-456789012ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E4567890-DEFA-4567-BCDE-456789012ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E4567890-DEFA-4567-BCDE-456789012ABC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
