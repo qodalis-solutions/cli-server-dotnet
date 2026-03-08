@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.FileSystem;
@@ -9,46 +8,32 @@ namespace Qodalis.Cli.Controllers;
 [Route("api/cli/fs")]
 public class FileSystemController : ControllerBase
 {
-    private readonly FileSystemPathValidator _pathValidator;
+    private readonly IFileStorageProvider _provider;
 
-    public FileSystemController(FileSystemPathValidator pathValidator)
+    public FileSystemController(IFileStorageProvider provider)
     {
-        _pathValidator = pathValidator;
+        _provider = provider;
     }
 
     [HttpGet("ls")]
-    public IActionResult ListDirectory([FromQuery] string path)
+    public async Task<IActionResult> ListDirectory([FromQuery] string path, CancellationToken ct)
     {
-        var resolved = _pathValidator.Validate(path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
-        if (!Directory.Exists(resolved))
-        {
-            return NotFound(new { Error = $"Directory not found: {path}" });
-        }
-
         try
         {
-            var dirInfo = new DirectoryInfo(resolved);
-            var entries = dirInfo.EnumerateFileSystemInfos()
-                .Select(entry => new
-                {
-                    Name = entry.Name,
-                    Type = entry is DirectoryInfo ? "directory" : "file",
-                    Size = entry is FileInfo fi ? fi.Length : 0L,
-                    Modified = entry.LastWriteTimeUtc,
-                    Permissions = GetPermissions(entry),
-                })
-                .ToList();
-
+            var entries = await _provider.ListAsync(path, ct);
             return Ok(new { Entries = entries });
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
+        }
+        catch (FileStorageNotADirectoryError ex)
+        {
+            return BadRequest(new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -57,27 +42,24 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpGet("cat")]
-    public IActionResult ReadFile([FromQuery] string path)
+    public async Task<IActionResult> ReadFile([FromQuery] string path, CancellationToken ct)
     {
-        var resolved = _pathValidator.Validate(path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
-        if (!System.IO.File.Exists(resolved))
-        {
-            return NotFound(new { Error = $"File not found: {path}" });
-        }
-
         try
         {
-            var content = System.IO.File.ReadAllText(resolved);
+            var content = await _provider.ReadFileAsync(path, ct);
             return Ok(new { Content = content });
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
+        }
+        catch (FileStorageIsADirectoryError ex)
+        {
+            return BadRequest(new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -86,49 +68,20 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpGet("stat")]
-    public IActionResult GetFileInfo([FromQuery] string path)
+    public async Task<IActionResult> GetFileInfo([FromQuery] string path, CancellationToken ct)
     {
-        var resolved = _pathValidator.Validate(path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
         try
         {
-            if (System.IO.File.Exists(resolved))
-            {
-                var fi = new FileInfo(resolved);
-                return Ok(new
-                {
-                    Name = fi.Name,
-                    Type = "file",
-                    Size = fi.Length,
-                    Modified = fi.LastWriteTimeUtc,
-                    Created = fi.CreationTimeUtc,
-                    Permissions = GetPermissions(fi),
-                });
-            }
-
-            if (Directory.Exists(resolved))
-            {
-                var di = new DirectoryInfo(resolved);
-                return Ok(new
-                {
-                    Name = di.Name,
-                    Type = "directory",
-                    Size = 0L,
-                    Modified = di.LastWriteTimeUtc,
-                    Created = di.CreationTimeUtc,
-                    Permissions = GetPermissions(di),
-                });
-            }
-
-            return NotFound(new { Error = $"Path not found: {path}" });
+            var stat = await _provider.StatAsync(path, ct);
+            return Ok(stat);
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -137,28 +90,25 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpGet("download")]
-    public IActionResult DownloadFile([FromQuery] string path)
+    public async Task<IActionResult> DownloadFile([FromQuery] string path, CancellationToken ct)
     {
-        var resolved = _pathValidator.Validate(path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
-        if (!System.IO.File.Exists(resolved))
-        {
-            return NotFound(new { Error = $"File not found: {path}" });
-        }
-
         try
         {
-            var stream = new FileStream(resolved, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var fileName = Path.GetFileName(resolved);
+            var stream = await _provider.GetDownloadStreamAsync(path, ct);
+            var fileName = Path.GetFileName(path);
             return File(stream, "application/octet-stream", fileName);
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
+        }
+        catch (FileStorageIsADirectoryError ex)
+        {
+            return BadRequest(new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -167,43 +117,32 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpPost("upload")]
-    public async Task<IActionResult> UploadFile(IFormFile file, [FromForm] string path)
+    public async Task<IActionResult> UploadFile(IFormFile file, [FromForm] string path, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
         {
             return BadRequest(new { Error = "No file provided." });
         }
 
-        var targetDir = _pathValidator.Validate(path);
-        if (targetDir is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
-        if (!Directory.Exists(targetDir))
-        {
-            return NotFound(new { Error = $"Target directory not found: {path}" });
-        }
-
         try
         {
-            var filePath = Path.Combine(targetDir, file.FileName);
+            var filePath = string.IsNullOrEmpty(path) ? file.FileName : $"{path.TrimEnd('/')}/{file.FileName}";
 
-            // Re-validate the final file path to prevent escaping via filename
-            var resolvedFilePath = _pathValidator.Validate(filePath);
-            if (resolvedFilePath is null)
-            {
-                return StatusCode(403, new { Error = "Access denied: resulting file path is not within allowed paths." });
-            }
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms, ct);
+            var content = ms.ToArray();
 
-            await using var stream = new FileStream(resolvedFilePath, FileMode.Create, FileAccess.Write);
-            await file.CopyToAsync(stream);
+            await _provider.UploadFileAsync(filePath, content, ct);
 
-            return Ok(new { Path = resolvedFilePath, Size = file.Length });
+            return Ok(new { Path = filePath, Size = file.Length });
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -212,32 +151,31 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpPost("mkdir")]
-    public IActionResult CreateDirectory([FromBody] CreateDirectoryRequest request)
+    public async Task<IActionResult> CreateDirectory([FromBody] CreateDirectoryRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request?.Path))
         {
             return BadRequest(new { Error = "Path is required." });
         }
 
-        var resolved = _pathValidator.Validate(request.Path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
         try
         {
-            if (Directory.Exists(resolved))
+            var exists = await _provider.ExistsAsync(request.Path, ct);
+            if (exists)
             {
-                return Ok(new { Path = resolved, Created = false, Message = "Directory already exists." });
+                return Ok(new { Path = request.Path, Created = false, Message = "Directory already exists." });
             }
 
-            Directory.CreateDirectory(resolved);
-            return Ok(new { Path = resolved, Created = true });
+            await _provider.MkdirAsync(request.Path, recursive: true, ct);
+            return Ok(new { Path = request.Path, Created = true });
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageExistsError)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return Ok(new { Path = request.Path, Created = false, Message = "Directory already exists." });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -246,55 +184,26 @@ public class FileSystemController : ControllerBase
     }
 
     [HttpDelete("rm")]
-    public IActionResult Delete([FromQuery] string path)
+    public async Task<IActionResult> Delete([FromQuery] string path, CancellationToken ct)
     {
-        var resolved = _pathValidator.Validate(path);
-        if (resolved is null)
-        {
-            return StatusCode(403, new { Error = "Access denied: path is not within allowed paths." });
-        }
-
         try
         {
-            if (System.IO.File.Exists(resolved))
-            {
-                System.IO.File.Delete(resolved);
-                return Ok(new { Path = resolved, Deleted = true, Type = "file" });
-            }
-
-            if (Directory.Exists(resolved))
-            {
-                Directory.Delete(resolved, recursive: true);
-                return Ok(new { Path = resolved, Deleted = true, Type = "directory" });
-            }
-
-            return NotFound(new { Error = $"Path not found: {path}" });
+            var stat = await _provider.StatAsync(path, ct);
+            await _provider.RemoveAsync(path, recursive: true, ct);
+            return Ok(new { Path = path, Deleted = true, Type = stat.Type });
         }
-        catch (UnauthorizedAccessException)
+        catch (FileStorageNotFoundError ex)
         {
-            return StatusCode(403, new { Error = "Access denied by the operating system." });
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (FileStoragePermissionError ex)
+        {
+            return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
             return StatusCode(500, new { Error = ex.Message });
         }
-    }
-
-    private static string GetPermissions(FileSystemInfo entry)
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            try
-            {
-                return entry.UnixFileMode.ToString();
-            }
-            catch
-            {
-                // Fall through to attribute-based permissions
-            }
-        }
-
-        return entry.Attributes.ToString();
     }
 }
 

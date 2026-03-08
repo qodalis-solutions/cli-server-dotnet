@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Qodalis.Cli.Abstractions\Qodalis.Cli.Abstractions.csproj" />
+    <ProjectReference Include="..\..\plugins\filesystem\FileSystemPlugin.csproj" />
   </ItemGroup>
 
 </Project>

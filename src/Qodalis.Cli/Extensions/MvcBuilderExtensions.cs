@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Controllers;
+using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
@@ -30,6 +31,16 @@ public static class MvcBuilderExtensions
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<CliEventSocketManager>();
         builder.Services.AddSingleton<ShellSessionManager>();
+
+        // Register IFileStorageProvider as singleton
+        if (cliBuilder.FileStorageProvider != null)
+        {
+            builder.Services.AddSingleton<IFileStorageProvider>(cliBuilder.FileStorageProvider);
+        }
+        else
+        {
+            builder.Services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
+        }
 
         return builder;
     }
