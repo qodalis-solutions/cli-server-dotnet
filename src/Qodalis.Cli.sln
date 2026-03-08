@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeatherModule", "..\plugins
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemPlugin", "..\plugins\filesystem\FileSystemPlugin.csproj", "{C2345678-BCDE-2345-FABC-234567890ABC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemJsonPlugin", "..\plugins\filesystem-json\FileSystemJsonPlugin.csproj", "{D3456789-CDEF-3456-ABCD-345678901ABC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,10 @@ Global
 		{C2345678-BCDE-2345-FABC-234567890ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C2345678-BCDE-2345-FABC-234567890ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C2345678-BCDE-2345-FABC-234567890ABC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3456789-CDEF-3456-ABCD-345678901ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3456789-CDEF-3456-ABCD-345678901ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3456789-CDEF-3456-ABCD-345678901ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3456789-CDEF-3456-ABCD-345678901ABC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

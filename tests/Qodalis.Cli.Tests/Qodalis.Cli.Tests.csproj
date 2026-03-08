@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
     <ProjectReference Include="..\..\src\Qodalis.Cli.Abstractions\Qodalis.Cli.Abstractions.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem\FileSystemPlugin.csproj" />
+    <ProjectReference Include="..\..\plugins\filesystem-json\FileSystemJsonPlugin.csproj" />
   </ItemGroup>
 
 </Project>
