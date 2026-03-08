@@ -9,6 +9,8 @@ public class CliBuilder
 {
     private readonly IServiceCollection _services;
 
+    internal IFileStorageProvider? FileStorageProvider { get; private set; }
+
     internal CliBuilder(IServiceCollection services)
     {
         _services = services;
@@ -53,6 +55,23 @@ public class CliBuilder
     {
         var options = new FileSystemOptions();
         configure?.Invoke(options);
+
+        if (options.Provider != null)
+        {
+            FileStorageProvider = options.Provider;
+        }
+        else if (options.AllowedPaths.Count > 0)
+        {
+            FileStorageProvider = new OsFileStorageProvider(new OsProviderOptions
+            {
+                AllowedPaths = options.AllowedPaths
+            });
+        }
+        else
+        {
+            FileStorageProvider = new InMemoryFileStorageProvider();
+        }
+
         _services.AddSingleton(options);
         _services.AddSingleton<FileSystemPathValidator>();
         return this;
