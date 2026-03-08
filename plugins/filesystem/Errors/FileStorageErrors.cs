@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.FileSystem;
+namespace Qodalis.Cli.Plugin.FileSystem;
 
 public class FileStorageNotFoundError : Exception
 {

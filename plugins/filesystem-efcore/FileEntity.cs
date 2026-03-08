@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.FileSystem.EfCore;
+namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
 public class FileEntity
 {

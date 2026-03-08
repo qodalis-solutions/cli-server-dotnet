@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.FileSystem.Json;
+namespace Qodalis.Cli.Plugin.FileSystem.Json;
 
 public static class JsonFileSystemExtensions
 {

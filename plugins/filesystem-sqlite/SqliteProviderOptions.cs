@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.FileSystem.Sqlite;
+namespace Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
 public class SqliteProviderOptions
 {

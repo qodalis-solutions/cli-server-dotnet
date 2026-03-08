@@ -1,15 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>Qodalis.Cli.Plugins.Weather</RootNamespace>
     <Version>1.0.0-beta.1</Version>
   </PropertyGroup>
-
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
+    <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
   </ItemGroup>
-
 </Project>
