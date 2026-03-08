@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Qodalis.Cli.FileSystem;
+namespace Qodalis.Cli.Plugin.FileSystem;
 
 public class InMemoryFileStorageProvider : IFileStorageProvider
 {

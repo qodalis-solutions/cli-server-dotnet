@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Controllers;
-using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem;
 
 namespace Qodalis.Cli.Tests;
 

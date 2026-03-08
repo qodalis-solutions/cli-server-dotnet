@@ -1,13 +1,13 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Demo.Processors;
-using Qodalis.Cli.Plugins.Weather;
-using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Plugin.Weather;
+using Qodalis.Cli.Plugin.FileSystem;
 // Uncomment the using directive for the file storage provider you want to use:
-// using Qodalis.Cli.FileSystem.Json;
-// using Qodalis.Cli.FileSystem.Sqlite;
-// using Qodalis.Cli.FileSystem.EfCore;
-// using Qodalis.Cli.FileSystem.S3;
+// using Qodalis.Cli.Plugin.FileSystem.Json;
+// using Qodalis.Cli.Plugin.FileSystem.Sqlite;
+// using Qodalis.Cli.Plugin.FileSystem.EfCore;
+// using Qodalis.Cli.Plugin.FileSystem.S3;
 
 var builder = WebApplication.CreateBuilder(args);
 

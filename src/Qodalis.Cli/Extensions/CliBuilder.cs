@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem;
 
 namespace Qodalis.Cli.Extensions;
 

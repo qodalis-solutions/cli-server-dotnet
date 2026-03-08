@@ -1,6 +1,6 @@
 using Qodalis.Cli.Abstractions;
 
-namespace Qodalis.Cli.Plugins.Weather;
+namespace Qodalis.Cli.Plugin.Weather;
 
 public class WeatherModule : Cli.CliModule
 {

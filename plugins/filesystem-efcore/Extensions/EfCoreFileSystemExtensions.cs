@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Qodalis.Cli.FileSystem.EfCore;
+namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
 public static class EfCoreFileSystemExtensions
 {

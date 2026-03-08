@@ -3,8 +3,8 @@ using System.Text;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Moq;
-using Qodalis.Cli.FileSystem;
-using Qodalis.Cli.FileSystem.S3;
+using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem.S3;
 
 namespace Qodalis.Cli.Tests;
 

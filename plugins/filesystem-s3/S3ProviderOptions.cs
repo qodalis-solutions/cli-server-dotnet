@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.FileSystem.S3;
+namespace Qodalis.Cli.Plugin.FileSystem.S3;
 
 public class S3ProviderOptions
 {

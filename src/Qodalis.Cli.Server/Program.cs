@@ -1,7 +1,7 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Server.Processors;
-using Qodalis.Cli.Plugins.Weather;
+using Qodalis.Cli.Plugin.Weather;
 
 var builder = WebApplication.CreateBuilder(args);
 

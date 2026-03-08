@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Controllers;
-using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;

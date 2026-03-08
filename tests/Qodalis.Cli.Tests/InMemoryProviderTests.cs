@@ -1,4 +1,4 @@
-using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem;
 
 namespace Qodalis.Cli.Tests;
 
