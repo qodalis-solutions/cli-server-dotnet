@@ -126,7 +126,7 @@ public class FileSystemController : ControllerBase
 
         try
         {
-            var filePath = string.IsNullOrEmpty(path) ? file.FileName : $"{path.TrimEnd('/')}/{file.FileName}";
+            var filePath = string.IsNullOrEmpty(path) ? file.FileName : path;
 
             using var ms = new MemoryStream();
             await file.CopyToAsync(ms, ct);
