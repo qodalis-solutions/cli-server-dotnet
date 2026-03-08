@@ -13,17 +13,17 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Demo", "..\demo\Demo.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Tests", "..\tests\Qodalis.Cli.Tests\Qodalis.Cli.Tests.csproj", "{03C906C2-4306-4203-A611-DE57CFE3B72C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeatherModule", "..\plugins\weather\WeatherModule.csproj", "{B1234567-ABCD-1234-EFAB-123456789ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Weather", "..\plugins\weather\Qodalis.Cli.Plugin.Weather.csproj", "{B1234567-ABCD-1234-EFAB-123456789ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemPlugin", "..\plugins\filesystem\FileSystemPlugin.csproj", "{C2345678-BCDE-2345-FABC-234567890ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.FileSystem", "..\plugins\filesystem\Qodalis.Cli.Plugin.FileSystem.csproj", "{C2345678-BCDE-2345-FABC-234567890ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemJsonPlugin", "..\plugins\filesystem-json\FileSystemJsonPlugin.csproj", "{D3456789-CDEF-3456-ABCD-345678901ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.FileSystem.Json", "..\plugins\filesystem-json\Qodalis.Cli.Plugin.FileSystem.Json.csproj", "{D3456789-CDEF-3456-ABCD-345678901ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemSqlitePlugin", "..\plugins\filesystem-sqlite\FileSystemSqlitePlugin.csproj", "{E4567890-DEFA-4567-BCDE-456789012ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.FileSystem.Sqlite", "..\plugins\filesystem-sqlite\Qodalis.Cli.Plugin.FileSystem.Sqlite.csproj", "{E4567890-DEFA-4567-BCDE-456789012ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemEfCorePlugin", "..\plugins\filesystem-efcore\FileSystemEfCorePlugin.csproj", "{F5678901-EFAB-5678-CDEF-567890123ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.FileSystem.EfCore", "..\plugins\filesystem-efcore\Qodalis.Cli.Plugin.FileSystem.EfCore.csproj", "{F5678901-EFAB-5678-CDEF-567890123ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemS3Plugin", "..\plugins\filesystem-s3\FileSystemS3Plugin.csproj", "{A6789012-FABC-6789-DEFA-678901234ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.FileSystem.S3", "..\plugins\filesystem-s3\Qodalis.Cli.Plugin.FileSystem.S3.csproj", "{A6789012-FABC-6789-DEFA-678901234ABC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

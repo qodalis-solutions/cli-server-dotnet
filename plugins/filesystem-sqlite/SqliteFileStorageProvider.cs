@@ -1,7 +1,7 @@
 using System.Text;
 using Microsoft.Data.Sqlite;
 
-namespace Qodalis.Cli.FileSystem.Sqlite;
+namespace Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
 public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 {

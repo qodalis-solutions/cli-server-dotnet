@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Qodalis.Cli.Abstractions;
 
-namespace Qodalis.Cli.Plugins.Weather;
+namespace Qodalis.Cli.Plugin.Weather;
 
 public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
 {

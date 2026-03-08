@@ -1,3 +1,5 @@
+using Qodalis.Cli.Plugin.FileSystem;
+
 namespace Qodalis.Cli.FileSystem;
 
 public class FileSystemPathValidator

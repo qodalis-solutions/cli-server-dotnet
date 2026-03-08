@@ -1,5 +1,5 @@
-using Qodalis.Cli.FileSystem;
-using Qodalis.Cli.FileSystem.Json;
+using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem.Json;
 
 namespace Qodalis.Cli.Tests;
 

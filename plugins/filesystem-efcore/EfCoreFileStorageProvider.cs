@@ -1,7 +1,7 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 
-namespace Qodalis.Cli.FileSystem.EfCore;
+namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
 public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
 {

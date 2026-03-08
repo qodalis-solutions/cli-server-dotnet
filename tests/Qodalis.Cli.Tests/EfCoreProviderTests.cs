@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Qodalis.Cli.FileSystem;
-using Qodalis.Cli.FileSystem.EfCore;
+using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem.EfCore;
 
 namespace Qodalis.Cli.Tests;
 

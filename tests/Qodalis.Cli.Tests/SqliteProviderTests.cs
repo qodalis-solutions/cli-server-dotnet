@@ -1,5 +1,5 @@
-using Qodalis.Cli.FileSystem;
-using Qodalis.Cli.FileSystem.Sqlite;
+using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
 namespace Qodalis.Cli.Tests;
 

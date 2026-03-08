@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Qodalis.Cli.FileSystem.Json;
+namespace Qodalis.Cli.Plugin.FileSystem.Json;
 
 public class JsonFileStorageProvider : IFileStorageProvider
 {
