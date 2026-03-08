@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemSqlitePlugin", ".
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemEfCorePlugin", "..\plugins\filesystem-efcore\FileSystemEfCorePlugin.csproj", "{F5678901-EFAB-5678-CDEF-567890123ABC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSystemS3Plugin", "..\plugins\filesystem-s3\FileSystemS3Plugin.csproj", "{A6789012-FABC-6789-DEFA-678901234ABC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,10 @@ Global
 		{F5678901-EFAB-5678-CDEF-567890123ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F5678901-EFAB-5678-CDEF-567890123ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F5678901-EFAB-5678-CDEF-567890123ABC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A6789012-FABC-6789-DEFA-678901234ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A6789012-FABC-6789-DEFA-678901234ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A6789012-FABC-6789-DEFA-678901234ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A6789012-FABC-6789-DEFA-678901234ABC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
