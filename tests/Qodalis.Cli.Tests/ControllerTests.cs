@@ -83,8 +83,8 @@ public class ControllerTests
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
-        Assert.Contains("2", json);
-        Assert.Contains("2.0.0", json);
+        Assert.Contains("\"ApiVersion\":2", json);
+        Assert.Contains("\"ServerVersion\":\"1.0.0\"", json);
     }
 
     [Fact]
@@ -109,8 +109,8 @@ public class ControllerTests
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
-        Assert.Contains("1", json);
-        Assert.Contains("2", json);
-        Assert.Contains("2.0.0", json);
+        Assert.Contains("\"SupportedVersions\":[1]", json);
+        Assert.Contains("\"PreferredVersion\":1", json);
+        Assert.Contains("\"ServerVersion\":\"1.0.0\"", json);
     }
 }
