@@ -24,10 +24,13 @@ jobs:
       - name: Build all projects
         run: dotnet build src/Qodalis.Cli.sln --configuration Release --no-restore
 
+      - name: Run tests
+        run: dotnet test tests/Qodalis.Cli.Tests/Qodalis.Cli.Tests.csproj --configuration Release --no-build --verbosity normal
+
       - name: Find and Publish NuGet Packages
         run: |
-          # Search all folders under src/ for nupkg directories
-          for dir in $(find ./src -type d -name "nupkg"); do
+          # Search src/ and plugins/ for nupkg directories
+          for dir in $(find ./src ./plugins -type d -name "nupkg" 2>/dev/null); do
             echo "Found nupkg folder: $dir"
 
             # Publish all .nupkg files in the found folder
