@@ -215,13 +215,10 @@ public class OsFileStorageProvider : IFileStorageProvider
         if (string.IsNullOrWhiteSpace(path))
             throw new FileStoragePermissionError(path ?? "");
 
-        if (path.Contains(".."))
-            throw new FileStoragePermissionError(path);
+        if (_options.AllowedPaths.Count == 0)
+            throw new FileStoragePermissionError("No allowed paths configured.");
 
         var fullPath = Path.GetFullPath(path);
-
-        if (_options.AllowedPaths.Count == 0)
-            return fullPath;
 
         foreach (var allowedPath in _options.AllowedPaths)
         {
