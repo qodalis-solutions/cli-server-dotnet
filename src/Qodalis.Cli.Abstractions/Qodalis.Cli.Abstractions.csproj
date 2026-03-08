@@ -11,6 +11,7 @@
     <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>logo.png</PackageIcon>
+    <Description>Interfaces and base classes for building Qodalis CLI Server command processors</Description>
     <PackageTags>cli;qodalis;terminal;commands</PackageTags>
     <PackageOutputPath>nupkg\</PackageOutputPath>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
