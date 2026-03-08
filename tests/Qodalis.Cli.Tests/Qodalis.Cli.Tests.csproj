@@ -15,6 +15,8 @@
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />
+    <PackageReference Include="Moq" Version="4.20.70" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +30,7 @@
     <ProjectReference Include="..\..\plugins\filesystem-json\FileSystemJsonPlugin.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-sqlite\FileSystemSqlitePlugin.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-efcore\FileSystemEfCorePlugin.csproj" />
+    <ProjectReference Include="..\..\plugins\filesystem-s3\FileSystemS3Plugin.csproj" />
   </ItemGroup>
 
 </Project>
