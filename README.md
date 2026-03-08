@@ -1,6 +1,6 @@
 # Qodalis CLI Server (.NET)
 
-A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-solutions/angular-web-cli) ecosystem. Build custom server-side commands that integrate with the Qodalis web terminal.
+A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-solutions/web-cli) ecosystem. Build custom server-side commands that integrate with the Qodalis web terminal.
 
 ## Packages
 
@@ -8,6 +8,16 @@ A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-sol
 |---------|---------|-------|
 | `Qodalis.Cli.Abstractions` | Interfaces and base classes for writing command processors | [![NuGet](https://img.shields.io/nuget/v/Qodalis.Cli.Abstractions)](https://www.nuget.org/packages/Qodalis.Cli.Abstractions) |
 | `Qodalis.Cli` | ASP.NET Core integration (controllers, DI, WebSocket) | [![NuGet](https://img.shields.io/nuget/v/Qodalis.Cli)](https://www.nuget.org/packages/Qodalis.Cli) |
+
+### File Storage Plugins
+
+| Package | Storage Backend | Dependencies |
+|---------|----------------|--------------|
+| `Qodalis.Cli.FileSystem` | Core abstraction + InMemory + OS providers | — |
+| `Qodalis.Cli.FileSystem.Json` | JSON file persistence | — |
+| `Qodalis.Cli.FileSystem.Sqlite` | SQLite database | Microsoft.Data.Sqlite |
+| `Qodalis.Cli.FileSystem.EfCore` | Entity Framework Core (any DB) | Microsoft.EntityFrameworkCore |
+| `Qodalis.Cli.FileSystem.S3` | Amazon S3 | AWSSDK.S3 |
 
 ## Installation
 
@@ -465,6 +475,91 @@ The `Qodalis.Cli.Server` package and demo include these sample processors:
 | `base64` | Base64 encode/decode |
 | `uuid` | UUID generation |
 
+## File Storage
+
+The server includes a pluggable file storage system exposed at `/api/cli/fs/*`. Enable it with `AddFileSystem()` and choose a storage backend.
+
+### Filesystem API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/cli/fs/ls?path=/` | List directory contents |
+| GET | `/api/cli/fs/cat?path=/file.txt` | Read file content |
+| GET | `/api/cli/fs/stat?path=/file.txt` | File/directory metadata |
+| GET | `/api/cli/fs/download?path=/file.txt` | Download file |
+| POST | `/api/cli/fs/upload` | Upload file (multipart) |
+| POST | `/api/cli/fs/mkdir` | Create directory |
+| DELETE | `/api/cli/fs/rm?path=/file.txt` | Delete file or directory |
+
+### Storage Providers
+
+```csharp
+builder.Services
+    .AddControllers()
+    .AddCli(cli =>
+    {
+        // In-memory (default) — files lost on restart
+        cli.AddFileSystem(o => o.UseInMemory());
+
+        // OS filesystem with path restrictions
+        cli.AddFileSystem(o => o.UseOsFileSystem(os =>
+        {
+            os.AllowedPaths = new List<string> { "/tmp", "/app" };
+        }));
+
+        // JSON file — persists to a single JSON file
+        cli.AddFileSystem(o => o.UseJsonFile("./data/files.json"));
+
+        // SQLite — persists to a SQLite database
+        cli.AddFileSystem(o => o.UseSqlite("./data/files.db"));
+
+        // EF Core — uses any EF Core database provider
+        var efOptions = new DbContextOptionsBuilder<FileStorageDbContext>()
+            .UseSqlite("Data Source=./data/files-ef.db")
+            .Options;
+        cli.AddFileSystem(o => o.UseEfCore(efOptions));
+
+        // Amazon S3
+        cli.AddFileSystem(o => o.UseS3(s3 =>
+        {
+            s3.Bucket = "my-cli-files";
+            s3.Region = "us-east-1";
+            s3.Prefix = "uploads/";
+            s3.AccessKeyId = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID");
+            s3.SecretAccessKey = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
+        }));
+    });
+```
+
+### Custom Provider
+
+Implement `IFileStorageProvider` to add your own backend:
+
+```csharp
+public class MyProvider : IFileStorageProvider
+{
+    public string Name => "my-provider";
+    public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default) { /* ... */ }
+    public Task<string> ReadFileAsync(string path, CancellationToken ct = default) { /* ... */ }
+    public Task WriteFileAsync(string path, string content, CancellationToken ct = default) { /* ... */ }
+    public Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default) { /* ... */ }
+    public Task<FileStat> StatAsync(string path, CancellationToken ct = default) { /* ... */ }
+    public Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default) { /* ... */ }
+    public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default) { /* ... */ }
+    public Task CopyAsync(string src, string dest, CancellationToken ct = default) { /* ... */ }
+    public Task MoveAsync(string src, string dest, CancellationToken ct = default) { /* ... */ }
+    public Task<bool> ExistsAsync(string path, CancellationToken ct = default) { /* ... */ }
+    public Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default) { /* ... */ }
+    public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default) { /* ... */ }
+}
+```
+
+Register it by setting `options.Provider` directly:
+
+```csharp
+cli.AddFileSystem(o => o.Provider = new MyProvider());
+```
+
 ## Docker
 
 ```bash
@@ -511,6 +606,11 @@ src/
       CliServerCommandDescriptor.cs  # Command metadata for /commands endpoint
   Qodalis.Cli.Server/          # Standalone server with Swagger UI
 plugins/
+  filesystem/                  # Core file storage abstraction (IFileStorageProvider, InMemory, OS)
+  filesystem-json/             # JSON file persistence provider
+  filesystem-sqlite/           # SQLite persistence provider
+  filesystem-efcore/           # EF Core persistence provider
+  filesystem-s3/               # Amazon S3 storage provider
   weather/                     # Weather module (example plugin)
 demo/                          # Demo app with sample processors
 tests/                         # Unit tests (xUnit)
