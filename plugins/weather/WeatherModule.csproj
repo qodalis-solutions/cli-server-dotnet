@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugins.Weather</RootNamespace>
+    <Version>1.0.0-beta.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
