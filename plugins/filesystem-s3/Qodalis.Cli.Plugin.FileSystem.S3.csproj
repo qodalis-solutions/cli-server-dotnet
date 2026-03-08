@@ -4,7 +4,22 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Version>1.0.0-beta.1</Version>
+    <Description>Amazon S3 storage provider for Qodalis CLI Server file storage</Description>
+    <Authors>Nicolae Lupei</Authors>
+    <Company>Qodalis Solutions</Company>
+    <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
+    <PackageTags>cli;qodalis;filesystem;storage;s3;aws</PackageTags>
+    <PackageOutputPath>nupkg\</PackageOutputPath>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />

@@ -13,11 +13,11 @@ A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-sol
 
 | Package | Storage Backend | Dependencies |
 |---------|----------------|--------------|
-| `Qodalis.Cli.FileSystem` | Core abstraction + InMemory + OS providers | — |
-| `Qodalis.Cli.FileSystem.Json` | JSON file persistence | — |
-| `Qodalis.Cli.FileSystem.Sqlite` | SQLite database | Microsoft.Data.Sqlite |
-| `Qodalis.Cli.FileSystem.EfCore` | Entity Framework Core (any DB) | Microsoft.EntityFrameworkCore |
-| `Qodalis.Cli.FileSystem.S3` | Amazon S3 | AWSSDK.S3 |
+| `Qodalis.Cli.Plugin.FileSystem` | Core abstraction + InMemory + OS providers | — |
+| `Qodalis.Cli.Plugin.FileSystem.Json` | JSON file persistence | — |
+| `Qodalis.Cli.Plugin.FileSystem.Sqlite` | SQLite database | Microsoft.Data.Sqlite |
+| `Qodalis.Cli.Plugin.FileSystem.EfCore` | Entity Framework Core (any DB) | Microsoft.EntityFrameworkCore |
+| `Qodalis.Cli.Plugin.FileSystem.S3` | Amazon S3 | AWSSDK.S3 |
 
 ## Installation
 

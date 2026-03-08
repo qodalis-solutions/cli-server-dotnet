@@ -11,6 +11,7 @@
     <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>logo.png</PackageIcon>
+    <Description>ASP.NET Core integration for the Qodalis CLI Server framework — controllers, DI, WebSocket, file storage</Description>
     <PackageTags>cli;qodalis;terminal;commands</PackageTags>
     <PackageOutputPath>nupkg\</PackageOutputPath>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -34,7 +35,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="2.2.5" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
