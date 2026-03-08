@@ -9,8 +9,9 @@ public class SqliteProviderTests : IDisposable
 
     public SqliteProviderTests()
     {
-        // Use in-memory SQLite for fast, isolated tests
-        _provider = new SqliteFileStorageProvider(new SqliteProviderOptions { DbPath = ":memory:" });
+        // Use a unique in-memory database per test instance for isolation
+        var dbName = $"file:memdb_{Guid.NewGuid():N}?mode=memory&cache=shared";
+        _provider = new SqliteFileStorageProvider(new SqliteProviderOptions { DbPath = dbName });
     }
 
     public void Dispose()
