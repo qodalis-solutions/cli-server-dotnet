@@ -15,14 +15,16 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
     public SqliteFileStorageProvider(SqliteProviderOptions options)
     {
         _options = options;
+        var isMemory = _options.DbPath == ":memory:" || _options.DbPath.Contains("mode=memory");
+
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = _options.DbPath,
-            Mode = _options.DbPath == ":memory:" ? SqliteOpenMode.Memory : SqliteOpenMode.ReadWriteCreate,
+            Mode = isMemory ? SqliteOpenMode.Memory : SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared,
         }.ToString();
 
-        if (_options.DbPath == ":memory:")
+        if (isMemory)
         {
             // For in-memory databases, keep a connection open so the shared cache DB persists
             _keepAliveConnection = new SqliteConnection(_connectionString);
@@ -47,7 +49,8 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
     private void InitializeDatabase()
     {
         // Ensure parent directory exists for file-based databases
-        if (_options.DbPath != ":memory:")
+        var isMemory = _options.DbPath == ":memory:" || _options.DbPath.Contains("mode=memory");
+        if (!isMemory)
         {
             var dir = Path.GetDirectoryName(Path.GetFullPath(_options.DbPath));
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))

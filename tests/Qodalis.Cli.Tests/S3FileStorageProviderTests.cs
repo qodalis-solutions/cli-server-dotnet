@@ -73,10 +73,9 @@ public class S3FileStorageProviderTests : IDisposable
     public async Task ReadFileAsync_ReturnsContent()
     {
         var content = "Hello, S3!";
-        SetupObjectExists("dir/", false);
-        SetupEmptyListing("dir/");
+        SetupObjectExists("docs/hello.txt/", false);
+        SetupEmptyListing("docs/hello.txt/");
 
-        // For EnsureIsFileAsync - directory check
         SetupGetObject("docs/hello.txt", content);
 
         var result = await _provider.ReadFileAsync("docs/hello.txt");
