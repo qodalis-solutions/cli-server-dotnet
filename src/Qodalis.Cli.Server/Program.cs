@@ -56,9 +56,11 @@ app.UseCli();
 
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 var eventSocketManager = app.Services.GetRequiredService<CliEventSocketManager>();
+var logSocketManager = app.Services.GetRequiredService<CliLogSocketManager>();
 lifetime.ApplicationStopping.Register(() =>
 {
     eventSocketManager.BroadcastDisconnectAsync().GetAwaiter().GetResult();
+    logSocketManager.BroadcastDisconnectAsync().GetAwaiter().GetResult();
 });
 
 app.Run();
