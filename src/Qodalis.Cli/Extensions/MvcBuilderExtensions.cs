@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Controllers;
+using Qodalis.Cli.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
 
@@ -30,6 +32,8 @@ public static class MvcBuilderExtensions
 
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<CliEventSocketManager>();
+        builder.Services.AddSingleton<CliLogSocketManager>();
+        builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();
         builder.Services.AddSingleton<ShellSessionManager>();
 
         // Register IFileStorageProvider as singleton
