@@ -55,6 +55,24 @@ public static class WebApplicationExtensions
                 return;
             }
 
+            var logsPath = context.Request.Path.Value;
+            if (logsPath == "/ws/v1/cli/logs" || logsPath == "/ws/cli/logs")
+            {
+                if (context.WebSockets.IsWebSocketRequest)
+                {
+                    var logManager = context.RequestServices.GetRequiredService<CliLogSocketManager>();
+                    var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+                    var levelFilter = context.Request.Query["level"].FirstOrDefault();
+                    await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted);
+                }
+                else
+                {
+                    context.Response.StatusCode = 400;
+                }
+
+                return;
+            }
+
             var terminalPath = context.Request.Path.Value;
             if (terminalPath == "/ws/v1/cli" || terminalPath == "/ws/cli")
             {
