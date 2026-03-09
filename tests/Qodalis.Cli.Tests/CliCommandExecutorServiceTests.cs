@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Services;
@@ -12,7 +13,7 @@ public class CliCommandExecutorServiceTests
 
     public CliCommandExecutorServiceTests()
     {
-        _executor = new CliCommandExecutorService(_registry);
+        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance);
     }
 
     [Fact]
