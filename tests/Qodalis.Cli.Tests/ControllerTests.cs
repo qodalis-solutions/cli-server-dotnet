@@ -4,6 +4,7 @@ using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Helpers;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Qodalis.Cli.Tests;
 
@@ -17,7 +18,7 @@ public class ControllerTests
         _registry = new CliCommandRegistry();
         _registry.Register(new TestProcessor("echo", "Echo command", apiVersion: 1));
         _registry.Register(new TestProcessor("v2cmd", "V2 only command", apiVersion: 2));
-        _executor = new CliCommandExecutorService(_registry);
+        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance);
     }
 
     // --- V1 Controller ---
