@@ -3,11 +3,14 @@ using Qodalis.Cli.Services;
 using Qodalis.Cli.Demo.Processors;
 using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.FileSystem;
-// Uncomment the using directive for the file storage provider you want to use:
+using Qodalis.Cli.Plugin.Jobs;
+using Qodalis.Cli.Demo.Jobs;
+// Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
 // using Qodalis.Cli.Plugin.FileSystem.EfCore;
 // using Qodalis.Cli.Plugin.FileSystem.S3;
+// using Qodalis.Cli.Plugin.Jobs.EfCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +39,25 @@ builder.Services
         cli.AddProcessor<CliBase64CommandProcessor>();
         cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
+
+        cli.AddJob<SampleHealthCheckJob>(o =>
+        {
+            o.Name = "health-check";
+            o.Description = "Periodic health check";
+            o.Group = "monitoring";
+            o.Interval = TimeSpan.FromSeconds(30);
+        });
+
+        // ---------------------------------------------------------------
+        // Job Storage Provider Configuration
+        // ---------------------------------------------------------------
+        // By default, job execution history is stored in memory and lost
+        // on restart. Use a persistent provider for durable storage.
+        //
+        // EF Core job storage (any EF-supported database):
+        //
+        // cli.AddEfCoreJobStorage(o => o.UseSqlite("Data Source=./data/jobs.db"));
+        // ---------------------------------------------------------------
 
         // ---------------------------------------------------------------
         // File Storage Provider Configuration

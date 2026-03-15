@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Jobs</RootNamespace>
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.3</Version>
     <Description>Job scheduling plugin for Qodalis CLI Server</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
@@ -17,6 +17,9 @@
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />

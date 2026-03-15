@@ -295,6 +295,24 @@ public class CliJobScheduler : IHostedService, IDisposable
         // Retry on failure
         if (execution.Status == JobExecutionStatus.Failed && retryAttempt < reg.Options.MaxRetries)
         {
+            var delay = reg.Options.RetryStrategy switch
+            {
+                JobRetryStrategy.Fixed => reg.Options.RetryDelay,
+                JobRetryStrategy.Linear => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (retryAttempt + 1)),
+                JobRetryStrategy.Exponential => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (long)Math.Pow(2, retryAttempt)),
+                _ => reg.Options.RetryDelay,
+            };
+            _logger.LogInformation("Retrying job {JobName} in {Delay} (attempt {Attempt}/{MaxRetries})",
+                reg.Options.Name, delay, retryAttempt + 1, reg.Options.MaxRetries);
+            await BroadcastAsync("job:retrying", new
+            {
+                jobId = reg.Id,
+                executionId = execution.Id,
+                attempt = retryAttempt + 1,
+                maxRetries = reg.Options.MaxRetries,
+                delayMs = (long)delay.TotalMilliseconds,
+            });
+            await Task.Delay(delay);
             await ExecuteJobAsync(reg, retryAttempt + 1);
         }
     }

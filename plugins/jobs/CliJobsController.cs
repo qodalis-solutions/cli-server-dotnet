@@ -133,6 +133,9 @@ public class CliJobsController : ControllerBase
                 if (request.Schedule != null) { options.Schedule = request.Schedule; options.Interval = null; }
                 if (request.Interval != null) { options.Interval = IntervalParser.Parse(request.Interval); options.Schedule = null; }
                 if (request.MaxRetries.HasValue) options.MaxRetries = request.MaxRetries.Value;
+                if (request.RetryDelay != null) options.RetryDelay = IntervalParser.Parse(request.RetryDelay);
+                if (request.RetryStrategy != null && Enum.TryParse<JobRetryStrategy>(request.RetryStrategy, true, out var strategy))
+                    options.RetryStrategy = strategy;
                 if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
                 if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
                     options.OverlapPolicy = policy;
@@ -214,10 +217,12 @@ public class CliJobsController : ControllerBase
         group = r.Options.Group,
         status = r.Status.ToString().ToLowerInvariant(),
         schedule = r.Options.Schedule,
-        interval = r.Options.Interval?.TotalMilliseconds,
+        interval = (long?)r.Options.Interval?.TotalMilliseconds,
         enabled = r.Status != JobStatus.Stopped,
         maxRetries = r.Options.MaxRetries,
-        timeout = r.Options.Timeout?.TotalMilliseconds,
+        retryDelay = (long)r.Options.RetryDelay.TotalMilliseconds,
+        retryStrategy = r.Options.RetryStrategy.ToString().ToLowerInvariant(),
+        timeout = (long?)r.Options.Timeout?.TotalMilliseconds,
         overlapPolicy = r.Options.OverlapPolicy.ToString().ToLowerInvariant(),
         currentExecutionId = r.CurrentExecutionId,
         nextRunAt = r.NextRunAt,
@@ -234,6 +239,8 @@ public class UpdateJobRequest
     public string? Schedule { get; set; }
     public string? Interval { get; set; }
     public int? MaxRetries { get; set; }
+    public string? RetryDelay { get; set; }
+    public string? RetryStrategy { get; set; }
     public string? Timeout { get; set; }
     public string? OverlapPolicy { get; set; }
 }
