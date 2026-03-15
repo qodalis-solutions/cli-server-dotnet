@@ -44,6 +44,23 @@ public class CliEventSocketManager : IDisposable
         }
     }
 
+    public async Task BroadcastMessageAsync(string message)
+    {
+        var bytes = Encoding.UTF8.GetBytes(message);
+        var segment = new ArraySegment<byte>(bytes);
+        var tasks = new List<Task>();
+
+        foreach (var (_, socket) in _clients)
+        {
+            if (socket.State == WebSocketState.Open)
+            {
+                tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
+            }
+        }
+
+        await Task.WhenAll(tasks);
+    }
+
     public async Task BroadcastDisconnectAsync()
     {
         var message = new { type = "disconnect" };
