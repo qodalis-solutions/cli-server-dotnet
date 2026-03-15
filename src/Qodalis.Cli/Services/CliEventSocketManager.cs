@@ -5,14 +5,30 @@ using System.Text.Json;
 
 namespace Qodalis.Cli.Services;
 
+public class CliWebSocketClientInfo
+{
+    public string Id { get; set; } = string.Empty;
+    public string ConnectedAt { get; set; } = string.Empty;
+    public string RemoteAddress { get; set; } = string.Empty;
+    public string Type { get; set; } = "events";
+}
+
 public class CliEventSocketManager : IDisposable
 {
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
 
-    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken)
+    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
     {
         var id = Guid.NewGuid().ToString();
         _clients.TryAdd(id, socket);
+        _clientInfo.TryAdd(id, new CliWebSocketClientInfo
+        {
+            Id = id,
+            ConnectedAt = DateTime.UtcNow.ToString("o"),
+            RemoteAddress = remoteAddress ?? "unknown",
+            Type = "events"
+        });
 
         try
         {
@@ -41,6 +57,7 @@ public class CliEventSocketManager : IDisposable
         finally
         {
             _clients.TryRemove(id, out _);
+            _clientInfo.TryRemove(id, out _);
         }
     }
 
@@ -99,6 +116,14 @@ public class CliEventSocketManager : IDisposable
         {
             // Best effort
         }
+    }
+
+    /// <summary>
+    /// Returns information about all currently connected event clients.
+    /// </summary>
+    public IReadOnlyList<CliWebSocketClientInfo> GetClients()
+    {
+        return _clientInfo.Values.ToList().AsReadOnly();
     }
 
     public void Dispose()
