@@ -385,12 +385,14 @@ public class CliJobSchedulerTests : IDisposable
             Name = "t",
             Interval = TimeSpan.FromSeconds(999),
             MaxRetries = 2,
+            RetryDelay = TimeSpan.FromMilliseconds(50),
+            RetryStrategy = JobRetryStrategy.Fixed,
         });
         var id = _scheduler.Jobs.Keys.First();
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(500);
+        await Task.Delay(1000);
 
         Assert.Equal(3, job.CallCount); // 1 original + 2 retries
         var (items, total) = await _storage.GetExecutionsAsync(id);
