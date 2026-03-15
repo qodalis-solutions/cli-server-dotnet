@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Jobs", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Jobs.EfCore", "..\plugins\jobs-efcore\Qodalis.Cli.Plugin.Jobs.EfCore.csproj", "{80921164-620F-4829-844C-002E3A64F642}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Admin", "..\plugins\admin\Qodalis.Cli.Plugin.Admin.csproj", "{F2C006B2-04A0-4494-B7A0-3B24959868D0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +89,10 @@ Global
 		{80921164-620F-4829-844C-002E3A64F642}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{80921164-620F-4829-844C-002E3A64F642}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{80921164-620F-4829-844C-002E3A64F642}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
