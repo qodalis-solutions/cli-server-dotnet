@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Qodalis.Cli.Controllers;
 
 [ApiController]
-[Route("api/cli")]
+[Route("api/qcli")]
 public class CliVersionController : ControllerBase
 {
     [HttpGet("versions")]

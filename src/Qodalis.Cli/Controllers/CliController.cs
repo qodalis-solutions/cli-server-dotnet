@@ -7,7 +7,7 @@ using Qodalis.Cli.Services;
 namespace Qodalis.Cli.Controllers;
 
 [ApiController]
-[Route("api/v1/cli")]
+[Route("api/v1/qcli")]
 public class CliController : ControllerBase
 {
     private readonly ICliCommandRegistry _registry;

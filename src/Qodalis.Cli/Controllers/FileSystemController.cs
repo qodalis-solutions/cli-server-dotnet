@@ -5,7 +5,7 @@ using Qodalis.Cli.Plugin.FileSystem;
 namespace Qodalis.Cli.Controllers;
 
 [ApiController]
-[Route("api/cli/fs")]
+[Route("api/qcli/fs")]
 public class FileSystemController : ControllerBase
 {
     private readonly IFileStorageProvider _provider;

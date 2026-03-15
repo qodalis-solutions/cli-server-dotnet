@@ -13,7 +13,7 @@ public static class WebApplicationExtensions
         app.Use(async (context, next) =>
         {
             var eventsPath = context.Request.Path.Value;
-            if (eventsPath == "/ws/v1/cli/events" || eventsPath == "/ws/cli/events")
+            if (eventsPath == "/ws/v1/qcli/events" || eventsPath == "/ws/qcli/events")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
@@ -30,7 +30,7 @@ public static class WebApplicationExtensions
             }
 
             var shellPath = context.Request.Path.Value;
-            if (shellPath == "/ws/v1/cli/shell" || shellPath == "/ws/cli/shell")
+            if (shellPath == "/ws/v1/qcli/shell" || shellPath == "/ws/qcli/shell")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
@@ -56,7 +56,7 @@ public static class WebApplicationExtensions
             }
 
             var logsPath = context.Request.Path.Value;
-            if (logsPath == "/ws/v1/cli/logs" || logsPath == "/ws/cli/logs")
+            if (logsPath == "/ws/v1/qcli/logs" || logsPath == "/ws/qcli/logs")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
@@ -74,7 +74,7 @@ public static class WebApplicationExtensions
             }
 
             var terminalPath = context.Request.Path.Value;
-            if (terminalPath == "/ws/v1/cli" || terminalPath == "/ws/cli")
+            if (terminalPath == "/ws/v1/qcli" || terminalPath == "/ws/qcli")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
