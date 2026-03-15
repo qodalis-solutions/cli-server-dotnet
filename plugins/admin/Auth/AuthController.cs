@@ -34,10 +34,9 @@ public class AuthController : ControllerBase
             return StatusCode(429, new { error = "Too many login attempts. Try again later.", code = "RATE_LIMITED" });
         }
 
-        RecordAttempt(ip);
-
         if (!_config.ValidateCredentials(request.Username, request.Password))
         {
+            RecordAttempt(ip);
             return Unauthorized(new { error = "Invalid credentials", code = "INVALID_CREDENTIALS" });
         }
 
@@ -47,11 +46,7 @@ public class AuthController : ControllerBase
         {
             token,
             expiresIn = (int)_config.JwtExpiry.TotalSeconds,
-            user = new
-            {
-                username = request.Username,
-                role = "admin",
-            },
+            username = request.Username,
         });
     }
 
@@ -64,12 +59,12 @@ public class AuthController : ControllerBase
         }
 
         var username = principal.FindFirst(ClaimTypes.Name)?.Value ?? "unknown";
-        var role = principal.FindFirst(ClaimTypes.Role)?.Value ?? "unknown";
+        var authenticatedAt = principal.FindFirst("authenticated_at")?.Value;
 
         return Ok(new
         {
             username,
-            role,
+            authenticatedAt,
         });
     }
 

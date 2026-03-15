@@ -42,6 +42,7 @@ public class JwtService
             new Claim(ClaimTypes.Name, username),
             new Claim(ClaimTypes.Role, "admin"),
             new Claim("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
+            new Claim("authenticated_at", DateTime.UtcNow.ToString("o")),
         };
 
         var token = new JwtSecurityToken(

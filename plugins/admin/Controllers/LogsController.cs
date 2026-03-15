@@ -28,7 +28,7 @@ public class LogsController : ControllerBase
 
         return Ok(new
         {
-            items = result.Items.Select(e => new
+            entries = result.Items.Select(e => new
             {
                 timestamp = e.Timestamp.ToString("o"),
                 level = e.Level,

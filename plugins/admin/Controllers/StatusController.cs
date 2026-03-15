@@ -10,10 +10,12 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 public class StatusController : ControllerBase
 {
     private readonly CliEventSocketManager _eventSocketManager;
+    private readonly CliCommandRegistry _commandRegistry;
 
-    public StatusController(CliEventSocketManager eventSocketManager)
+    public StatusController(CliEventSocketManager eventSocketManager, CliCommandRegistry commandRegistry)
     {
         _eventSocketManager = eventSocketManager;
+        _commandRegistry = commandRegistry;
     }
 
     [HttpGet]
@@ -24,39 +26,16 @@ public class StatusController : ControllerBase
 
         return Ok(new
         {
-            uptime = new
-            {
-                seconds = (long)uptime.TotalSeconds,
-                formatted = FormatUptime(uptime),
-            },
-            memory = new
-            {
-                workingSetBytes = process.WorkingSet64,
-                workingSetMb = Math.Round(process.WorkingSet64 / (1024.0 * 1024.0), 2),
-                gcTotalMemoryBytes = GC.GetTotalMemory(false),
-                gcTotalMemoryMb = Math.Round(GC.GetTotalMemory(false) / (1024.0 * 1024.0), 2),
-            },
+            uptimeSeconds = (long)uptime.TotalSeconds,
+            memoryUsageMb = Math.Round(process.WorkingSet64 / (1024.0 * 1024.0), 2),
+            startedAt = process.StartTime.ToUniversalTime().ToString("o"),
             platform = "dotnet",
             platformVersion = RuntimeInformation.FrameworkDescription,
             os = RuntimeInformation.OSDescription,
-            osArchitecture = RuntimeInformation.OSArchitecture.ToString(),
-            processArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
-            connections = new
-            {
-                eventClients = _eventSocketManager.GetClients().Count,
-            },
-            startedAt = process.StartTime.ToUniversalTime().ToString("o"),
+            activeWsConnections = _eventSocketManager.GetClients().Count,
+            activeShellSessions = 0,
+            registeredCommands = _commandRegistry.Processors.Count,
+            registeredJobs = 0,
         });
-    }
-
-    private static string FormatUptime(TimeSpan uptime)
-    {
-        if (uptime.TotalDays >= 1)
-            return $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m";
-        if (uptime.TotalHours >= 1)
-            return $"{(int)uptime.TotalHours}h {uptime.Minutes}m {uptime.Seconds}s";
-        if (uptime.TotalMinutes >= 1)
-            return $"{(int)uptime.TotalMinutes}m {uptime.Seconds}s";
-        return $"{uptime.Seconds}s";
     }
 }

@@ -130,12 +130,12 @@ internal class RingBufferLogger : ILogger
 
     private static string MapLogLevel(LogLevel logLevel) => logLevel switch
     {
-        LogLevel.Trace => "verbose",
-        LogLevel.Debug => "debug",
-        LogLevel.Information => "information",
-        LogLevel.Warning => "warning",
-        LogLevel.Error => "error",
-        LogLevel.Critical => "fatal",
-        _ => "information",
+        LogLevel.Trace => "DEBUG",
+        LogLevel.Debug => "DEBUG",
+        LogLevel.Information => "INFO",
+        LogLevel.Warning => "WARN",
+        LogLevel.Error => "ERROR",
+        LogLevel.Critical => "ERROR",
+        _ => "INFO",
     };
 }
