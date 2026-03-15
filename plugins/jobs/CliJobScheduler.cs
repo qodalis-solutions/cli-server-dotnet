@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Services;
 
-namespace Qodalis.Cli.Jobs;
+namespace Qodalis.Cli.Plugin.Jobs;
 
 public class CliJobScheduler : IHostedService, IDisposable
 {

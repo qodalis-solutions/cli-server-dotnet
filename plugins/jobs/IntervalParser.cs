@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Qodalis.Cli.Jobs;
+namespace Qodalis.Cli.Plugin.Jobs;
 
 internal static partial class IntervalParser
 {

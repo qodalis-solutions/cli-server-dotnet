@@ -1,6 +1,6 @@
 using Qodalis.Cli.Abstractions.Jobs;
 
-namespace Qodalis.Cli.Jobs;
+namespace Qodalis.Cli.Plugin.Jobs;
 
 internal class CliJobLogger : ICliJobLogger
 {

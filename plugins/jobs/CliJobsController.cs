@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions.Jobs;
-using Qodalis.Cli.Jobs;
 
-namespace Qodalis.Cli.Controllers;
+namespace Qodalis.Cli.Plugin.Jobs;
 
 [ApiController]
 [Route("api/v1/qcli/jobs")]

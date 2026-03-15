@@ -15,6 +15,7 @@
     <ItemGroup>
         <ProjectReference Include="../src/Qodalis.Cli/Qodalis.Cli.csproj" />
         <ProjectReference Include="../plugins/weather/Qodalis.Cli.Plugin.Weather.csproj" />
+        <ProjectReference Include="../plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj" />
         <ProjectReference Include="../plugins/filesystem-json/Qodalis.Cli.Plugin.FileSystem.Json.csproj" />
         <ProjectReference Include="../plugins/filesystem-sqlite/Qodalis.Cli.Plugin.FileSystem.Sqlite.csproj" />
         <ProjectReference Include="../plugins/filesystem-efcore/Qodalis.Cli.Plugin.FileSystem.EfCore.csproj" />
