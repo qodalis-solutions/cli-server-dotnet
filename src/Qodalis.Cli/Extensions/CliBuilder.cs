@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem;
 
@@ -11,6 +12,9 @@ public class CliBuilder
     private readonly IServiceCollection _services;
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
+    internal List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> JobRegistrations { get; } = [];
+    internal ICliJobStorageProvider? JobStorageProvider { get; private set; }
+    internal Type? JobStorageProviderType { get; private set; }
 
     internal CliBuilder(IServiceCollection services)
     {
@@ -49,6 +53,38 @@ public class CliBuilder
             _services.AddSingleton<ICliCommandProcessor>(processor);
         }
 
+        return this;
+    }
+
+    public CliBuilder AddJob<T>(Action<CliJobOptions>? configure = null) where T : class, ICliJob
+    {
+        _services.AddSingleton<T>();
+        var options = new CliJobOptions();
+        options.Name ??= typeof(T).Name;
+        configure?.Invoke(options);
+        JobRegistrations.Add((null, typeof(T), options));
+        return this;
+    }
+
+    public CliBuilder AddJob(ICliJob job, Action<CliJobOptions>? configure = null)
+    {
+        var options = new CliJobOptions();
+        options.Name ??= job.GetType().Name;
+        configure?.Invoke(options);
+        JobRegistrations.Add((job, null, options));
+        return this;
+    }
+
+    public CliBuilder SetJobStorageProvider(ICliJobStorageProvider provider)
+    {
+        JobStorageProvider = provider;
+        return this;
+    }
+
+    public CliBuilder SetJobStorageProvider<T>() where T : class, ICliJobStorageProvider
+    {
+        JobStorageProviderType = typeof(T);
+        _services.AddSingleton<ICliJobStorageProvider, T>();
         return this;
     }
 

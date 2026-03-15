@@ -1,6 +1,7 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Server.Processors;
+using Qodalis.Cli.Server.Jobs;
 using Qodalis.Cli.Plugin.Weather;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,13 @@ builder.Services
         cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddFileSystem(o => o.AllowedPaths.Add("/tmp"));
+        cli.AddJob(new SampleHealthCheckJob(), o =>
+        {
+            o.Name = "health-check";
+            o.Description = "Periodic health check that verifies system status";
+            o.Group = "monitoring";
+            o.Interval = TimeSpan.FromSeconds(30);
+        });
     })
     .AddJsonOptions(options =>
     {

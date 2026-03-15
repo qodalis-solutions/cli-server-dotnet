@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Controllers;
+using Qodalis.Cli.Jobs;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
@@ -45,6 +48,39 @@ public static class MvcBuilderExtensions
         {
             builder.Services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
         }
+
+        // Job storage provider
+        if (cliBuilder.JobStorageProvider != null)
+            builder.Services.AddSingleton<ICliJobStorageProvider>(cliBuilder.JobStorageProvider);
+        else if (cliBuilder.JobStorageProviderType == null)
+            builder.Services.AddSingleton<ICliJobStorageProvider>(new InMemoryJobStorageProvider());
+
+        // Job scheduler
+        builder.Services.AddSingleton<CliJobScheduler>(sp =>
+        {
+            var storage = sp.GetRequiredService<ICliJobStorageProvider>();
+            var eventSocket = sp.GetRequiredService<CliEventSocketManager>();
+            var logger = sp.GetRequiredService<ILogger<CliJobScheduler>>();
+            var scheduler = new CliJobScheduler(storage, eventSocket, logger);
+
+            foreach (var (job, jobType, options) in cliBuilder.JobRegistrations)
+            {
+                ICliJob resolvedJob;
+                if (job != null)
+                {
+                    resolvedJob = job;
+                }
+                else
+                {
+                    resolvedJob = (ICliJob)sp.GetRequiredService(jobType!);
+                }
+                scheduler.Register(resolvedJob, options);
+            }
+
+            return scheduler;
+        });
+
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<CliJobScheduler>());
 
         return builder;
     }
