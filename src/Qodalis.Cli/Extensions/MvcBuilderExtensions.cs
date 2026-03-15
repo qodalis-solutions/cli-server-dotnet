@@ -19,6 +19,13 @@ public static class MvcBuilderExtensions
         var cliBuilder = new CliBuilder(builder.Services);
         configure?.Invoke(cliBuilder);
 
+        // Add any additional assembly parts registered by plugins
+        foreach (var assembly in cliBuilder.AdditionalAssemblyParts)
+        {
+            builder.PartManager.ApplicationParts
+                .Add(new AssemblyPart(assembly));
+        }
+
         builder.Services.AddSingleton<ICliCommandRegistry>(sp =>
         {
             var registry = new CliCommandRegistry();

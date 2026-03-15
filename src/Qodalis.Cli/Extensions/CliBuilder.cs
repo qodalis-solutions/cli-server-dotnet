@@ -8,24 +8,25 @@ namespace Qodalis.Cli.Extensions;
 
 public class CliBuilder
 {
-    private readonly IServiceCollection _services;
-
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
+    internal List<Assembly> AdditionalAssemblyParts { get; } = [];
+
+    public IServiceCollection Services { get; }
 
     internal CliBuilder(IServiceCollection services)
     {
-        _services = services;
+        Services = services;
     }
 
     public CliBuilder AddProcessor<T>() where T : class, ICliCommandProcessor
     {
-        _services.AddSingleton<ICliCommandProcessor, T>();
+        Services.AddSingleton<ICliCommandProcessor, T>();
         return this;
     }
 
     public CliBuilder AddProcessor(ICliCommandProcessor processor)
     {
-        _services.AddSingleton<ICliCommandProcessor>(processor);
+        Services.AddSingleton<ICliCommandProcessor>(processor);
         return this;
     }
 
@@ -36,7 +37,7 @@ public class CliBuilder
 
         foreach (var type in processorTypes)
         {
-            _services.AddSingleton(typeof(ICliCommandProcessor), type);
+            Services.AddSingleton(typeof(ICliCommandProcessor), type);
         }
 
         return this;
@@ -46,9 +47,19 @@ public class CliBuilder
     {
         foreach (var processor in module.Processors)
         {
-            _services.AddSingleton<ICliCommandProcessor>(processor);
+            Services.AddSingleton<ICliCommandProcessor>(processor);
         }
 
+        return this;
+    }
+
+    /// <summary>
+    /// Registers an additional assembly to be included as an MVC application part,
+    /// enabling controller discovery from plugins.
+    /// </summary>
+    public CliBuilder AddApplicationPart(Assembly assembly)
+    {
+        AdditionalAssemblyParts.Add(assembly);
         return this;
     }
 
@@ -73,8 +84,8 @@ public class CliBuilder
             FileStorageProvider = new InMemoryFileStorageProvider();
         }
 
-        _services.AddSingleton(options);
-        _services.AddSingleton<FileSystemPathValidator>();
+        Services.AddSingleton(options);
+        Services.AddSingleton<FileSystemPathValidator>();
         return this;
     }
 }

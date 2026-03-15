@@ -1,7 +1,10 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Server.Processors;
+using Qodalis.Cli.Server.Jobs;
 using Qodalis.Cli.Plugin.Weather;
+using Qodalis.Cli.Plugin.Jobs;
+// using Qodalis.Cli.Plugin.Jobs.EfCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +31,24 @@ builder.Services
         cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddFileSystem(o => o.AllowedPaths.Add("/tmp"));
+        cli.AddJob(new SampleHealthCheckJob(), o =>
+        {
+            o.Name = "health-check";
+            o.Description = "Periodic health check that verifies system status";
+            o.Group = "monitoring";
+            o.Interval = TimeSpan.FromSeconds(30);
+        });
+
+        // ---------------------------------------------------------------
+        // Job Storage Provider Configuration
+        // ---------------------------------------------------------------
+        // By default, job execution history is stored in memory and lost
+        // on restart. Use a persistent provider for durable storage.
+        //
+        // EF Core job storage (any EF-supported database):
+        //
+        // cli.AddEfCoreJobStorage(o => o.UseSqlite("Data Source=./data/jobs.db"));
+        // ---------------------------------------------------------------
     })
     .AddJsonOptions(options =>
     {
