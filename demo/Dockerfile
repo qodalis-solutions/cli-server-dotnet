@@ -9,6 +9,8 @@ COPY plugins/filesystem-sqlite/Qodalis.Cli.Plugin.FileSystem.Sqlite.csproj plugi
 COPY plugins/filesystem-efcore/Qodalis.Cli.Plugin.FileSystem.EfCore.csproj plugins/filesystem-efcore/
 COPY plugins/filesystem-s3/Qodalis.Cli.Plugin.FileSystem.S3.csproj plugins/filesystem-s3/
 COPY plugins/weather/Qodalis.Cli.Plugin.Weather.csproj plugins/weather/
+COPY plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj plugins/jobs/
+COPY plugins/admin/Qodalis.Cli.Plugin.Admin.csproj plugins/admin/
 COPY demo/Demo.csproj demo/
 RUN dotnet restore demo/Demo.csproj
 
@@ -19,6 +21,12 @@ COPY assets/ assets/
 COPY src/ src/
 COPY plugins/ plugins/
 COPY demo/ demo/
+
+# Install dashboard SPA for embedding into the admin plugin
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+    && cd plugins/admin && npm init -y && npm install @qodalis/cli-server-dashboard \
+    && apt-get purge -y nodejs npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 RUN dotnet publish demo/Demo.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
