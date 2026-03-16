@@ -16,6 +16,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
@@ -31,6 +32,27 @@
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.*" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
   </ItemGroup>
+
+  <!-- Dashboard SPA embedding -->
+  <PropertyGroup>
+    <DashboardSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'cli-server-dashboard', 'dist'))</DashboardSourceDir>
+    <DashboardStagingDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot', 'admin'))</DashboardStagingDir>
+  </PropertyGroup>
+
+  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" Condition="Exists('$(DashboardSourceDir)')">
+    <ItemGroup>
+      <DashboardFiles Include="$(DashboardSourceDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DashboardFiles)" DestinationFolder="$(DashboardStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild" DependsOnTargets="CopyDashboardFiles" Condition="Exists('$(DashboardStagingDir)')">
+    <ItemGroup>
+      <_DashboardEmbeddedFiles Include="wwwroot\admin\**\*.*" />
+      <EmbeddedResource Include="@(_DashboardEmbeddedFiles)" />
+    </ItemGroup>
+  </Target>
 </Project>

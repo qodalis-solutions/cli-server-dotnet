@@ -52,15 +52,38 @@ public static class CliBuilderAdminExtensions
         var jwtService = app.ApplicationServices.GetRequiredService<JwtService>();
         app.UseMiddleware<AdminAuthMiddleware>(jwtService);
 
-        // Resolve dashboard dist directory
+        // Resolve dashboard file provider: physical path first, then embedded resources
         var config = app.ApplicationServices.GetRequiredService<AdminConfig>();
         var env = app.ApplicationServices.GetRequiredService<IWebHostEnvironment>();
         var dashboardDir = DashboardResolver.Resolve(config.DashboardPath, env.ContentRootPath);
 
+        IFileProvider? fileProvider = null;
         if (dashboardDir != null)
         {
-            var fileProvider = new PhysicalFileProvider(dashboardDir);
+            fileProvider = new PhysicalFileProvider(dashboardDir);
+        }
+        else
+        {
+            // Try embedded resources from this assembly
+            try
+            {
+                var embeddedProvider = new ManifestEmbeddedFileProvider(
+                    typeof(CliBuilderAdminExtensions).Assembly,
+                    "wwwroot/admin");
+                // Verify the embedded files exist
+                if (embeddedProvider.GetFileInfo("index.html").Exists)
+                {
+                    fileProvider = embeddedProvider;
+                }
+            }
+            catch
+            {
+                // No embedded manifest — dashboard not available
+            }
+        }
 
+        if (fileProvider != null)
+        {
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = fileProvider,
@@ -72,11 +95,8 @@ public static class CliBuilderAdminExtensions
             {
                 if (context.Request.Path.StartsWithSegments("/qcli/admin"))
                 {
-                    var filePath = context.Request.Path.Value?.Replace("/qcli/admin", "").TrimStart('/') ?? "";
-                    var fullPath = Path.Combine(dashboardDir, filePath);
-
-                    // If the path doesn't point to a real file, serve index.html
-                    if (!File.Exists(fullPath) || string.IsNullOrEmpty(filePath))
+                    var subPath = context.Request.Path.Value?.Replace("/qcli/admin", "").TrimStart('/') ?? "";
+                    if (string.IsNullOrEmpty(subPath) || !fileProvider.GetFileInfo(subPath).Exists)
                     {
                         context.Request.Path = "/qcli/admin/index.html";
                     }
