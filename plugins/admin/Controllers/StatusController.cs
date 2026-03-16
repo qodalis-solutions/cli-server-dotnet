@@ -12,11 +12,13 @@ public class StatusController : ControllerBase
 {
     private readonly CliEventSocketManager _eventSocketManager;
     private readonly ICliCommandRegistry _commandRegistry;
+    private readonly IServiceProvider _serviceProvider;
 
-    public StatusController(CliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry)
+    public StatusController(CliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider serviceProvider)
     {
         _eventSocketManager = eventSocketManager;
         _commandRegistry = commandRegistry;
+        _serviceProvider = serviceProvider;
     }
 
     [HttpGet]
@@ -37,6 +39,33 @@ public class StatusController : ControllerBase
             activeShellSessions = 0,
             registeredCommands = _commandRegistry.Processors.Count,
             registeredJobs = 0,
+            enabledFeatures = DetectEnabledFeatures(),
         });
+    }
+
+    private List<string> DetectEnabledFeatures()
+    {
+        var features = new List<string>();
+
+        if (IsServiceRegistered("Qodalis.Cli.Plugin.FileSystem.IFileStorageProvider"))
+            features.Add("filesystem");
+
+        if (IsServiceRegistered("Qodalis.Cli.Plugin.Jobs.CliJobScheduler"))
+            features.Add("jobs");
+
+        return features;
+    }
+
+    private bool IsServiceRegistered(string fullTypeName)
+    {
+        var type = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a =>
+            {
+                try { return a.GetType(fullTypeName); }
+                catch { return null; }
+            })
+            .FirstOrDefault(t => t != null);
+
+        return type != null && _serviceProvider.GetService(type) != null;
     }
 }
