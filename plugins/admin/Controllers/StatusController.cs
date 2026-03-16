@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
@@ -10,9 +11,9 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 public class StatusController : ControllerBase
 {
     private readonly CliEventSocketManager _eventSocketManager;
-    private readonly CliCommandRegistry _commandRegistry;
+    private readonly ICliCommandRegistry _commandRegistry;
 
-    public StatusController(CliEventSocketManager eventSocketManager, CliCommandRegistry commandRegistry)
+    public StatusController(CliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry)
     {
         _eventSocketManager = eventSocketManager;
         _commandRegistry = commandRegistry;

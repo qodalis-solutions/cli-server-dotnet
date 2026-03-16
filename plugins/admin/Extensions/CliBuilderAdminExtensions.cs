@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
@@ -48,6 +51,47 @@ public static class CliBuilderAdminExtensions
     {
         var jwtService = app.ApplicationServices.GetRequiredService<JwtService>();
         app.UseMiddleware<AdminAuthMiddleware>(jwtService);
+
+        // Resolve dashboard dist directory
+        var config = app.ApplicationServices.GetRequiredService<AdminConfig>();
+        var env = app.ApplicationServices.GetRequiredService<IWebHostEnvironment>();
+        var dashboardDir = DashboardResolver.Resolve(config.DashboardPath, env.ContentRootPath);
+
+        if (dashboardDir != null)
+        {
+            var fileProvider = new PhysicalFileProvider(dashboardDir);
+
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = fileProvider,
+                RequestPath = "/qcli/admin",
+            });
+
+            // SPA fallback: serve index.html for all /qcli/admin/* routes that don't match a file
+            app.Use(async (context, next) =>
+            {
+                if (context.Request.Path.StartsWithSegments("/qcli/admin"))
+                {
+                    var filePath = context.Request.Path.Value?.Replace("/qcli/admin", "").TrimStart('/') ?? "";
+                    var fullPath = Path.Combine(dashboardDir, filePath);
+
+                    // If the path doesn't point to a real file, serve index.html
+                    if (!File.Exists(fullPath) || string.IsNullOrEmpty(filePath))
+                    {
+                        context.Request.Path = "/qcli/admin/index.html";
+                    }
+                }
+
+                await next();
+            });
+
+            // Serve static files again for the rewritten path
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = fileProvider,
+                RequestPath = "/qcli/admin",
+            });
+        }
 
         return app;
     }

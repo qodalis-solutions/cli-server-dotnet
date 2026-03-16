@@ -25,6 +25,9 @@
     <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>

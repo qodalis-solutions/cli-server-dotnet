@@ -10,6 +10,9 @@ public class AdminConfig
     public string JwtSecret { get; set; } = string.Empty;
     public TimeSpan JwtExpiry { get; set; } = TimeSpan.FromHours(24);
 
+    /// <summary>Optional explicit path to the dashboard dist directory.</summary>
+    public string? DashboardPath { get; set; }
+
     /// <summary>
     /// Resolves configuration from environment variables, falling back to configured defaults.
     /// </summary>
