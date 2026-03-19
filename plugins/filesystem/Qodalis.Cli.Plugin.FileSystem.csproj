@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.0-beta.3</Version>
+    <Version>1.0.0-beta.4</Version>
     <Description>Pluggable file storage abstraction for Qodalis CLI Server with InMemory and OS filesystem providers</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
