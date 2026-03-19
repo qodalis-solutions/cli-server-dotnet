@@ -8,10 +8,17 @@ namespace Qodalis.Cli.Extensions;
 
 public class CliBuilder
 {
+    private readonly List<ICliModule> _modules = [];
+
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
     internal List<Assembly> AdditionalAssemblyParts { get; } = [];
 
     public IServiceCollection Services { get; }
+
+    /// <summary>
+    /// Returns all registered modules.
+    /// </summary>
+    public IReadOnlyList<ICliModule> Modules => _modules;
 
     internal CliBuilder(IServiceCollection services)
     {
@@ -45,6 +52,8 @@ public class CliBuilder
 
     public CliBuilder AddModule(ICliModule module)
     {
+        _modules.Add(module);
+
         foreach (var processor in module.Processors)
         {
             Services.AddSingleton<ICliCommandProcessor>(processor);

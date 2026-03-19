@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Qodalis.Cli.Plugin.Admin</RootNamespace>
+    <Version>1.0.0-beta.4</Version>
+    <Description>Admin dashboard plugin for Qodalis CLI Server</Description>
+    <Authors>Nicolae Lupei</Authors>
+    <Company>Qodalis Solutions</Company>
+    <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
+    <PackageTags>cli;qodalis;admin;dashboard;plugin</PackageTags>
+    <PackageOutputPath>nupkg\</PackageOutputPath>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.*" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
+  </ItemGroup>
+
+  <!-- Dashboard SPA embedding -->
+  <PropertyGroup>
+    <DashboardSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'cli-server-dashboard', 'dist'))</DashboardSourceDir>
+    <DashboardNpmDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'node_modules', '@qodalis', 'cli-server-dashboard', 'dist'))</DashboardNpmDir>
+    <DashboardStagingDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot', 'admin'))</DashboardStagingDir>
+    <!-- Prefer sibling repo, fall back to npm package -->
+    <DashboardResolvedDir Condition="Exists('$(DashboardSourceDir)')">$(DashboardSourceDir)</DashboardResolvedDir>
+    <DashboardResolvedDir Condition="'$(DashboardResolvedDir)' == '' AND Exists('$(DashboardNpmDir)')">$(DashboardNpmDir)</DashboardResolvedDir>
+  </PropertyGroup>
+
+  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" Condition="'$(DashboardResolvedDir)' != ''">
+    <ItemGroup>
+      <DashboardFiles Include="$(DashboardResolvedDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DashboardFiles)" DestinationFolder="$(DashboardStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild" DependsOnTargets="CopyDashboardFiles" Condition="Exists('$(DashboardStagingDir)')">
+    <ItemGroup>
+      <_DashboardEmbeddedFiles Include="wwwroot\admin\**\*.*" />
+      <EmbeddedResource Include="@(_DashboardEmbeddedFiles)" />
+    </ItemGroup>
+  </Target>
+</Project>

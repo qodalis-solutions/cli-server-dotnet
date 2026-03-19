@@ -5,6 +5,7 @@ using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Demo.Jobs;
+using Qodalis.Cli.Plugin.Admin.Extensions;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -37,7 +38,6 @@ builder.Services
         cli.AddProcessor<CliHttpCommandProcessor>();
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
-        cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
 
         cli.AddJob<SampleHealthCheckJob>(o =>
@@ -114,6 +114,8 @@ builder.Services
         //     s3.SecretAccessKey = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
         // }));
         // ---------------------------------------------------------------
+
+        cli.AddAdmin();
     })
     .AddJsonOptions(options =>
     {
@@ -136,6 +138,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseHttpsRedirection();
+app.UseQodalisAdmin();
 app.UseAuthorization();
 app.MapControllers();
 app.UseCli();

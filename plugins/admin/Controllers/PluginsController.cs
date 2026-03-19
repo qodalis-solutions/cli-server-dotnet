@@ -1,0 +1,53 @@
+using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Plugin.Admin.Services;
+
+namespace Qodalis.Cli.Plugin.Admin.Controllers;
+
+[ApiController]
+[Route("api/v1/qcli/plugins")]
+public class PluginsController : ControllerBase
+{
+    private readonly ModuleRegistry _moduleRegistry;
+
+    public PluginsController(ModuleRegistry moduleRegistry)
+    {
+        _moduleRegistry = moduleRegistry;
+    }
+
+    [HttpGet]
+    public IActionResult List()
+    {
+        return Ok(_moduleRegistry.List());
+    }
+
+    [HttpGet("{id}")]
+    public IActionResult GetById(string id)
+    {
+        var plugin = _moduleRegistry.GetById(id);
+        if (plugin == null)
+            return NotFound(new { error = "Plugin not found", code = "PLUGIN_NOT_FOUND" });
+
+        return Ok(plugin);
+    }
+
+    [HttpPost("{id}/toggle")]
+    public IActionResult Toggle(string id)
+    {
+        var result = _moduleRegistry.Toggle(id);
+        if (result == null)
+            return NotFound(new { error = "Plugin not found", code = "PLUGIN_NOT_FOUND" });
+
+        var response = new Dictionary<string, object>
+        {
+            ["message"] = result.Enabled ? "Plugin enabled" : "Plugin disabled",
+            ["enabled"] = result.Enabled,
+        };
+
+        if (result.Warning != null)
+        {
+            response["warning"] = result.Warning;
+        }
+
+        return Ok(response);
+    }
+}

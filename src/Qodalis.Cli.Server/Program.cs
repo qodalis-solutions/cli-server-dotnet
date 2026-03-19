@@ -4,6 +4,7 @@ using Qodalis.Cli.Server.Processors;
 using Qodalis.Cli.Server.Jobs;
 using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.Jobs;
+using Qodalis.Cli.Plugin.Admin.Extensions;
 // using Qodalis.Cli.Plugin.Jobs.EfCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,7 +29,6 @@ builder.Services
         cli.AddProcessor<CliHttpCommandProcessor>();
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
-        cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddFileSystem(o => o.AllowedPaths.Add("/tmp"));
         cli.AddJob(new SampleHealthCheckJob(), o =>
@@ -49,6 +49,8 @@ builder.Services
         //
         // cli.AddEfCoreJobStorage(o => o.UseSqlite("Data Source=./data/jobs.db"));
         // ---------------------------------------------------------------
+
+        cli.AddAdmin();
     })
     .AddJsonOptions(options =>
     {
@@ -71,6 +73,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseHttpsRedirection();
+app.UseQodalisAdmin();
 app.UseAuthorization();
 app.MapControllers();
 app.UseCli();
