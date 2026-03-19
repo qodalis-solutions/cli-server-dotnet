@@ -29,7 +29,6 @@ builder.Services
         cli.AddProcessor<CliHttpCommandProcessor>();
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
-        cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddFileSystem(o => o.AllowedPaths.Add("/tmp"));
         cli.AddJob(new SampleHealthCheckJob(), o =>

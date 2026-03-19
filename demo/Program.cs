@@ -38,7 +38,6 @@ builder.Services
         cli.AddProcessor<CliHttpCommandProcessor>();
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
-        cli.AddProcessor<CliUuidCommandProcessor>();
         cli.AddModule(new WeatherModule());
 
         cli.AddJob<SampleHealthCheckJob>(o =>
