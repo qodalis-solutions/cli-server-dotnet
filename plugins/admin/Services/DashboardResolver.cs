@@ -17,14 +17,17 @@ public static class DashboardResolver
         if (!string.IsNullOrEmpty(explicitPath) && Directory.Exists(explicitPath))
             return Path.GetFullPath(explicitPath);
 
-        // 2. npm package — search upwards from content root for node_modules
+        // 2. npm package — search upwards from content root for node_modules (max 5 levels)
         var current = contentRootPath;
-        while (current != null)
+        var maxDepth = 5;
+        var depth = 0;
+        while (current != null && depth < maxDepth)
         {
             var candidate = Path.Combine(current, "node_modules", "@qodalis", "cli-server-dashboard", "dist");
             if (Directory.Exists(candidate))
                 return Path.GetFullPath(candidate);
             current = Path.GetDirectoryName(current);
+            depth++;
         }
 
         // 3. Relative development path (sibling repo)

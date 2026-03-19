@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
 /// <summary>
@@ -33,38 +36,66 @@ public class AdminConfig
         {
             // Generate a random 256-bit secret
             var bytes = new byte[32];
-            using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+            using var rng = RandomNumberGenerator.Create();
             rng.GetBytes(bytes);
             JwtSecret = Convert.ToBase64String(bytes);
+        }
+
+        if (Username == "admin" && Password == "admin")
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("[qcli-admin] WARNING: Using default admin credentials. Set QCLI_ADMIN_USERNAME and QCLI_ADMIN_PASSWORD environment variables.");
+            Console.ResetColor();
         }
     }
 
     public bool ValidateCredentials(string username, string password)
     {
-        return string.Equals(Username, username, StringComparison.Ordinal)
-            && string.Equals(Password, password, StringComparison.Ordinal);
+        var usernameMatch = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(username),
+            Encoding.UTF8.GetBytes(Username));
+        var passwordMatch = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(password),
+            Encoding.UTF8.GetBytes(Password));
+        return usernameMatch && passwordMatch;
     }
 
-    public object GetConfigSections()
+    public object[] GetConfigSections()
     {
-        return new
+        return new object[]
         {
-            server = new
+            new
             {
-                platform = "dotnet",
-                platformVersion = Environment.Version.ToString(),
-                os = Environment.OSVersion.ToString(),
+                name = "server",
+                mutable = false,
+                settings = new object[]
+                {
+                    new { key = "platform", value = "dotnet", type = "string", description = "Server platform", mutable = false },
+                    new { key = "platformVersion", value = Environment.Version.ToString(), type = "string", description = ".NET version", mutable = false },
+                    new { key = "os", value = Environment.OSVersion.ToString(), type = "string", description = "Operating system", mutable = false },
+                },
             },
-            auth = new
+            new
             {
-                username = Username,
-                jwtExpiryHours = JwtExpiry.TotalHours,
+                name = "auth",
+                mutable = false,
+                settings = new object[]
+                {
+                    new { key = "username", value = Username, type = "string", description = "Admin username", mutable = false },
+                    new { key = "jwtExpiryHours", value = JwtExpiry.TotalHours, type = "number", description = "JWT token expiry (hours)", mutable = false },
+                    new { key = "jwtSecretConfigured", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_JWT_SECRET")), type = "boolean", description = "Whether JWT secret is explicitly set", mutable = false },
+                },
             },
-            environment = new
+            new
             {
-                QCLI_ADMIN_USERNAME = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_USERNAME")) ? "(set)" : "(default)",
-                QCLI_ADMIN_PASSWORD = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_PASSWORD")) ? "(set)" : "(default)",
-                QCLI_ADMIN_JWT_SECRET = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_JWT_SECRET")) ? "(set)" : "(auto-generated)",
+                name = "environment",
+                mutable = false,
+                settings = new object[]
+                {
+                    new { key = "QCLI_ADMIN_USERNAME", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_USERNAME")) ? "(set)" : "(default)", type = "string", description = "Admin username env var", mutable = false },
+                    new { key = "QCLI_ADMIN_PASSWORD", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_PASSWORD")) ? "(set)" : "(default)", type = "string", description = "Admin password env var", mutable = false },
+                    new { key = "QCLI_ADMIN_JWT_SECRET", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_JWT_SECRET")) ? "(set)" : "(auto-generated)", type = "string", description = "JWT secret env var", mutable = false },
+                },
             },
         };
     }

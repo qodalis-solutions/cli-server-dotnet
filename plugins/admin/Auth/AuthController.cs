@@ -16,6 +16,22 @@ public class AuthController : ControllerBase
     // Rate limiting: track login attempts per IP
     private static readonly ConcurrentDictionary<string, List<DateTime>> _loginAttempts = new();
     private const int MaxAttemptsPerMinute = 5;
+    private const int WindowSeconds = 60;
+
+    // Periodic cleanup of expired rate-limit entries to prevent memory leaks
+    private static readonly Timer _cleanupTimer = new(_ =>
+    {
+        var cutoff = DateTime.UtcNow.AddSeconds(-WindowSeconds);
+        foreach (var kvp in _loginAttempts)
+        {
+            lock (kvp.Value)
+            {
+                kvp.Value.RemoveAll(a => a <= cutoff);
+                if (kvp.Value.Count == 0)
+                    _loginAttempts.TryRemove(kvp.Key, out List<DateTime>? _);
+            }
+        }
+    }, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
     public AuthController(AdminConfig config, JwtService jwtService)
     {
@@ -73,9 +89,11 @@ public class AuthController : ControllerBase
         if (!_loginAttempts.TryGetValue(ip, out var attempts))
             return false;
 
-        var cutoff = DateTime.UtcNow.AddMinutes(-1);
-        var recentAttempts = attempts.Count(a => a > cutoff);
-        return recentAttempts >= MaxAttemptsPerMinute;
+        lock (attempts)
+        {
+            var cutoff = DateTime.UtcNow.AddSeconds(-WindowSeconds);
+            return attempts.Count(a => a > cutoff) >= MaxAttemptsPerMinute;
+        }
     }
 
     private static void RecordAttempt(string ip)
@@ -84,7 +102,7 @@ public class AuthController : ControllerBase
         lock (attempts)
         {
             // Clean up old entries
-            var cutoff = DateTime.UtcNow.AddMinutes(-1);
+            var cutoff = DateTime.UtcNow.AddSeconds(-WindowSeconds);
             attempts.RemoveAll(a => a <= cutoff);
             attempts.Add(DateTime.UtcNow);
         }

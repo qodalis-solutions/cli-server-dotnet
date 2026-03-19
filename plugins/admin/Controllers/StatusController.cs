@@ -36,8 +36,10 @@ public class StatusController : ControllerBase
             platformVersion = RuntimeInformation.FrameworkDescription,
             os = RuntimeInformation.OSDescription,
             activeWsConnections = _eventSocketManager.GetClients().Count,
+            // TODO: Wire to real shell session count from CliShellSessionManager once available
             activeShellSessions = 0,
             registeredCommands = _commandRegistry.Processors.Count,
+            // TODO: Wire to real job count from CliJobScheduler once the jobs plugin is available
             registeredJobs = 0,
             enabledFeatures = DetectEnabledFeatures(),
         });

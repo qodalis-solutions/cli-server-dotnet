@@ -17,7 +17,7 @@ public class ConfigController : ControllerBase
     [HttpGet]
     public IActionResult GetConfig()
     {
-        return Ok(_config.GetConfigSections());
+        return Ok(new { sections = _config.GetConfigSections() });
     }
 
     [HttpPut]

@@ -33,14 +33,21 @@ public class PluginsController : ControllerBase
     [HttpPost("{id}/toggle")]
     public IActionResult Toggle(string id)
     {
-        if (!_moduleRegistry.Toggle(id))
+        var result = _moduleRegistry.Toggle(id);
+        if (result == null)
             return NotFound(new { error = "Plugin not found", code = "PLUGIN_NOT_FOUND" });
 
-        var plugin = _moduleRegistry.GetById(id);
-        return Ok(new
+        var response = new Dictionary<string, object>
         {
-            message = plugin!.Enabled ? "Plugin enabled" : "Plugin disabled",
-            enabled = plugin.Enabled,
-        });
+            ["message"] = result.Enabled ? "Plugin enabled" : "Plugin disabled",
+            ["enabled"] = result.Enabled,
+        };
+
+        if (result.Warning != null)
+        {
+            response["warning"] = result.Warning;
+        }
+
+        return Ok(response);
     }
 }

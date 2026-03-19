@@ -25,10 +25,10 @@ public static class CliBuilderAdminExtensions
         builder.Services.AddSingleton(config);
         builder.Services.AddSingleton<JwtService>();
 
-        // Register the log ring buffer as both a singleton and an ILoggerProvider
+        // Register the log ring buffer and wire it into the ASP.NET logging pipeline
         var logBuffer = new LogRingBuffer();
         builder.Services.AddSingleton(logBuffer);
-        builder.Services.AddSingleton<ILoggerProvider>(logBuffer);
+        builder.Services.AddLogging(logging => logging.AddProvider(logBuffer));
 
         // Module registry — will be resolved after all modules are registered
         builder.Services.AddSingleton<ModuleRegistry>(sp =>
@@ -84,28 +84,31 @@ public static class CliBuilderAdminExtensions
 
         if (fileProvider != null)
         {
-            app.UseStaticFiles(new StaticFileOptions
-            {
-                FileProvider = fileProvider,
-                RequestPath = "/qcli/admin",
-            });
-
-            // SPA fallback: serve index.html for all /qcli/admin/* routes that don't match a file
+            // SPA fallback: serve index.html directly for non-file routes under /qcli/admin
             app.Use(async (context, next) =>
             {
                 if (context.Request.Path.StartsWithSegments("/qcli/admin"))
                 {
-                    var subPath = context.Request.Path.Value?.Replace("/qcli/admin", "").TrimStart('/') ?? "";
-                    if (string.IsNullOrEmpty(subPath) || !fileProvider.GetFileInfo(subPath).Exists)
+                    var filePath = context.Request.Path.Value?.Replace("/qcli/admin", "").TrimStart('/') ?? "";
+                    var fullPath = string.IsNullOrEmpty(filePath) ? null : fileProvider.GetFileInfo(filePath);
+
+                    if (string.IsNullOrEmpty(filePath) || fullPath == null || !fullPath.Exists)
                     {
-                        context.Request.Path = "/qcli/admin/index.html";
+                        // SPA fallback: serve index.html for non-file routes
+                        var indexFile = fileProvider.GetFileInfo("index.html");
+                        if (indexFile.Exists)
+                        {
+                            context.Response.ContentType = "text/html";
+                            await using var stream = indexFile.CreateReadStream();
+                            await stream.CopyToAsync(context.Response.Body);
+                            return;
+                        }
                     }
                 }
 
                 await next();
             });
 
-            // Serve static files again for the rewritten path
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = fileProvider,

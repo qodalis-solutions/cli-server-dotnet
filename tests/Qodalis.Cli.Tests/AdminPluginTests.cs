@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Plugin.Admin.Auth;
@@ -484,14 +485,14 @@ public class ModuleRegistryTests
     }
 
     [Fact]
-    public void Toggle_ExistingModule_ReturnsTrue()
+    public void Toggle_ExistingModule_ReturnsToggleResult()
     {
         var registry = CreateRegistryWithModules(
             new TestModule { Name = "togglable" });
 
         var result = registry.Toggle("togglable");
 
-        Assert.True(result);
+        Assert.NotNull(result);
     }
 
     [Fact]
@@ -510,14 +511,14 @@ public class ModuleRegistryTests
     }
 
     [Fact]
-    public void Toggle_NonExistent_ReturnsFalse()
+    public void Toggle_NonExistent_ReturnsNull()
     {
         var registry = CreateRegistryWithModules(
             new TestModule { Name = "existing" });
 
         var result = registry.Toggle("nonexistent");
 
-        Assert.False(result);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -553,7 +554,8 @@ public class AdminStatusControllerTests
         var registry = new CliCommandRegistry();
         registry.Register(new TestProcessor("test", "Test command"));
 
-        var controller = new StatusController(esm, registry);
+        var serviceProvider = new ServiceCollection().BuildServiceProvider();
+        var controller = new StatusController(esm, registry, serviceProvider);
         var result = controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);
@@ -579,7 +581,8 @@ public class AdminStatusControllerTests
         registry.Register(new TestProcessor("cmd1", "Command 1"));
         registry.Register(new TestProcessor("cmd2", "Command 2"));
 
-        var controller = new StatusController(esm, registry);
+        var serviceProvider = new ServiceCollection().BuildServiceProvider();
+        var controller = new StatusController(esm, registry, serviceProvider);
         var result = controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);
@@ -595,7 +598,8 @@ public class AdminStatusControllerTests
         var esm = new CliEventSocketManager();
         var registry = new CliCommandRegistry();
 
-        var controller = new StatusController(esm, registry);
+        var serviceProvider = new ServiceCollection().BuildServiceProvider();
+        var controller = new StatusController(esm, registry, serviceProvider);
         var result = controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);

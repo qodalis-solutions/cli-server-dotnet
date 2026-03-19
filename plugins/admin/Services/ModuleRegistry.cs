@@ -31,6 +31,7 @@ public class ModuleRegistry
             Author = m.Author?.Name ?? "Unknown",
             Enabled = _enabledState.GetValueOrDefault(m.Name, true),
             ProcessorCount = m.Processors.Count(),
+            Processors = m.Processors.Select(p => p.Command).ToList(),
         }).ToList();
     }
 
@@ -50,24 +51,39 @@ public class ModuleRegistry
             Author = module.Author?.Name ?? "Unknown",
             Enabled = _enabledState.GetValueOrDefault(module.Name, true),
             ProcessorCount = module.Processors.Count(),
+            Processors = module.Processors.Select(p => p.Command).ToList(),
         };
     }
 
-    public bool Toggle(string id)
+    public ToggleResult? Toggle(string id)
     {
         var module = _modules.FirstOrDefault(m =>
             m.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
 
-        if (module == null) return false;
+        if (module == null) return null;
 
         _enabledState.AddOrUpdate(module.Name, _ => false, (_, current) => !current);
-        return true;
+        var newState = IsEnabled(module.Name);
+
+        string? warning = null;
+        if (!newState)
+        {
+            warning = "Note: Toggling a module off tracks state only. Already-registered command processors remain active until the server is restarted.";
+        }
+
+        return new ToggleResult { Enabled = newState, Warning = warning };
     }
 
     public bool IsEnabled(string id)
     {
         return _enabledState.GetValueOrDefault(id, true);
     }
+}
+
+public class ToggleResult
+{
+    public bool Enabled { get; set; }
+    public string? Warning { get; set; }
 }
 
 public class PluginInfo
@@ -79,4 +95,5 @@ public class PluginInfo
     public string Author { get; set; } = string.Empty;
     public bool Enabled { get; set; } = true;
     public int ProcessorCount { get; set; }
+    public List<string> Processors { get; set; } = new();
 }
