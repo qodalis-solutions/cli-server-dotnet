@@ -241,7 +241,7 @@ builder.Services
                 options.Name = "demo-elasticsearch";
                 options.Description = "Demo Elasticsearch cluster";
                 options.Language = DataExplorerLanguage.Elasticsearch;
-                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Json;
             });
         }
 
