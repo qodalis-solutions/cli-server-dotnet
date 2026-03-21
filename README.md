@@ -560,6 +560,121 @@ Register it by setting `options.Provider` directly:
 cli.AddFileSystem(o => o.Provider = new MyProvider());
 ```
 
+## Data Explorer
+
+The Data Explorer plugin provides interactive access to data sources through a provider-based API. Each data source type (SQL, MongoDB, etc.) is a separate plugin implementing `IDataExplorerProvider`.
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/qcli/data-explorer/sources` | List registered data sources with metadata |
+| POST | `/api/qcli/data-explorer/execute` | Execute a query against a named source |
+
+### SQL Provider
+
+```csharp
+using Qodalis.Cli.Plugin.DataExplorer.Sql;
+using Qodalis.Cli.Abstractions.DataExplorer;
+
+builder.Services
+    .AddControllers()
+    .AddCli(cli =>
+    {
+        cli.AddDataExplorerSql("Data Source=app.db", options =>
+        {
+            options.Name = "app-database";
+            options.Description = "Application database";
+            options.Language = DataExplorerLanguage.Sql;
+            options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            options.Timeout = 30000;
+            options.MaxRows = 1000;
+            options.Templates =
+            [
+                new DataExplorerTemplate
+                {
+                    Name = "list_tables",
+                    Query = "SELECT name FROM sqlite_master WHERE type='table'",
+                    Description = "List all tables"
+                },
+            ];
+        });
+    });
+```
+
+### MongoDB Provider
+
+```csharp
+using Qodalis.Cli.Plugin.DataExplorer.Mongo;
+
+cli.AddDataExplorerMongo("mongodb://localhost:27017", "myapp", options =>
+{
+    options.Name = "mongo-primary";
+    options.Description = "Primary MongoDB database";
+    options.Language = DataExplorerLanguage.Json;
+    options.DefaultOutputFormat = DataExplorerOutputFormat.Json;
+    options.Templates =
+    [
+        new DataExplorerTemplate
+        {
+            Name = "show_collections",
+            Query = "show collections",
+            Description = "List all collections"
+        },
+        new DataExplorerTemplate
+        {
+            Name = "find_users",
+            Query = "db.users.find({})",
+            Description = "Find all users"
+        },
+    ];
+});
+```
+
+**Supported MongoDB operations:** `db.collection.find({...})`, `findOne`, `aggregate([...])`, `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`, `deleteMany`, `countDocuments`. Convenience commands: `show collections`, `show dbs`.
+
+### Custom Provider
+
+Implement `IDataExplorerProvider` to add your own data source:
+
+```csharp
+using Qodalis.Cli.Abstractions.DataExplorer;
+
+public class MyProvider : IDataExplorerProvider
+{
+    public async Task<DataExplorerResult> ExecuteAsync(
+        DataExplorerExecutionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        // context.Query — the user's query string
+        // context.Parameters — key-value parameters
+        // context.Options — provider options (name, language, etc.)
+        return new DataExplorerResult
+        {
+            Success = true,
+            Source = context.Options.Name,
+            Language = context.Options.Language,
+            DefaultOutputFormat = context.Options.DefaultOutputFormat,
+            Columns = new List<string> { "id", "name" },  // null for document-oriented results
+            Rows = new List<object> { new object[] { 1, "Alice" } },
+            RowCount = 1,
+        };
+    }
+}
+```
+
+Register with DI (recommended) or as an instance:
+
+```csharp
+// DI — resolved from service container
+cli.AddDataExplorerProvider<MyProvider>(options => { options.Name = "custom"; /* ... */ });
+
+// Instance
+cli.AddDataExplorerProvider(new MyProvider(), options => { options.Name = "custom"; /* ... */ });
+```
+
+The same provider class can be registered multiple times with different configurations (e.g., two databases with different names).
+
 ## Docker
 
 ```bash
