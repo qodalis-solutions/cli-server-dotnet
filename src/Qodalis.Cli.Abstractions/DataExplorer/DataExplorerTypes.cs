@@ -74,3 +74,24 @@ public class DataExplorerSourceInfo
     public List<DataExplorerTemplate> Templates { get; set; } = [];
     public List<DataExplorerParameterDescriptor> Parameters { get; set; } = [];
 }
+
+public class DataExplorerSchemaColumn
+{
+    public required string Name { get; set; }
+    public required string Type { get; set; }
+    public bool Nullable { get; set; }
+    public bool PrimaryKey { get; set; }
+}
+
+public class DataExplorerSchemaTable
+{
+    public required string Name { get; set; }
+    public required string Type { get; set; }
+    public List<DataExplorerSchemaColumn> Columns { get; set; } = [];
+}
+
+public class DataExplorerSchemaResult
+{
+    public required string Source { get; set; }
+    public List<DataExplorerSchemaTable> Tables { get; set; } = [];
+}

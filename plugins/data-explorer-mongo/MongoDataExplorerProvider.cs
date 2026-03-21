@@ -18,6 +18,52 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         _database = database;
     }
 
+    public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
+        DataExplorerProviderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        var client = new MongoClient(_connectionString);
+        var db = client.GetDatabase(_database);
+
+        var collectionNames = await (await db.ListCollectionNamesAsync(cancellationToken: cancellationToken))
+            .ToListAsync(cancellationToken);
+
+        var tables = new List<DataExplorerSchemaTable>();
+        foreach (var collName in collectionNames)
+        {
+            var collection = db.GetCollection<BsonDocument>(collName);
+            var sample = await collection.Find(new BsonDocument()).Limit(1).FirstOrDefaultAsync(cancellationToken);
+
+            var columns = new List<DataExplorerSchemaColumn>();
+            if (sample != null)
+            {
+                foreach (var element in sample)
+                {
+                    columns.Add(new DataExplorerSchemaColumn
+                    {
+                        Name = element.Name,
+                        Type = element.Value.BsonType.ToString().ToLowerInvariant(),
+                        Nullable = true,
+                        PrimaryKey = element.Name == "_id"
+                    });
+                }
+            }
+
+            tables.Add(new DataExplorerSchemaTable
+            {
+                Name = collName,
+                Type = "collection",
+                Columns = columns
+            });
+        }
+
+        return new DataExplorerSchemaResult
+        {
+            Source = options.Name,
+            Tables = tables
+        };
+    }
+
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)

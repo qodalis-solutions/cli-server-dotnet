@@ -28,7 +28,7 @@ public class DataExplorerRegistry
         };
     }
 
-    internal (IDataExplorerProvider Provider, DataExplorerProviderOptions Options)? Get(string name)
+    public (IDataExplorerProvider Provider, DataExplorerProviderOptions Options)? Get(string name)
     {
         if (_providers.TryGetValue(name, out var entry))
         {
