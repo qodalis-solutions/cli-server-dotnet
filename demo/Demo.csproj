@@ -24,6 +24,11 @@
         <ProjectReference Include="../plugins/admin/Qodalis.Cli.Plugin.Admin.csproj" />
         <ProjectReference Include="../plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj" />
         <ProjectReference Include="../plugins/data-explorer-mongo/Qodalis.Cli.Plugin.DataExplorer.Mongo.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-postgres/Qodalis.Cli.Plugin.DataExplorer.Postgres.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-mysql/Qodalis.Cli.Plugin.DataExplorer.Mysql.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-mssql/Qodalis.Cli.Plugin.DataExplorer.Mssql.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-redis/Qodalis.Cli.Plugin.DataExplorer.Redis.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-elasticsearch/Qodalis.Cli.Plugin.DataExplorer.Elasticsearch.csproj" />
     </ItemGroup>
 
 </Project>
