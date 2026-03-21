@@ -9,6 +9,11 @@ using Qodalis.Cli.Plugin.Admin.Extensions;
 using Qodalis.Cli.Plugin.DataExplorer.Sql;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Plugin.DataExplorer.Mongo;
+using Qodalis.Cli.Plugin.DataExplorer.Postgres;
+using Qodalis.Cli.Plugin.DataExplorer.Mysql;
+using Qodalis.Cli.Plugin.DataExplorer.Mssql;
+using Qodalis.Cli.Plugin.DataExplorer.Redis;
+using Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -162,6 +167,81 @@ builder.Services
                         Description = "Find all documents in users collection"
                     },
                 ];
+            });
+        }
+
+        // -----------------------------------------------------------
+        // Data Explorer — PostgreSQL Provider
+        // -----------------------------------------------------------
+        var pgConnectionString = Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(pgConnectionString))
+        {
+            cli.AddDataExplorerPostgres(pgConnectionString, options =>
+            {
+                options.Name = "demo-postgres";
+                options.Description = "Demo PostgreSQL database";
+                options.Language = DataExplorerLanguage.Sql;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            });
+        }
+
+        // -----------------------------------------------------------
+        // Data Explorer — MySQL Provider
+        // -----------------------------------------------------------
+        var mysqlConnectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(mysqlConnectionString))
+        {
+            cli.AddDataExplorerMysql(mysqlConnectionString, options =>
+            {
+                options.Name = "demo-mysql";
+                options.Description = "Demo MySQL database";
+                options.Language = DataExplorerLanguage.Sql;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            });
+        }
+
+        // -----------------------------------------------------------
+        // Data Explorer — MS SQL Provider
+        // -----------------------------------------------------------
+        var mssqlConnectionString = Environment.GetEnvironmentVariable("MSSQL_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(mssqlConnectionString))
+        {
+            cli.AddDataExplorerMssql(mssqlConnectionString, options =>
+            {
+                options.Name = "demo-mssql";
+                options.Description = "Demo MS SQL Server database";
+                options.Language = DataExplorerLanguage.Sql;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            });
+        }
+
+        // -----------------------------------------------------------
+        // Data Explorer — Redis Provider
+        // -----------------------------------------------------------
+        var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(redisConnectionString))
+        {
+            cli.AddDataExplorerRedis(redisConnectionString, options =>
+            {
+                options.Name = "demo-redis";
+                options.Description = "Demo Redis instance";
+                options.Language = DataExplorerLanguage.Redis;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            });
+        }
+
+        // -----------------------------------------------------------
+        // Data Explorer — Elasticsearch Provider
+        // -----------------------------------------------------------
+        var esNode = Environment.GetEnvironmentVariable("ELASTICSEARCH_NODE");
+        if (!string.IsNullOrEmpty(esNode))
+        {
+            cli.AddDataExplorerElasticsearch(esNode, options =>
+            {
+                options.Name = "demo-elasticsearch";
+                options.Description = "Demo Elasticsearch cluster";
+                options.Language = DataExplorerLanguage.Elasticsearch;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
             });
         }
 
