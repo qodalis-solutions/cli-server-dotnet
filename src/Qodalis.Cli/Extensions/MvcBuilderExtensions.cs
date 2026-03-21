@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
@@ -51,6 +52,39 @@ public static class MvcBuilderExtensions
         else
         {
             builder.Services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
+        }
+
+        // Register DataExplorer services when providers have been added
+        if (cliBuilder.HasDataExplorer)
+        {
+            builder.Services.AddSingleton<DataExplorerRegistry>(sp =>
+            {
+                var registry = new DataExplorerRegistry();
+                var registrations = sp.GetServices<DataExplorerProviderRegistration>();
+
+                foreach (var registration in registrations)
+                {
+                    IDataExplorerProvider provider;
+                    if (registration.ProviderInstance != null)
+                    {
+                        provider = registration.ProviderInstance;
+                    }
+                    else if (registration.ProviderType != null)
+                    {
+                        provider = (IDataExplorerProvider)sp.GetRequiredService(registration.ProviderType);
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    registry.Register(provider, registration.Options);
+                }
+
+                return registry;
+            });
+
+            builder.Services.AddSingleton<DataExplorerExecutorService>();
         }
 
         return builder;
