@@ -22,6 +22,7 @@
         <ProjectReference Include="../plugins/filesystem-efcore/Qodalis.Cli.Plugin.FileSystem.EfCore.csproj" />
         <ProjectReference Include="../plugins/filesystem-s3/Qodalis.Cli.Plugin.FileSystem.S3.csproj" />
         <ProjectReference Include="../plugins/admin/Qodalis.Cli.Plugin.Admin.csproj" />
+        <ProjectReference Include="../plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj" />
     </ItemGroup>
 
 </Project>
