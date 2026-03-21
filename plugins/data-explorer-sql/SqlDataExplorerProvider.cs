@@ -12,6 +12,58 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
         _connectionString = connectionString;
     }
 
+    public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
+        DataExplorerProviderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        // Get tables and views
+        await using var tablesCmd = connection.CreateCommand();
+        tablesCmd.CommandText = "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name";
+        await using var tablesReader = await tablesCmd.ExecuteReaderAsync(cancellationToken);
+
+        var tables = new List<DataExplorerSchemaTable>();
+        var tableNames = new List<(string Name, string Type)>();
+        while (await tablesReader.ReadAsync(cancellationToken))
+        {
+            tableNames.Add((tablesReader.GetString(0), tablesReader.GetString(1)));
+        }
+
+        foreach (var (tableName, tableType) in tableNames)
+        {
+            await using var colCmd = connection.CreateCommand();
+            colCmd.CommandText = $"PRAGMA table_info(\"{tableName}\")";
+            await using var colReader = await colCmd.ExecuteReaderAsync(cancellationToken);
+
+            var columns = new List<DataExplorerSchemaColumn>();
+            while (await colReader.ReadAsync(cancellationToken))
+            {
+                columns.Add(new DataExplorerSchemaColumn
+                {
+                    Name = colReader.GetString(1),      // name
+                    Type = colReader.IsDBNull(2) ? "TEXT" : colReader.GetString(2), // type
+                    Nullable = colReader.GetInt32(3) == 0, // notnull (0 = nullable)
+                    PrimaryKey = colReader.GetInt32(5) > 0  // pk
+                });
+            }
+
+            tables.Add(new DataExplorerSchemaTable
+            {
+                Name = tableName,
+                Type = tableType,
+                Columns = columns
+            });
+        }
+
+        return new DataExplorerSchemaResult
+        {
+            Source = options.Name,
+            Tables = tables
+        };
+    }
+
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)
