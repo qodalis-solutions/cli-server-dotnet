@@ -1,6 +1,12 @@
+using System.Text.Json.Serialization;
+using Qodalis.Cli.Abstractions.Helpers;
+
 namespace Qodalis.Cli.Abstractions.DataExplorer;
 
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum DataExplorerLanguage { Sql, Json, Shell, Graphql }
+
+[JsonConverter(typeof(CamelCaseEnumConverter))]
 public enum DataExplorerOutputFormat { Table, Json, Csv, Raw }
 
 public class DataExplorerTemplate

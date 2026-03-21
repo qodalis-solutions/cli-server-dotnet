@@ -8,6 +8,7 @@ using Qodalis.Cli.Demo.Jobs;
 using Qodalis.Cli.Plugin.Admin.Extensions;
 using Qodalis.Cli.Plugin.DataExplorer.Sql;
 using Qodalis.Cli.Abstractions.DataExplorer;
+using Qodalis.Cli.Plugin.DataExplorer.Mongo;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -133,6 +134,36 @@ builder.Services
                 },
             ];
         });
+
+        // -----------------------------------------------------------
+        // Data Explorer — MongoDB Provider
+        // -----------------------------------------------------------
+        var mongoConnectionString = Environment.GetEnvironmentVariable("MONGO_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(mongoConnectionString))
+        {
+            cli.AddDataExplorerMongo(mongoConnectionString, "demo", options =>
+            {
+                options.Name = "demo-mongo";
+                options.Description = "Demo MongoDB database";
+                options.Language = DataExplorerLanguage.Json;
+                options.DefaultOutputFormat = DataExplorerOutputFormat.Json;
+                options.Templates =
+                [
+                    new DataExplorerTemplate
+                    {
+                        Name = "show_collections",
+                        Query = "show collections",
+                        Description = "List all collections"
+                    },
+                    new DataExplorerTemplate
+                    {
+                        Name = "find_all",
+                        Query = "db.users.find({})",
+                        Description = "Find all documents in users collection"
+                    },
+                ];
+            });
+        }
 
         cli.AddAdmin();
     })
