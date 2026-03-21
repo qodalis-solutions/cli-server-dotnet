@@ -12,6 +12,7 @@ COPY plugins/weather/Qodalis.Cli.Plugin.Weather.csproj plugins/weather/
 COPY plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj plugins/jobs/
 COPY plugins/admin/Qodalis.Cli.Plugin.Admin.csproj plugins/admin/
 COPY plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj plugins/data-explorer-sql/
+COPY plugins/data-explorer-mongo/Qodalis.Cli.Plugin.DataExplorer.Mongo.csproj plugins/data-explorer-mongo/
 COPY demo/Demo.csproj demo/
 RUN dotnet restore demo/Demo.csproj
 
