@@ -14,6 +14,7 @@ using Qodalis.Cli.Plugin.DataExplorer.Mysql;
 using Qodalis.Cli.Plugin.DataExplorer.Mssql;
 using Qodalis.Cli.Plugin.DataExplorer.Redis;
 using Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
+using Qodalis.Cli.Plugin.Aws;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -47,6 +48,7 @@ builder.Services
         cli.AddProcessor<CliHashCommandProcessor>();
         cli.AddProcessor<CliBase64CommandProcessor>();
         cli.AddModule(new WeatherModule());
+        cli.AddModule(new AwsModule());
 
         cli.AddJob<SampleHealthCheckJob>(o =>
         {
