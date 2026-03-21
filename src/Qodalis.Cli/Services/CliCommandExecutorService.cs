@@ -40,6 +40,13 @@ public class CliCommandExecutorService : ICliCommandExecutorService
 
         try
         {
+            var structured = await processor.HandleStructuredAsync(command, cancellationToken);
+            if (structured is CliServerResponse structuredResponse)
+            {
+                _logger.LogInformation("Command completed (structured): {Command}", fullCommand);
+                return structuredResponse;
+            }
+
             var result = await processor.HandleAsync(command, cancellationToken);
 
             if (!string.IsNullOrEmpty(result))

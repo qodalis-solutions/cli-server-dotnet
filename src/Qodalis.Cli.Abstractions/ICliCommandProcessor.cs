@@ -28,6 +28,16 @@ public interface ICliCommandProcessor
         CliProcessCommand command,
         CancellationToken cancellationToken = default
         );
+
+    /// <summary>
+    /// Optional structured response handler. When implemented, the executor
+    /// prefers this over HandleAsync for rich output (tables, key-value, etc.).
+    /// Return null to fall back to HandleAsync.
+    /// </summary>
+    Task<ICliStructuredResponse?> HandleStructuredAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<ICliStructuredResponse?>(null);
+    }
 }
 
 public class CliProcessCommand
