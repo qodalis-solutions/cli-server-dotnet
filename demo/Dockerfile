@@ -13,6 +13,11 @@ COPY plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj plugins/jobs/
 COPY plugins/admin/Qodalis.Cli.Plugin.Admin.csproj plugins/admin/
 COPY plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj plugins/data-explorer-sql/
 COPY plugins/data-explorer-mongo/Qodalis.Cli.Plugin.DataExplorer.Mongo.csproj plugins/data-explorer-mongo/
+COPY plugins/data-explorer-postgres/Qodalis.Cli.Plugin.DataExplorer.Postgres.csproj plugins/data-explorer-postgres/
+COPY plugins/data-explorer-mysql/Qodalis.Cli.Plugin.DataExplorer.Mysql.csproj plugins/data-explorer-mysql/
+COPY plugins/data-explorer-mssql/Qodalis.Cli.Plugin.DataExplorer.Mssql.csproj plugins/data-explorer-mssql/
+COPY plugins/data-explorer-redis/Qodalis.Cli.Plugin.DataExplorer.Redis.csproj plugins/data-explorer-redis/
+COPY plugins/data-explorer-elasticsearch/Qodalis.Cli.Plugin.DataExplorer.Elasticsearch.csproj plugins/data-explorer-elasticsearch/
 COPY demo/Demo.csproj demo/
 RUN dotnet restore demo/Demo.csproj
 
