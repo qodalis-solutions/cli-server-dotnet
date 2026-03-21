@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Jobs.EfC
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Admin", "..\plugins\admin\Qodalis.Cli.Plugin.Admin.csproj", "{F2C006B2-04A0-4494-B7A0-3B24959868D0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.DataExplorer.Sql", "..\plugins\data-explorer-sql\Qodalis.Cli.Plugin.DataExplorer.Sql.csproj", "{9150F382-18FB-4871-8C86-A30AA2B91C3D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -93,6 +95,10 @@ Global
 		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F2C006B2-04A0-4494-B7A0-3B24959868D0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9150F382-18FB-4871-8C86-A30AA2B91C3D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9150F382-18FB-4871-8C86-A30AA2B91C3D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9150F382-18FB-4871-8C86-A30AA2B91C3D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9150F382-18FB-4871-8C86-A30AA2B91C3D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

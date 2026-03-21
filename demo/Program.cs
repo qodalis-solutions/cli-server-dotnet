@@ -6,6 +6,8 @@ using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Demo.Jobs;
 using Qodalis.Cli.Plugin.Admin.Extensions;
+using Qodalis.Cli.Plugin.DataExplorer.Sql;
+using Qodalis.Cli.Abstractions.DataExplorer;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -114,6 +116,23 @@ builder.Services
         //     s3.SecretAccessKey = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
         // }));
         // ---------------------------------------------------------------
+
+        cli.AddDataExplorerSql("Data Source=demo.db", options =>
+        {
+            options.Name = "demo-sqlite";
+            options.Description = "Demo SQLite database";
+            options.Language = DataExplorerLanguage.Sql;
+            options.DefaultOutputFormat = DataExplorerOutputFormat.Table;
+            options.Templates =
+            [
+                new DataExplorerTemplate
+                {
+                    Name = "list_tables",
+                    Query = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;",
+                    Description = "List all tables"
+                },
+            ];
+        });
 
         cli.AddAdmin();
     })

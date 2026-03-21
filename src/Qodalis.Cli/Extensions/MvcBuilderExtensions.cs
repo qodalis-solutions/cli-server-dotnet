@@ -54,38 +54,35 @@ public static class MvcBuilderExtensions
             builder.Services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
         }
 
-        // Register DataExplorer services when providers have been added
-        if (cliBuilder.HasDataExplorer)
+        // Register DataExplorer services (always register so the controller can resolve)
+        builder.Services.AddSingleton<DataExplorerRegistry>(sp =>
         {
-            builder.Services.AddSingleton<DataExplorerRegistry>(sp =>
+            var registry = new DataExplorerRegistry();
+            var registrations = sp.GetServices<DataExplorerProviderRegistration>();
+
+            foreach (var registration in registrations)
             {
-                var registry = new DataExplorerRegistry();
-                var registrations = sp.GetServices<DataExplorerProviderRegistration>();
-
-                foreach (var registration in registrations)
+                IDataExplorerProvider provider;
+                if (registration.ProviderInstance != null)
                 {
-                    IDataExplorerProvider provider;
-                    if (registration.ProviderInstance != null)
-                    {
-                        provider = registration.ProviderInstance;
-                    }
-                    else if (registration.ProviderType != null)
-                    {
-                        provider = (IDataExplorerProvider)sp.GetRequiredService(registration.ProviderType);
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    registry.Register(provider, registration.Options);
+                    provider = registration.ProviderInstance;
+                }
+                else if (registration.ProviderType != null)
+                {
+                    provider = (IDataExplorerProvider)sp.GetRequiredService(registration.ProviderType);
+                }
+                else
+                {
+                    continue;
                 }
 
-                return registry;
-            });
+                registry.Register(provider, registration.Options);
+            }
 
-            builder.Services.AddSingleton<DataExplorerExecutorService>();
-        }
+            return registry;
+        });
+
+        builder.Services.AddSingleton<DataExplorerExecutorService>();
 
         return builder;
     }
