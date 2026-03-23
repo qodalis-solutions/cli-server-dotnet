@@ -204,4 +204,145 @@ public class ControllerTests
         Assert.Single(doneEvents);
         Assert.Contains("\"exitCode\":0", doneEvents[0].Data);
     }
+
+    // --- Cancellation Tests ---
+
+    [Fact]
+    public async Task SlowStreamProcessor_WhenCancelled_StopsEmittingChunks()
+    {
+        var processor = new SlowStreamProcessor { TotalChunks = 10, ChunkDelayMs = 50 };
+        using var cts = new CancellationTokenSource();
+
+        var chunksReceived = 0;
+        async Task Emit(object _)
+        {
+            chunksReceived++;
+            // Cancel after 3 chunks
+            if (chunksReceived == 3)
+                cts.Cancel();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            processor.HandleStreamAsync(new CliProcessCommand { Command = "slow-stream" }, Emit, cts.Token));
+
+        Assert.True(processor.ChunksEmitted <= 3,
+            $"Expected at most 3 chunks before cancellation but got {processor.ChunksEmitted}");
+    }
+
+    [Fact]
+    public async Task SlowStreamProcessor_ReceivesCancellationToken()
+    {
+        var processor = new SlowStreamProcessor { TotalChunks = 3, ChunkDelayMs = 0 };
+        using var cts = new CancellationTokenSource();
+
+        await processor.HandleStreamAsync(
+            new CliProcessCommand { Command = "slow-stream" },
+            _ => Task.CompletedTask,
+            cts.Token);
+
+        Assert.Equal(cts.Token, processor.ReceivedCancellationToken);
+    }
+
+    [Fact]
+    public async Task SlowStreamProcessor_WhenAlreadyCancelled_ThrowsImmediately()
+    {
+        var processor = new SlowStreamProcessor { TotalChunks = 10, ChunkDelayMs = 0 };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            processor.HandleStreamAsync(
+                new CliProcessCommand { Command = "slow-stream" },
+                _ => Task.CompletedTask,
+                cts.Token));
+
+        Assert.Equal(0, processor.ChunksEmitted);
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_WhenCancelled_DoesNotEmitDoneEvent()
+    {
+        var slowProcessor = new SlowStreamProcessor { TotalChunks = 10, ChunkDelayMs = 50 };
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        registry.Register(slowProcessor);
+        var executor = new CliCommandExecutorService(registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
+
+        var controller = CreateControllerWithHttpContext(registry, executor);
+
+        using var cts = new CancellationTokenSource();
+
+        // Cancel after a short delay to interrupt the slow processor mid-stream
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(80);
+            cts.Cancel();
+        });
+
+        // ExecuteStream should complete without throwing (OperationCanceledException is caught internally)
+        await controller.ExecuteStream(new CliProcessCommand { Command = "slow-stream" }, cts.Token);
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+
+        // No "done" event should be emitted when cancelled
+        Assert.DoesNotContain(events, e => e.EventType == "done");
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_WhenCancelledMidStream_EmitsPartialOutput()
+    {
+        var slowProcessor = new SlowStreamProcessor { TotalChunks = 10, ChunkDelayMs = 50 };
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        registry.Register(slowProcessor);
+        var executor = new CliCommandExecutorService(registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
+
+        var controller = CreateControllerWithHttpContext(registry, executor);
+
+        using var cts = new CancellationTokenSource();
+
+        // Cancel after 80 ms — enough time for at least 1 chunk (50 ms apart) but not all 10
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(80);
+            cts.Cancel();
+        });
+
+        await controller.ExecuteStream(new CliProcessCommand { Command = "slow-stream" }, cts.Token);
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+        var outputEvents = events.Where(e => e.EventType == "output").ToList();
+
+        // Some output was emitted before cancellation, but not all 10 chunks
+        Assert.True(outputEvents.Count > 0, "Expected at least one output event before cancellation");
+        Assert.True(outputEvents.Count < 10, $"Expected fewer than 10 output events but got {outputEvents.Count}");
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_WithPreCancelledToken_EmitsNoOutputAndNoDone()
+    {
+        var slowProcessor = new SlowStreamProcessor { TotalChunks = 10, ChunkDelayMs = 0 };
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        registry.Register(slowProcessor);
+        var executor = new CliCommandExecutorService(registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
+
+        var controller = CreateControllerWithHttpContext(registry, executor);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await controller.ExecuteStream(new CliProcessCommand { Command = "slow-stream" }, cts.Token);
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+
+        Assert.DoesNotContain(events, e => e.EventType == "done");
+        Assert.DoesNotContain(events, e => e.EventType == "output");
+    }
 }
