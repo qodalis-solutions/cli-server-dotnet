@@ -10,12 +10,12 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 [Route("api/v1/qcli/ws/clients")]
 public class WsClientsController : ControllerBase
 {
-    private readonly CliEventSocketManager _eventSocketManager;
+    private readonly ICliEventSocketManager _eventSocketManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WsClientsController"/> class.
     /// </summary>
-    public WsClientsController(CliEventSocketManager eventSocketManager)
+    public WsClientsController(ICliEventSocketManager eventSocketManager)
     {
         _eventSocketManager = eventSocketManager;
     }

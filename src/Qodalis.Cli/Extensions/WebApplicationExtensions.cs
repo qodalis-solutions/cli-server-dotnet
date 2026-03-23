@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Services;
-using System.Diagnostics;
-using System.Text;
 
 namespace Qodalis.Cli.Extensions;
 
@@ -12,7 +10,7 @@ namespace Qodalis.Cli.Extensions;
 public static class WebApplicationExtensions
 {
     /// <summary>
-    /// Adds CLI middleware for WebSocket endpoints (events, shell, logs, and legacy terminal).
+    /// Adds CLI middleware for WebSocket endpoints (events, shell, logs, and terminal).
     /// Must be called after <c>UseWebSockets()</c>.
     /// </summary>
     /// <param name="app">The application builder.</param>
@@ -26,7 +24,7 @@ public static class WebApplicationExtensions
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
-                    var manager = context.RequestServices.GetRequiredService<CliEventSocketManager>();
+                    var manager = context.RequestServices.GetRequiredService<ICliEventSocketManager>();
                     var socket = await context.WebSockets.AcceptWebSocketAsync();
                     await manager.HandleConnectionAsync(socket, context.RequestAborted);
                 }
@@ -43,7 +41,7 @@ public static class WebApplicationExtensions
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
-                    var shellManager = context.RequestServices.GetRequiredService<ShellSessionManager>();
+                    var shellManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
 
                     var query = context.Request.Query;
@@ -69,7 +67,7 @@ public static class WebApplicationExtensions
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
-                    var logManager = context.RequestServices.GetRequiredService<CliLogSocketManager>();
+                    var logManager = context.RequestServices.GetRequiredService<ICliLogSocketManager>();
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
                     var levelFilter = context.Request.Query["level"].FirstOrDefault();
                     await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted);
@@ -87,11 +85,10 @@ public static class WebApplicationExtensions
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
+                    var terminalManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-                    Console.WriteLine("WebSocket connected");
-
-                    var bashProcess = StartBashProcess();
-                    await HandleWebSocketCommunication(webSocket, bashProcess);
+                    await terminalManager.HandleShellSessionAsync(
+                        webSocket, 80, 24, null, context.RequestAborted);
                 }
                 else
                 {
@@ -105,67 +102,5 @@ public static class WebApplicationExtensions
         });
 
         return app;
-    }
-
-    private static Process StartBashProcess()
-    {
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "bash",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-
-        if (Environment.OSVersion.Platform != PlatformID.Win32NT)
-        {
-            process.StandardInput.WriteLine("stty raw -echo");
-        }
-
-        process.StandardInput.WriteLine("stty raw -echo");
-
-        return process;
-    }
-
-    private static async Task HandleWebSocketCommunication(System.Net.WebSockets.WebSocket webSocket, Process bashProcess)
-    {
-        var buffer = new byte[1024 * 4];
-
-        var outputTask = Task.Run(async () =>
-        {
-            while (!bashProcess.HasExited)
-            {
-                var output = new char[1024];
-                var count = await bashProcess.StandardOutput.ReadAsync(output, 0, output.Length);
-                if (count > 0)
-                {
-                    var data = new ArraySegment<byte>(Encoding.UTF8.GetBytes(output, 0, count));
-                    await webSocket.SendAsync(data, System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
-                }
-            }
-        });
-
-        while (webSocket.State == System.Net.WebSockets.WebSocketState.Open)
-        {
-            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
-            {
-                await webSocket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                break;
-            }
-
-            var input = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            await bashProcess.StandardInput.WriteAsync(input);
-        }
-
-        await outputTask;
-        bashProcess.Kill();
     }
 }

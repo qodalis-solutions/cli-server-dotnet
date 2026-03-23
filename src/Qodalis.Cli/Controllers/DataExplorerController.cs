@@ -11,15 +11,15 @@ namespace Qodalis.Cli.Controllers;
 [Route("api/qcli/data-explorer")]
 public class DataExplorerController : ControllerBase
 {
-    private readonly DataExplorerRegistry _registry;
-    private readonly DataExplorerExecutorService _executor;
+    private readonly IDataExplorerRegistry _registry;
+    private readonly IDataExplorerExecutorService _executor;
 
     /// <summary>
     /// Initializes a new instance of <see cref="DataExplorerController"/>.
     /// </summary>
     /// <param name="registry">The data explorer provider registry.</param>
     /// <param name="executor">The data explorer query executor service.</param>
-    public DataExplorerController(DataExplorerRegistry registry, DataExplorerExecutorService executor)
+    public DataExplorerController(IDataExplorerRegistry registry, IDataExplorerExecutorService executor)
     {
         _registry = registry;
         _executor = executor;

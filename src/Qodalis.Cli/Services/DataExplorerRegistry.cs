@@ -29,7 +29,7 @@ internal class RegisteredProvider
 /// <summary>
 /// Registry for data explorer providers, supporting lookup by source name.
 /// </summary>
-public class DataExplorerRegistry
+public class DataExplorerRegistry : IDataExplorerRegistry
 {
     private readonly Dictionary<string, RegisteredProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
 
@@ -47,11 +47,7 @@ public class DataExplorerRegistry
         };
     }
 
-    /// <summary>
-    /// Gets a registered provider and its options by source name.
-    /// </summary>
-    /// <param name="name">The data source name.</param>
-    /// <returns>The provider and options tuple, or <c>null</c> if not found.</returns>
+    /// <inheritdoc />
     public (IDataExplorerProvider Provider, DataExplorerProviderOptions Options)? Get(string name)
     {
         if (_providers.TryGetValue(name, out var entry))
@@ -62,10 +58,7 @@ public class DataExplorerRegistry
         return null;
     }
 
-    /// <summary>
-    /// Returns metadata for all registered data sources.
-    /// </summary>
-    /// <returns>A list of data source information objects.</returns>
+    /// <inheritdoc />
     public List<DataExplorerSourceInfo> GetSources()
     {
         return _providers.Values.Select(e => new DataExplorerSourceInfo

@@ -206,7 +206,7 @@ public class CliJobSchedulerTests : IDisposable
     public CliJobSchedulerTests()
     {
         _storage = new InMemoryJobStorageProvider();
-        var mockEventSocket = new Mock<CliEventSocketManager>();
+        var mockEventSocket = new Mock<ICliEventSocketManager>();
         var mockLogger = new Mock<ILogger<CliJobScheduler>>();
         _scheduler = new CliJobScheduler(_storage, mockEventSocket.Object, mockLogger.Object);
     }
@@ -486,7 +486,7 @@ public class CliJobsControllerTests : IDisposable
     public CliJobsControllerTests()
     {
         _storage = new InMemoryJobStorageProvider();
-        var mockEventSocket = new Mock<CliEventSocketManager>();
+        var mockEventSocket = new Mock<ICliEventSocketManager>();
         var mockLogger = new Mock<ILogger<CliJobScheduler>>();
         _scheduler = new CliJobScheduler(_storage, mockEventSocket.Object, mockLogger.Object);
 

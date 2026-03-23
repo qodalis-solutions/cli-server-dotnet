@@ -4,17 +4,17 @@ using Qodalis.Cli.Services;
 namespace Qodalis.Cli.Logging;
 
 /// <summary>
-/// Logger provider that forwards log messages to connected WebSocket clients via <see cref="CliLogSocketManager"/>.
+/// Logger provider that forwards log messages to connected WebSocket clients via <see cref="ICliLogSocketManager"/>.
 /// </summary>
 public class WebSocketLoggerProvider : ILoggerProvider
 {
-    private readonly CliLogSocketManager _logSocketManager;
+    private readonly ICliLogSocketManager _logSocketManager;
 
     /// <summary>
     /// Initializes a new instance of <see cref="WebSocketLoggerProvider"/>.
     /// </summary>
     /// <param name="logSocketManager">The log socket manager for broadcasting log messages.</param>
-    public WebSocketLoggerProvider(CliLogSocketManager logSocketManager)
+    public WebSocketLoggerProvider(ICliLogSocketManager logSocketManager)
     {
         _logSocketManager = logSocketManager;
     }
@@ -37,14 +37,14 @@ public class WebSocketLoggerProvider : ILoggerProvider
 public class WebSocketLogger : ILogger
 {
     private readonly string _category;
-    private readonly CliLogSocketManager _logSocketManager;
+    private readonly ICliLogSocketManager _logSocketManager;
 
     /// <summary>
     /// Initializes a new instance of <see cref="WebSocketLogger"/>.
     /// </summary>
     /// <param name="category">The logger category name.</param>
     /// <param name="logSocketManager">The log socket manager for broadcasting.</param>
-    public WebSocketLogger(string category, CliLogSocketManager logSocketManager)
+    public WebSocketLogger(string category, ICliLogSocketManager logSocketManager)
     {
         _category = category;
         _logSocketManager = logSocketManager;

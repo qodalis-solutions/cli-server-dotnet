@@ -26,17 +26,12 @@ public class CliWebSocketClientInfo
 /// <summary>
 /// Manages WebSocket connections for server-push event broadcasting to connected clients.
 /// </summary>
-public class CliEventSocketManager : IDisposable
+public class CliEventSocketManager : ICliEventSocketManager
 {
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
 
-    /// <summary>
-    /// Accepts and manages a WebSocket connection, keeping it alive until the client disconnects or the server shuts down.
-    /// </summary>
-    /// <param name="socket">The WebSocket connection.</param>
-    /// <param name="cancellationToken">A token to signal server shutdown.</param>
-    /// <param name="remoteAddress">The client's remote address for tracking.</param>
+    /// <inheritdoc />
     public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
     {
         var id = Guid.NewGuid().ToString();
@@ -80,10 +75,7 @@ public class CliEventSocketManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Broadcasts a text message to all connected WebSocket clients.
-    /// </summary>
-    /// <param name="message">The message to broadcast.</param>
+    /// <inheritdoc />
     public async Task BroadcastMessageAsync(string message)
     {
         var bytes = Encoding.UTF8.GetBytes(message);
@@ -101,9 +93,7 @@ public class CliEventSocketManager : IDisposable
         await Task.WhenAll(tasks);
     }
 
-    /// <summary>
-    /// Sends a disconnect message to all connected clients and closes their connections.
-    /// </summary>
+    /// <inheritdoc />
     public async Task BroadcastDisconnectAsync()
     {
         var message = new { type = "disconnect" };
@@ -144,9 +134,7 @@ public class CliEventSocketManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Returns information about all currently connected event clients.
-    /// </summary>
+    /// <inheritdoc />
     public IReadOnlyList<CliWebSocketClientInfo> GetClients()
     {
         return _clientInfo.Values.ToList().AsReadOnly();

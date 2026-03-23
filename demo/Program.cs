@@ -276,8 +276,8 @@ app.MapControllers();
 app.UseCli();
 
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-var eventSocketManager = app.Services.GetRequiredService<CliEventSocketManager>();
-var logSocketManager = app.Services.GetRequiredService<CliLogSocketManager>();
+var eventSocketManager = app.Services.GetRequiredService<ICliEventSocketManager>();
+var logSocketManager = app.Services.GetRequiredService<ICliLogSocketManager>();
 lifetime.ApplicationStopping.Register(() =>
 {
     eventSocketManager.BroadcastDisconnectAsync().GetAwaiter().GetResult();

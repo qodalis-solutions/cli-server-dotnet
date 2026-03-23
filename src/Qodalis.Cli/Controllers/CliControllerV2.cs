@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions;
-using Qodalis.Cli.Models;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Controllers;
@@ -14,18 +13,22 @@ public class CliControllerV2 : ControllerBase
 {
     private readonly ICliCommandRegistry _registry;
     private readonly ICliCommandExecutorService _executor;
+    private readonly ICliServerInfoService _serverInfo;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliControllerV2"/>.
     /// </summary>
     /// <param name="registry">The command processor registry.</param>
     /// <param name="executor">The command executor service.</param>
+    /// <param name="serverInfo">The server info service.</param>
     public CliControllerV2(
         ICliCommandRegistry registry,
-        ICliCommandExecutorService executor)
+        ICliCommandExecutorService executor,
+        ICliServerInfoService serverInfo)
     {
         _registry = registry;
         _executor = executor;
+        _serverInfo = serverInfo;
     }
 
     /// <summary>
@@ -34,7 +37,7 @@ public class CliControllerV2 : ControllerBase
     [HttpGet("version")]
     public IActionResult GetVersion()
     {
-        return Ok(new { ApiVersion = 2, ServerVersion = "1.0.0" });
+        return Ok(new { ApiVersion = 2, ServerVersion = _serverInfo.ServerVersion });
     }
 
     /// <summary>
@@ -45,7 +48,7 @@ public class CliControllerV2 : ControllerBase
     {
         var descriptors = _registry.Processors
             .Where(p => p.ApiVersion >= 2)
-            .Select(MapToDescriptor)
+            .Select(_serverInfo.MapToDescriptor)
             .ToList();
         return Ok(descriptors);
     }
@@ -63,23 +66,4 @@ public class CliControllerV2 : ControllerBase
         var response = await _executor.ExecuteAsync(command, cancellationToken);
         return Ok(response);
     }
-
-    private static CliServerCommandDescriptor MapToDescriptor(ICliCommandProcessor p) =>
-        new()
-        {
-            Command = p.Command,
-            Description = p.Description,
-            Version = p.Version,
-            ApiVersion = p.ApiVersion,
-            Parameters = p.Parameters?.Select(param => new CliCommandParameterDescriptorDto
-            {
-                Name = param.Name,
-                Description = param.Description,
-                Type = param.Type,
-                Required = param.Required,
-                DefaultValue = param.DefaultValue,
-                Aliases = param.Aliases,
-            }).ToList(),
-            Processors = p.Processors?.Select(MapToDescriptor).ToList(),
-        };
 }

@@ -12,6 +12,7 @@ public class ControllerTests
 {
     private readonly CliCommandRegistry _registry;
     private readonly CliCommandExecutorService _executor;
+    private readonly ICliServerInfoService _serverInfo;
 
     public ControllerTests()
     {
@@ -19,6 +20,7 @@ public class ControllerTests
         _registry.Register(new TestProcessor("echo", "Echo command", apiVersion: 1));
         _registry.Register(new TestProcessor("v2cmd", "V2 only command", apiVersion: 2));
         _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance);
+        _serverInfo = new CliServerInfoService();
     }
 
     // --- V1 Controller ---
@@ -26,7 +28,7 @@ public class ControllerTests
     [Fact]
     public void V1_GetVersion_Returns100()
     {
-        var controller = new CliController(_registry, _executor);
+        var controller = new CliController(_registry, _executor, _serverInfo);
         var result = controller.GetVersion() as OkObjectResult;
 
         Assert.NotNull(result);
@@ -37,7 +39,7 @@ public class ControllerTests
     [Fact]
     public void V1_GetCommands_ReturnsAllCommands()
     {
-        var controller = new CliController(_registry, _executor);
+        var controller = new CliController(_registry, _executor, _serverInfo);
         var result = controller.GetCommands() as OkObjectResult;
 
         Assert.NotNull(result);
@@ -49,7 +51,7 @@ public class ControllerTests
     [Fact]
     public async Task V1_Execute_KnownCommand_ReturnsSuccess()
     {
-        var controller = new CliController(_registry, _executor);
+        var controller = new CliController(_registry, _executor, _serverInfo);
         var result = await controller.ExecuteAsync(
             new CliProcessCommand { Command = "echo" },
             CancellationToken.None) as OkObjectResult;
@@ -63,7 +65,7 @@ public class ControllerTests
     [Fact]
     public async Task V1_Execute_UnknownCommand_ReturnsError()
     {
-        var controller = new CliController(_registry, _executor);
+        var controller = new CliController(_registry, _executor, _serverInfo);
         var result = await controller.ExecuteAsync(
             new CliProcessCommand { Command = "nonexistent" },
             CancellationToken.None) as OkObjectResult;
@@ -79,7 +81,7 @@ public class ControllerTests
     [Fact]
     public void V2_GetVersion_ReturnsApiVersion2()
     {
-        var controller = new CliControllerV2(_registry, _executor);
+        var controller = new CliControllerV2(_registry, _executor, _serverInfo);
         var result = controller.GetVersion() as OkObjectResult;
 
         Assert.NotNull(result);
@@ -91,7 +93,7 @@ public class ControllerTests
     [Fact]
     public void V2_GetCommands_ReturnsOnlyV2Plus()
     {
-        var controller = new CliControllerV2(_registry, _executor);
+        var controller = new CliControllerV2(_registry, _executor, _serverInfo);
         var result = controller.GetCommands() as OkObjectResult;
 
         Assert.NotNull(result);
