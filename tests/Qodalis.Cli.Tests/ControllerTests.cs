@@ -19,7 +19,7 @@ public class ControllerTests
         _registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
         _registry.Register(new TestProcessor("echo", "Echo command", apiVersion: 1));
         _registry.Register(new TestProcessor("v2cmd", "V2 only command", apiVersion: 2));
-        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance);
+        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
         _serverInfo = new CliServerInfoService();
     }
 

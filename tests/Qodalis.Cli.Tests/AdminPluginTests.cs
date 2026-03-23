@@ -540,6 +540,85 @@ public class ModuleRegistryTests
 
         Assert.Empty(plugins);
     }
+
+    [Fact]
+    public void IsAllowed_EnabledModule_ReturnsTrue()
+    {
+        var processor = new TestProcessor("test-cmd", "A test command");
+        var module = new TestModule
+        {
+            Name = "test-module",
+            Processors = new List<ICliCommandProcessor> { processor },
+        };
+        var registry = CreateRegistryWithModules(module);
+
+        Assert.True(registry.IsAllowed(processor));
+    }
+
+    [Fact]
+    public void IsAllowed_DisabledModule_ReturnsFalse()
+    {
+        var processor = new TestProcessor("test-cmd", "A test command");
+        var module = new TestModule
+        {
+            Name = "test-module",
+            Processors = new List<ICliCommandProcessor> { processor },
+        };
+        var registry = CreateRegistryWithModules(module);
+
+        registry.Toggle("test-module");
+
+        Assert.False(registry.IsAllowed(processor));
+    }
+
+    [Fact]
+    public void IsAllowed_UnknownProcessor_ReturnsTrue()
+    {
+        var registry = CreateRegistryWithModules(new TestModule { Name = "mod" });
+        var unknownProcessor = new TestProcessor("unknown", "Not in any module");
+
+        Assert.True(registry.IsAllowed(unknownProcessor));
+    }
+
+    [Fact]
+    public async Task DisabledModule_BlocksCommandExecution()
+    {
+        var processor = new TestProcessor("weather", "Weather command");
+        var module = new TestModule
+        {
+            Name = "weather-plugin",
+            Processors = new List<ICliCommandProcessor> { processor },
+        };
+        var moduleRegistry = CreateRegistryWithModules(module);
+
+        var commandRegistry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        commandRegistry.Register(processor);
+
+        var executor = new CliCommandExecutorService(
+            commandRegistry,
+            NullLogger<CliCommandExecutorService>.Instance,
+            new ICliProcessorFilter[] { moduleRegistry });
+
+        // Command works when enabled
+        var response = await executor.ExecuteAsync(new CliProcessCommand { Command = "weather" });
+        Assert.Equal(0, response.ExitCode);
+
+        // Disable the module
+        moduleRegistry.Toggle("weather-plugin");
+
+        // Command is blocked
+        response = await executor.ExecuteAsync(new CliProcessCommand { Command = "weather" });
+        Assert.Equal(1, response.ExitCode);
+        var json = JsonSerializer.Serialize(response.Outputs);
+        Assert.Contains("disabled", json);
+
+        // Re-enable
+        moduleRegistry.Toggle("weather-plugin");
+
+        // Command works again
+        response = await executor.ExecuteAsync(new CliProcessCommand { Command = "weather" });
+        Assert.Equal(0, response.ExitCode);
+    }
 }
 
 #endregion

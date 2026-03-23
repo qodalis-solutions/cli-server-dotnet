@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
 using Qodalis.Cli.Plugin.Admin.Controllers;
@@ -39,6 +40,7 @@ public static class CliBuilderAdminExtensions
             // Read modules from the CliBuilder that was captured during configuration
             return new ModuleRegistry(builder.Modules);
         });
+        builder.Services.AddSingleton<ICliProcessorFilter>(sp => sp.GetRequiredService<ModuleRegistry>());
 
         // Register the admin plugin controller assembly
         builder.AddApplicationPart(typeof(StatusController).Assembly);

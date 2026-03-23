@@ -13,7 +13,7 @@ public class CliCommandExecutorServiceTests
 
     public CliCommandExecutorServiceTests()
     {
-        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance);
+        _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
     }
 
     [Fact]

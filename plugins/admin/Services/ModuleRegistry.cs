@@ -5,8 +5,9 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 
 /// <summary>
 /// Tracks registered modules and their enabled/disabled state.
+/// Implements <see cref="ICliProcessorFilter"/> to block execution of processors belonging to disabled modules.
 /// </summary>
-public class ModuleRegistry
+public class ModuleRegistry : ICliProcessorFilter
 {
     private readonly IReadOnlyList<ICliModule> _modules;
     private readonly ConcurrentDictionary<string, bool> _enabledState = new();
@@ -15,13 +16,30 @@ public class ModuleRegistry
     /// Initializes a new instance of the <see cref="ModuleRegistry"/> class with the registered modules.
     /// </summary>
     /// <param name="modules">The list of registered CLI modules.</param>
+    private readonly Dictionary<ICliCommandProcessor, string> _processorToModule = new();
+
     public ModuleRegistry(IReadOnlyList<ICliModule> modules)
     {
         _modules = modules;
         foreach (var module in modules)
         {
             _enabledState.TryAdd(module.Name, true);
+            foreach (var processor in module.Processors)
+            {
+                _processorToModule[processor] = module.Name;
+            }
         }
+    }
+
+    /// <inheritdoc />
+    public bool IsAllowed(ICliCommandProcessor processor)
+    {
+        if (_processorToModule.TryGetValue(processor, out var moduleName))
+        {
+            return IsEnabled(moduleName);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -82,13 +100,7 @@ public class ModuleRegistry
         _enabledState.AddOrUpdate(module.Name, _ => false, (_, current) => !current);
         var newState = IsEnabled(module.Name);
 
-        string? warning = null;
-        if (!newState)
-        {
-            warning = "Note: Toggling a module off tracks state only. Already-registered command processors remain active until the server is restarted.";
-        }
-
-        return new ToggleResult { Enabled = newState, Warning = warning };
+        return new ToggleResult { Enabled = newState };
     }
 
     /// <summary>
