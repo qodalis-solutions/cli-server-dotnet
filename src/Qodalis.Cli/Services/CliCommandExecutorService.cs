@@ -12,16 +12,22 @@ public class CliCommandExecutorService : ICliCommandExecutorService
 {
     private readonly ICliCommandRegistry _registry;
     private readonly ILogger<CliCommandExecutorService> _logger;
+    private readonly IEnumerable<ICliProcessorFilter> _filters;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliCommandExecutorService"/>.
     /// </summary>
     /// <param name="registry">The command processor registry.</param>
     /// <param name="logger">The logger instance.</param>
-    public CliCommandExecutorService(ICliCommandRegistry registry, ILogger<CliCommandExecutorService> logger)
+    /// <param name="filters">Optional processor filters for runtime enable/disable checks.</param>
+    public CliCommandExecutorService(
+        ICliCommandRegistry registry,
+        ILogger<CliCommandExecutorService> logger,
+        IEnumerable<ICliProcessorFilter> filters)
     {
         _registry = registry;
         _logger = logger;
+        _filters = filters;
     }
 
     /// <inheritdoc />
@@ -42,6 +48,15 @@ public class CliCommandExecutorService : ICliCommandExecutorService
             _logger.LogWarning("Unknown command: {Command}", fullCommand);
             var builder = new CliResponseBuilder();
             builder.WriteText($"Unknown command: {command.Command}", "error");
+            builder.SetExitCode(1);
+            return builder.Build();
+        }
+
+        if (_filters.Any(f => !f.IsAllowed(processor)))
+        {
+            _logger.LogWarning("Command blocked by filter (plugin disabled): {Command}", fullCommand);
+            var builder = new CliResponseBuilder();
+            builder.WriteText($"Command '{command.Command}' is currently disabled.", "error");
             builder.SetExitCode(1);
             return builder.Build();
         }

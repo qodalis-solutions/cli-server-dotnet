@@ -54,17 +54,10 @@ public class PluginsController : ControllerBase
         if (result == null)
             return NotFound(new { error = "Plugin not found", code = "PLUGIN_NOT_FOUND" });
 
-        var response = new Dictionary<string, object>
+        return Ok(new
         {
-            ["message"] = result.Enabled ? "Plugin enabled" : "Plugin disabled",
-            ["enabled"] = result.Enabled,
-        };
-
-        if (result.Warning != null)
-        {
-            response["warning"] = result.Warning;
-        }
-
-        return Ok(response);
+            message = result.Enabled ? "Plugin enabled" : "Plugin disabled",
+            enabled = result.Enabled,
+        });
     }
 }
