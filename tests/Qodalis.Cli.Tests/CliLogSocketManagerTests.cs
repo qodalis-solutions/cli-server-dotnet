@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Microsoft.Extensions.Logging.Abstractions;
+
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Tests;

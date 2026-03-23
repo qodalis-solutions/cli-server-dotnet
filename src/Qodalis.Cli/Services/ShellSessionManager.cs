@@ -44,31 +44,49 @@ public class ShellSessionManager : IShellSessionManager
                 ? $"{shell} {string.Join(" ", shellArgs)}"
                 : shell;
 
+            var psi = new ProcessStartInfo
+            {
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = GetWorkingDirectory(),
+                Environment =
+                {
+                    ["TERM"] = "xterm-256color",
+                    ["COLUMNS"] = cols.ToString(),
+                    ["LINES"] = rows.ToString(),
+                },
+            };
+
+            if (OperatingSystem.IsMacOS())
+            {
+                // macOS: wrap script in bash with SIGINT ignored.
+                // trap '' INT makes the shell ignore SIGINT; exec preserves
+                // ignored signal dispositions, so script won't die on Ctrl+C.
+                // The child shell (zsh) resets its own handlers via the PTY.
+                var scriptArgs = $"script -q /dev/null {EscapeShellArg(shell)}";
+                foreach (var arg in shellArgs)
+                    scriptArgs += $" {EscapeShellArg(arg)}";
+
+                psi.FileName = "bash";
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add($"trap '' INT; exec {scriptArgs}");
+            }
+            else
+            {
+                // Linux: script -q -c "command" /dev/null
+                psi.FileName = "script";
+                psi.ArgumentList.Add("-q");
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(shellCommand);
+                psi.ArgumentList.Add("/dev/null");
+            }
+
             process = new Process
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "script",
-                    ArgumentList =
-                    {
-                        "-q",       // quiet
-                        "-c",       // command
-                        shellCommand,
-                        "/dev/null" // output file (discard)
-                    },
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = GetWorkingDirectory(),
-                    Environment =
-                    {
-                        ["TERM"] = "xterm-256color",
-                        ["COLUMNS"] = cols.ToString(),
-                        ["LINES"] = rows.ToString(),
-                    },
-                },
+                StartInfo = psi,
                 EnableRaisingEvents = true,
             };
 
@@ -103,14 +121,37 @@ public class ShellSessionManager : IShellSessionManager
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var outputTask = ReadProcessOutputAsync(process, webSocket, cts.Token);
             var inputTask = ReadWebSocketInputAsync(webSocket, process, cts.Token);
-            var exitTask = WaitForExitAsync(process, webSocket, cts);
 
-            await Task.WhenAny(outputTask, inputTask, exitTask);
+            // Wait for the process to exit (don't send exit message yet)
+            var processExitTask = process.WaitForExitAsync(cts.Token);
+
+            // Stop when process exits, output ends, or WebSocket input closes
+            await Task.WhenAny(outputTask, inputTask, processExitTask);
+
+            // Process exited — drain remaining stdout before sending exit message
+            if (processExitTask.IsCompleted)
+            {
+                try
+                {
+                    await outputTask.WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch { }
+
+                if (webSocket.State == WebSocketState.Open)
+                {
+                    await SendJsonAsync(webSocket, new
+                    {
+                        type = "exit",
+                        code = process.ExitCode,
+                    }, CancellationToken.None);
+                }
+            }
+
             cts.Cancel();
 
             try
             {
-                await Task.WhenAll(outputTask, inputTask, exitTask)
+                await Task.WhenAll(outputTask, inputTask)
                     .WaitAsync(TimeSpan.FromSeconds(2));
             }
             catch (OperationCanceledException) { }
@@ -167,12 +208,11 @@ public class ShellSessionManager : IShellSessionManager
         try
         {
             while (!cancellationToken.IsCancellationRequested &&
-                   webSocket.State == WebSocketState.Open &&
-                   !process.HasExited)
+                   webSocket.State == WebSocketState.Open)
             {
                 var charsRead = await process.StandardOutput.ReadAsync(
                     buffer, cancellationToken);
-                if (charsRead == 0) break;
+                if (charsRead == 0) break; // EOF — process closed stdout
 
                 var data = new string(buffer, 0, charsRead);
                 await SendJsonAsync(webSocket, new
@@ -195,13 +235,15 @@ public class ShellSessionManager : IShellSessionManager
         try
         {
             while (!cancellationToken.IsCancellationRequested &&
-                   webSocket.State == WebSocketState.Open &&
-                   !process.HasExited)
+                   webSocket.State == WebSocketState.Open)
             {
                 var result = await webSocket.ReceiveAsync(
                     new ArraySegment<byte>(buffer), cancellationToken);
 
                 if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                if (process.HasExited)
                     break;
 
                 var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
@@ -214,13 +256,16 @@ public class ShellSessionManager : IShellSessionManager
                         var data = doc.RootElement.GetProperty("data").GetString();
                         if (data != null)
                         {
-                            await process.StandardInput.WriteAsync(data);
-                            await process.StandardInput.FlushAsync();
+                            try
+                            {
+                                await process.StandardInput.WriteAsync(data);
+                                await process.StandardInput.FlushAsync();
+                            }
+                            catch (IOException) { return; }
                         }
                         break;
 
                     case "resize":
-                        // script doesn't support runtime resize, but we can try stty
                         var newCols = doc.RootElement.GetProperty("cols").GetInt32();
                         var newRows = doc.RootElement.GetProperty("rows").GetInt32();
                         try
@@ -229,36 +274,14 @@ public class ShellSessionManager : IShellSessionManager
                                 $"stty cols {newCols} rows {newRows}\n");
                             await process.StandardInput.FlushAsync();
                         }
-                        catch (Exception resizeEx) { _logger.LogDebug(resizeEx, "Failed to send terminal resize"); }
+                        catch (Exception) { }
                         break;
                 }
             }
         }
         catch (OperationCanceledException) { }
         catch (WebSocketException) { }
-    }
-
-    private async Task WaitForExitAsync(
-        Process process,
-        WebSocket webSocket,
-        CancellationTokenSource cts)
-    {
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-
-            if (!cts.Token.IsCancellationRequested && webSocket.State == WebSocketState.Open)
-            {
-                await SendJsonAsync(webSocket, new
-                {
-                    type = "exit",
-                    code = process.ExitCode,
-                }, CancellationToken.None);
-            }
-        }
-        catch (OperationCanceledException) { }
-
-        cts.Cancel();
+        catch (IOException) { }
     }
 
     private static async Task SendJsonAsync(
@@ -315,5 +338,10 @@ public class ShellSessionManager : IShellSessionManager
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return !string.IsNullOrEmpty(home) && Directory.Exists(home) ? home : "/";
+    }
+
+    private static string EscapeShellArg(string arg)
+    {
+        return "'" + arg.Replace("'", "'\\''") + "'";
     }
 }
