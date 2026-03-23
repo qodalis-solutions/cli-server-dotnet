@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
@@ -12,6 +14,11 @@ namespace Qodalis.Cli.Controllers;
 [Route("api/v1/qcli")]
 public class CliController : ControllerBase
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     private readonly ICliCommandRegistry _registry;
     private readonly ICliCommandExecutorService _executor;
     private readonly ICliServerInfoService _serverInfo;
@@ -77,5 +84,70 @@ public class CliController : ControllerBase
         _logger.LogDebug("Executing command: {Command}", command.Command);
         var response = await _executor.ExecuteAsync(command, cancellationToken);
         return Ok(response);
+    }
+
+    /// <summary>
+    /// Executes a CLI command and streams the output as Server-Sent Events.
+    /// </summary>
+    /// <param name="command">The command to execute.</param>
+    [HttpPost("execute/stream")]
+    public async Task ExecuteStream([FromBody] CliProcessCommand command)
+    {
+        _logger.LogDebug("Stream executing command: {Command}", command.Command);
+
+        Response.ContentType = "text/event-stream";
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["Connection"] = "keep-alive";
+        Response.Headers["X-Accel-Buffering"] = "no";
+
+        async Task WriteEvent(string eventType, object data)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(data, data.GetType(), _jsonOptions);
+            await Response.WriteAsync($"event: {eventType}\ndata: {json}\n\n");
+            await Response.Body.FlushAsync();
+        }
+
+        try
+        {
+            var processor = _registry.FindProcessor(command.Command, command.ChainCommands);
+
+            if (processor == null)
+            {
+                await WriteEvent("error", new { message = $"Unknown command: {command.Command}" });
+                return;
+            }
+
+            if (_executor.IsBlocked(processor))
+            {
+                await WriteEvent("error", new { message = $"Command '{command.Command}' is currently disabled." });
+                return;
+            }
+
+            int exitCode;
+
+            if (processor is ICliStreamCommandProcessor streamProcessor)
+            {
+                exitCode = await streamProcessor.HandleStreamAsync(command, async output =>
+                {
+                    await WriteEvent("output", output);
+                });
+            }
+            else
+            {
+                var response = await _executor.ExecuteAsync(command);
+                foreach (var output in response.Outputs)
+                {
+                    await WriteEvent("output", output);
+                }
+                exitCode = response.ExitCode;
+            }
+
+            await WriteEvent("done", new { exitCode });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Stream execution failed: {Command}", command.Command);
+            await WriteEvent("error", new { message = $"Error executing command: {ex.Message}" });
+        }
     }
 }

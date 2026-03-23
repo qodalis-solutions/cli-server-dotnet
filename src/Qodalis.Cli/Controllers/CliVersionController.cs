@@ -20,6 +20,7 @@ public class CliVersionController : ControllerBase
             SupportedVersions = new[] { 1 },
             PreferredVersion = 1,
             ServerVersion = "1.0.0",
+            Streaming = true,
         });
     }
 }

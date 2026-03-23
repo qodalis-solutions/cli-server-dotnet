@@ -31,6 +31,12 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     }
 
     /// <inheritdoc />
+    public bool IsBlocked(ICliCommandProcessor processor)
+    {
+        return _filters.Any(f => !f.IsAllowed(processor));
+    }
+
+    /// <inheritdoc />
     public async Task<CliServerResponse> ExecuteAsync(
         CliProcessCommand command,
         CancellationToken cancellationToken = default)
@@ -52,7 +58,7 @@ public class CliCommandExecutorService : ICliCommandExecutorService
             return builder.Build();
         }
 
-        if (_filters.Any(f => !f.IsAllowed(processor)))
+        if (IsBlocked(processor))
         {
             _logger.LogWarning("Command blocked by filter (plugin disabled): {Command}", fullCommand);
             var builder = new CliResponseBuilder();
