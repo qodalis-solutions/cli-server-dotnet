@@ -10,8 +10,17 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
 
+/// <summary>
+/// Extension methods for <see cref="IMvcBuilder"/> to register CLI services and controllers.
+/// </summary>
 public static class MvcBuilderExtensions
 {
+    /// <summary>
+    /// Registers CLI controllers, services, and command processors with the MVC pipeline.
+    /// </summary>
+    /// <param name="builder">The MVC builder.</param>
+    /// <param name="configure">Optional action to configure CLI processors, modules, and features.</param>
+    /// <returns>The MVC builder for chaining.</returns>
     public static IMvcBuilder AddCli(this IMvcBuilder builder, Action<CliBuilder>? configure = null)
     {
         builder.PartManager.ApplicationParts

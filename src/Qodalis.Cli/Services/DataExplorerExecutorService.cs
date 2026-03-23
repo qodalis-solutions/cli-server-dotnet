@@ -4,17 +4,31 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Services;
 
+/// <summary>
+/// Service for executing data explorer queries against registered providers, with timeout enforcement and row limiting.
+/// </summary>
 public class DataExplorerExecutorService
 {
     private readonly DataExplorerRegistry _registry;
     private readonly ILogger<DataExplorerExecutorService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DataExplorerExecutorService"/>.
+    /// </summary>
+    /// <param name="registry">The data explorer provider registry.</param>
+    /// <param name="logger">The logger instance.</param>
     public DataExplorerExecutorService(DataExplorerRegistry registry, ILogger<DataExplorerExecutorService> logger)
     {
         _registry = registry;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Executes a data explorer query against the specified source.
+    /// </summary>
+    /// <param name="request">The query execution request.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result with execution metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecuteRequest request,
         CancellationToken cancellationToken = default)

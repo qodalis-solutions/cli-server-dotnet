@@ -6,6 +6,9 @@ using Qodalis.Cli.Plugin.Admin.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Auth;
 
+/// <summary>
+/// Authentication controller for admin login with rate limiting and JWT token issuance.
+/// </summary>
 [ApiController]
 [Route("api/v1/qcli/auth")]
 public class AuthController : ControllerBase
@@ -33,12 +36,19 @@ public class AuthController : ControllerBase
         }
     }, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AuthController"/> class.
+    /// </summary>
     public AuthController(AdminConfig config, JwtService jwtService)
     {
         _config = config;
         _jwtService = jwtService;
     }
 
+    /// <summary>
+    /// Authenticates an admin user and returns a JWT token. Rate-limited per IP.
+    /// </summary>
+    /// <param name="request">The login credentials.</param>
     [HttpPost("login")]
     public IActionResult Login([FromBody] LoginRequest request)
     {
@@ -66,6 +76,9 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Returns information about the currently authenticated admin user.
+    /// </summary>
     [HttpGet("me")]
     public IActionResult Me()
     {
@@ -109,8 +122,13 @@ public class AuthController : ControllerBase
     }
 }
 
+/// <summary>
+/// Request body for admin login.
+/// </summary>
 public class LoginRequest
 {
+    /// <summary>The admin username.</summary>
     public string Username { get; set; } = string.Empty;
+    /// <summary>The admin password.</summary>
     public string Password { get; set; } = string.Empty;
 }

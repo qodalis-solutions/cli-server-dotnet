@@ -3,23 +3,35 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
+/// <summary>
+/// File storage provider backed by Entity Framework Core, supporting any EF-compatible database.
+/// </summary>
 public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
 {
+    /// <inheritdoc />
     public string Name => "efcore";
 
     private readonly FileStorageDbContext _db;
 
+    /// <summary>
+    /// Initializes a new instance and ensures the database schema is created.
+    /// </summary>
+    /// <param name="db">The EF Core database context to use for storage.</param>
     public EfCoreFileStorageProvider(FileStorageDbContext db)
     {
         _db = db;
         _db.Database.EnsureCreated();
     }
 
+    /// <summary>
+    /// Disposes the underlying database context.
+    /// </summary>
     public void Dispose()
     {
         _db.Dispose();
     }
 
+    /// <inheritdoc />
     public async Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -49,6 +61,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         return entries;
     }
 
+    /// <inheritdoc />
     public async Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -62,11 +75,13 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         return content;
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, Encoding.UTF8.GetBytes(content), ct);
     }
 
+    /// <inheritdoc />
     public async Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -110,6 +125,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <inheritdoc />
     public async Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -128,6 +144,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         };
     }
 
+    /// <inheritdoc />
     public async Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -197,6 +214,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <inheritdoc />
     public async Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -230,6 +248,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <inheritdoc />
     public async Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcPath = NormalizePath(src);
@@ -253,7 +272,6 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
 
         var now = DateTime.UtcNow;
 
-        // Remove existing destination if present
         var existingDest = await _db.Files.FirstOrDefaultAsync(f => f.Path == destPath, ct);
         if (existingDest != null)
             _db.Files.Remove(existingDest);
@@ -271,7 +289,6 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
             ParentPath = destParent,
         });
 
-        // If source is a directory, copy descendants too
         if (srcNode.Type == "directory")
         {
             var srcPrefix = srcPath + "/";
@@ -303,6 +320,7 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <inheritdoc />
     public async Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcPath = NormalizePath(src);
@@ -324,7 +342,6 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
                 throw new FileStorageNotADirectoryError(destParent);
         }
 
-        // Move descendants first if it's a directory
         if (srcNode.Type == "directory")
         {
             var srcPrefix = srcPath + "/";
@@ -349,12 +366,14 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <inheritdoc />
     public async Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
         return await _db.Files.AnyAsync(f => f.Path == normalizedPath, ct);
     }
 
+    /// <inheritdoc />
     public async Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -367,12 +386,11 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
         return new MemoryStream(node.Content ?? []);
     }
 
+    /// <inheritdoc />
     public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, content, ct);
     }
-
-    // --- Helpers ---
 
     private static string NormalizePath(string path)
     {

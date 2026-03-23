@@ -6,8 +6,17 @@ using System.Text;
 
 namespace Qodalis.Cli.Extensions;
 
+/// <summary>
+/// Extension methods for <see cref="IApplicationBuilder"/> to configure CLI WebSocket middleware.
+/// </summary>
 public static class WebApplicationExtensions
 {
+    /// <summary>
+    /// Adds CLI middleware for WebSocket endpoints (events, shell, logs, and legacy terminal).
+    /// Must be called after <c>UseWebSockets()</c>.
+    /// </summary>
+    /// <param name="app">The application builder.</param>
+    /// <returns>The application builder for chaining.</returns>
     public static IApplicationBuilder UseCli(this IApplicationBuilder app)
     {
         app.Use(async (context, next) =>

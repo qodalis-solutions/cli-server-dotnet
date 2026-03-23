@@ -7,15 +7,18 @@ using Task = System.Threading.Tasks.Task;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// ecs clusters
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ecs clusters" command to list all ECS clusters with their task counts.
+/// </summary>
 internal class EcsClustersProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "clusters";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List ECS clusters";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -29,8 +32,13 @@ internal class EcsClustersProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="EcsClustersProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the ECS client.</param>
     public EcsClustersProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -79,16 +87,21 @@ internal class EcsClustersProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ecs services
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ecs services" command to list ECS services within a specified cluster.
+/// </summary>
 internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "services";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List ECS services in a cluster";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -102,8 +115,13 @@ internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="EcsServicesProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the ECS client.</param>
     public EcsServicesProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -167,16 +185,21 @@ internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ecs tasks
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ecs tasks" command to list ECS tasks within a specified cluster.
+/// </summary>
 internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "tasks";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List ECS tasks in a cluster";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -190,8 +213,13 @@ internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="EcsTasksProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the ECS client.</param>
     public EcsTasksProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -254,17 +282,24 @@ internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ecs (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for ECS commands, aggregating clusters, services, and tasks sub-commands.
+/// </summary>
 public class EcsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "ecs";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS ECS operations — clusters, services, tasks";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="EcsProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public EcsProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -275,6 +310,7 @@ public class EcsProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

@@ -3,15 +3,28 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Postgres;
 
+/// <summary>
+/// Data explorer provider for PostgreSQL databases using Npgsql.
+/// </summary>
 public class PostgresDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PostgresDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The PostgreSQL connection string.</param>
     public PostgresDataExplorerProvider(string connectionString)
     {
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Retrieves the database schema for all tables and views in the <c>public</c> schema, including column metadata.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing tables and columns, or <c>null</c> on failure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -19,7 +32,6 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get tables and views from information_schema
         await using var tablesCmd = connection.CreateCommand();
         tablesCmd.CommandText = "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name";
         await using var tablesReader = await tablesCmd.ExecuteReaderAsync(cancellationToken);
@@ -45,9 +57,9 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
             {
                 columns.Add(new DataExplorerSchemaColumn
                 {
-                    Name = colReader.GetString(0),      // column_name
-                    Type = colReader.GetString(1),      // data_type
-                    Nullable = colReader.GetString(2) == "YES", // is_nullable
+                    Name = colReader.GetString(0),
+                    Type = colReader.GetString(1),
+                    Nullable = colReader.GetString(2) == "YES",
                     PrimaryKey = false
                 });
             }
@@ -67,6 +79,12 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Executes a SQL query against the PostgreSQL database and returns the results.
+    /// </summary>
+    /// <param name="context">The execution context containing the query, parameters, and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)

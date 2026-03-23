@@ -8,9 +8,13 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// </summary>
 public class AdminConfig
 {
+    /// <summary>Admin username for login.</summary>
     public string Username { get; set; } = "admin";
+    /// <summary>Admin password for login.</summary>
     public string Password { get; set; } = "admin";
+    /// <summary>Secret key used for signing JWT tokens.</summary>
     public string JwtSecret { get; set; } = string.Empty;
+    /// <summary>Duration before JWT tokens expire.</summary>
     public TimeSpan JwtExpiry { get; set; } = TimeSpan.FromHours(24);
 
     /// <summary>Optional explicit path to the dashboard dist directory.</summary>
@@ -49,6 +53,12 @@ public class AdminConfig
         }
     }
 
+    /// <summary>
+    /// Validates the provided credentials against the configured admin username and password using constant-time comparison.
+    /// </summary>
+    /// <param name="username">The username to validate.</param>
+    /// <param name="password">The password to validate.</param>
+    /// <returns>True if both username and password match.</returns>
     public bool ValidateCredentials(string username, string password)
     {
         var usernameMatch = CryptographicOperations.FixedTimeEquals(
@@ -60,6 +70,10 @@ public class AdminConfig
         return usernameMatch && passwordMatch;
     }
 
+    /// <summary>
+    /// Returns the configuration sections for the admin config endpoint.
+    /// </summary>
+    /// <returns>An array of configuration section objects.</returns>
     public object[] GetConfigSections()
     {
         return new object[]

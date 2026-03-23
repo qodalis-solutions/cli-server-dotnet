@@ -2,12 +2,20 @@ using System.Text;
 
 namespace Qodalis.Cli.Plugin.FileSystem;
 
+/// <summary>
+/// File storage provider that stores all files and directories in memory using a tree structure.
+/// Data is lost when the process exits.
+/// </summary>
 public class InMemoryFileStorageProvider : IFileStorageProvider
 {
+    /// <inheritdoc />
     public string Name => "in-memory";
 
     private readonly FileNode _root;
 
+    /// <summary>
+    /// Initializes a new instance with an empty root directory.
+    /// </summary>
     public InMemoryFileStorageProvider()
     {
         _root = new FileNode
@@ -18,6 +26,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         };
     }
 
+    /// <inheritdoc />
     public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -38,6 +47,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.FromResult(entries);
     }
 
+    /// <inheritdoc />
     public Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -50,11 +60,13 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.FromResult(content);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, Encoding.UTF8.GetBytes(content), ct);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -93,6 +105,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -112,6 +125,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.FromResult(stat);
     }
 
+    /// <inheritdoc />
     public Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -169,6 +183,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -192,6 +207,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcNode = Resolve(src);
@@ -213,6 +229,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcParts = SplitPath(src);
@@ -243,11 +260,13 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         return Task.FromResult(Resolve(path) != null);
     }
 
+    /// <inheritdoc />
     public Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -260,6 +279,7 @@ public class InMemoryFileStorageProvider : IFileStorageProvider
         return Task.FromResult(stream);
     }
 
+    /// <inheritdoc />
     public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, content, ct);

@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// ec2 list
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 list" command to list all EC2 instances with key details.
+/// </summary>
 internal class Ec2ListProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "list";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List all EC2 instances";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -28,8 +31,13 @@ internal class Ec2ListProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2ListProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2ListProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -78,16 +86,21 @@ internal class Ec2ListProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 describe
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 describe" command to show detailed information about a specific EC2 instance.
+/// </summary>
 internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "describe";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Describe an EC2 instance";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -101,8 +114,13 @@ internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2DescribeProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2DescribeProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -166,16 +184,21 @@ internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 start
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 start" command to start a stopped EC2 instance.
+/// </summary>
 internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "start";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Start an EC2 instance";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -189,8 +212,13 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2StartProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2StartProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -228,16 +256,21 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 stop
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 stop" command to stop a running EC2 instance, with optional dry-run support.
+/// </summary>
 internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "stop";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Stop an EC2 instance";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -257,8 +290,13 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2StopProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2StopProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -302,16 +340,21 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 reboot
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 reboot" command to reboot an EC2 instance, with optional dry-run support.
+/// </summary>
 internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "reboot";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Reboot an EC2 instance";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -331,8 +374,13 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2RebootProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2RebootProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -376,15 +424,18 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 sg list
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "ec2 sg list" command to list all EC2 security groups.
+/// </summary>
 internal class Ec2SgListProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "list";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List all security groups";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -398,8 +449,13 @@ internal class Ec2SgListProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2SgListProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the EC2 client.</param>
     public Ec2SgListProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -441,37 +497,52 @@ internal class Ec2SgListProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// ec2 sg (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for the "ec2 sg" command group, aggregating security group sub-commands.
+/// </summary>
 internal class Ec2SgProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "sg";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "EC2 security group operations";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2SgProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public Ec2SgProcessor(AwsCredentialManager credentialManager)
     {
         Processors = [new Ec2SgListProcessor(credentialManager)];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }
 
-// ---------------------------------------------------------------------------
-// ec2 (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for EC2 commands, aggregating instance and security group sub-commands.
+/// </summary>
 public class Ec2Processor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "ec2";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Amazon EC2 operations — manage instances and security groups";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="Ec2Processor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public Ec2Processor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -485,6 +556,7 @@ public class Ec2Processor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

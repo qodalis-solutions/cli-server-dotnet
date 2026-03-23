@@ -2,14 +2,22 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
+/// <summary>
+/// EF Core database context for job storage tables (executions, log entries, and job states).
+/// </summary>
 public class JobStorageDbContext : DbContext
 {
     internal DbSet<JobExecutionEntity> Executions { get; set; } = null!;
     internal DbSet<JobLogEntryEntity> LogEntries { get; set; } = null!;
     internal DbSet<JobStateEntity> States { get; set; } = null!;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStorageDbContext"/> class.
+    /// </summary>
+    /// <param name="options">The context options configured via <see cref="EfCoreJobStorageExtensions.AddEfCoreJobStorage"/>.</param>
     public JobStorageDbContext(DbContextOptions<JobStorageDbContext> options) : base(options) { }
 
+    /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<JobExecutionEntity>(entity =>

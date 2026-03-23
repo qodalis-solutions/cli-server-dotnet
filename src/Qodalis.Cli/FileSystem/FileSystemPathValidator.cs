@@ -2,10 +2,17 @@ using Qodalis.Cli.Plugin.FileSystem;
 
 namespace Qodalis.Cli.FileSystem;
 
+/// <summary>
+/// Validates that filesystem paths are within the configured whitelist to prevent unauthorized access.
+/// </summary>
 public class FileSystemPathValidator
 {
     private readonly FileSystemOptions _options;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="FileSystemPathValidator"/>.
+    /// </summary>
+    /// <param name="options">The filesystem options containing the allowed paths whitelist.</param>
     public FileSystemPathValidator(FileSystemOptions options)
     {
         _options = options;

@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// sns topics
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sns topics" command to list all SNS topics in the account.
+/// </summary>
 internal class SnsTopicsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "topics";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List SNS topics";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -28,8 +31,13 @@ internal class SnsTopicsProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SnsTopicsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SNS client.</param>
     public SnsTopicsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -63,16 +71,21 @@ internal class SnsTopicsProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sns publish
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sns publish" command to publish a message to an SNS topic.
+/// </summary>
 internal class SnsPublishProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "publish";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Publish a message to an SNS topic";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -94,8 +107,13 @@ internal class SnsPublishProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SnsPublishProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SNS client.</param>
     public SnsPublishProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -142,15 +160,18 @@ internal class SnsPublishProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sns subscriptions
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sns subscriptions" command to list SNS subscriptions, optionally filtered by topic ARN.
+/// </summary>
 internal class SnsSubscriptionsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "subscriptions";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List SNS subscriptions (optionally filtered by topic ARN)";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -164,8 +185,13 @@ internal class SnsSubscriptionsProcessor : CliCommandProcessor, ICliCommandProce
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SnsSubscriptionsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SNS client.</param>
     public SnsSubscriptionsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -221,17 +247,24 @@ internal class SnsSubscriptionsProcessor : CliCommandProcessor, ICliCommandProce
     }
 }
 
-// ---------------------------------------------------------------------------
-// sns (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for SNS commands, aggregating topics, publish, and subscriptions sub-commands.
+/// </summary>
 public class SnsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "sns";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS SNS operations — topics, publish, subscriptions";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SnsProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public SnsProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -242,6 +275,7 @@ public class SnsProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

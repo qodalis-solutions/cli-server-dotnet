@@ -3,11 +3,19 @@ using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
+/// <summary>
+/// Entity Framework Core implementation of <see cref="ICliJobStorageProvider"/> that persists
+/// job executions and state to a relational database.
+/// </summary>
 public class EfCoreJobStorageProvider : ICliJobStorageProvider
 {
     private readonly IDbContextFactory<JobStorageDbContext> _dbFactory;
     private bool _initialized;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EfCoreJobStorageProvider"/> class.
+    /// </summary>
+    /// <param name="dbFactory">The DbContext factory for creating database contexts.</param>
     public EfCoreJobStorageProvider(IDbContextFactory<JobStorageDbContext> dbFactory)
     {
         _dbFactory = dbFactory;
@@ -24,6 +32,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         return db;
     }
 
+    /// <inheritdoc />
     public async Task SaveExecutionAsync(JobExecution execution, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);
@@ -81,6 +90,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<(List<JobExecution> Items, int Total)> GetExecutionsAsync(
         string jobId, int limit = 20, int offset = 0, string? statusFilter = null,
         CancellationToken cancellationToken = default)
@@ -108,6 +118,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         return (items, total);
     }
 
+    /// <inheritdoc />
     public async Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);
@@ -119,6 +130,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         return entity != null ? ToJobExecution(entity) : null;
     }
 
+    /// <inheritdoc />
     public async Task SaveJobStateAsync(string jobId, JobState state, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);
@@ -147,6 +159,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<JobState?> GetJobStateAsync(string jobId, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);
@@ -157,6 +170,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         return entity != null ? ToJobState(entity) : null;
     }
 
+    /// <inheritdoc />
     public async Task<Dictionary<string, JobState>> GetAllJobStatesAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);

@@ -8,15 +8,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// cloudwatch alarms
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "cloudwatch alarms" command to list CloudWatch metric alarms.
+/// </summary>
 internal class CloudWatchAlarmsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "alarms";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List CloudWatch alarms";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -30,8 +33,13 @@ internal class CloudWatchAlarmsProcessor : CliCommandProcessor, ICliCommandProce
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CloudWatchAlarmsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the CloudWatch client.</param>
     public CloudWatchAlarmsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -73,16 +81,21 @@ internal class CloudWatchAlarmsProcessor : CliCommandProcessor, ICliCommandProce
     }
 }
 
-// ---------------------------------------------------------------------------
-// cloudwatch logs
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "cloudwatch logs" command to fetch log events from a CloudWatch Logs group.
+/// </summary>
 internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "logs";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Fetch log events from a CloudWatch log group";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -111,8 +124,13 @@ internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcess
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CloudWatchLogsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the CloudWatch Logs client.</param>
     public CloudWatchLogsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -180,16 +198,21 @@ internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcess
     }
 }
 
-// ---------------------------------------------------------------------------
-// cloudwatch metrics
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "cloudwatch metrics" command to list CloudWatch metrics for a given namespace.
+/// </summary>
 internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "metrics";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List CloudWatch metrics for a namespace";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -203,8 +226,13 @@ internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProc
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CloudWatchMetricsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the CloudWatch client.</param>
     public CloudWatchMetricsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -259,17 +287,24 @@ internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProc
     }
 }
 
-// ---------------------------------------------------------------------------
-// cloudwatch (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for CloudWatch commands, aggregating alarms, logs, and metrics sub-commands.
+/// </summary>
 public class CloudWatchProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "cloudwatch";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Amazon CloudWatch — alarms, logs, and metrics";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CloudWatchProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public CloudWatchProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -280,6 +315,7 @@ public class CloudWatchProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

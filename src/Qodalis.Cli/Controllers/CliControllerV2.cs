@@ -5,6 +5,9 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Controllers;
 
+/// <summary>
+/// API v2 controller for CLI operations. Only exposes processors targeting API version 2 or higher.
+/// </summary>
 [ApiController]
 [Route("api/v2/qcli")]
 public class CliControllerV2 : ControllerBase
@@ -12,6 +15,11 @@ public class CliControllerV2 : ControllerBase
     private readonly ICliCommandRegistry _registry;
     private readonly ICliCommandExecutorService _executor;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CliControllerV2"/>.
+    /// </summary>
+    /// <param name="registry">The command processor registry.</param>
+    /// <param name="executor">The command executor service.</param>
     public CliControllerV2(
         ICliCommandRegistry registry,
         ICliCommandExecutorService executor)
@@ -20,12 +28,18 @@ public class CliControllerV2 : ControllerBase
         _executor = executor;
     }
 
+    /// <summary>
+    /// Returns the API version and server version.
+    /// </summary>
     [HttpGet("version")]
     public IActionResult GetVersion()
     {
         return Ok(new { ApiVersion = 2, ServerVersion = "1.0.0" });
     }
 
+    /// <summary>
+    /// Returns command descriptors for processors targeting API version 2 or higher.
+    /// </summary>
     [HttpGet("commands")]
     public IActionResult GetCommands()
     {
@@ -36,6 +50,11 @@ public class CliControllerV2 : ControllerBase
         return Ok(descriptors);
     }
 
+    /// <summary>
+    /// Executes a CLI command and returns the response.
+    /// </summary>
+    /// <param name="command">The command to execute.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
     [HttpPost("execute")]
     public async Task<IActionResult> ExecuteAsync(
         [FromBody] CliProcessCommand command,

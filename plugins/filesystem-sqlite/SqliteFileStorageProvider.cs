@@ -3,15 +3,24 @@ using Microsoft.Data.Sqlite;
 
 namespace Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
+/// <summary>
+/// File storage provider that persists files and directories in a SQLite database.
+/// Supports both file-based and in-memory databases via shared cache mode.
+/// </summary>
 public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 {
+    /// <inheritdoc />
     public string Name => "sqlite";
 
     private readonly SqliteProviderOptions _options;
     private readonly string _connectionString;
-    // Keep a persistent connection for in-memory databases so the DB survives across calls
     private readonly SqliteConnection? _keepAliveConnection;
 
+    /// <summary>
+    /// Initializes a new instance, creating the database schema if it does not exist.
+    /// For in-memory databases, a persistent connection is kept open to prevent data loss.
+    /// </summary>
+    /// <param name="options">Options specifying the database path.</param>
     public SqliteFileStorageProvider(SqliteProviderOptions options)
     {
         _options = options;
@@ -26,7 +35,6 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         if (isMemory)
         {
-            // For in-memory databases, keep a connection open so the shared cache DB persists
             _keepAliveConnection = new SqliteConnection(_connectionString);
             _keepAliveConnection.Open();
         }
@@ -34,54 +42,19 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         InitializeDatabase();
     }
 
+    /// <summary>
+    /// Disposes the keep-alive connection used for in-memory databases.
+    /// </summary>
     public void Dispose()
     {
         _keepAliveConnection?.Dispose();
     }
 
-    private SqliteConnection CreateConnection()
-    {
-        var conn = new SqliteConnection(_connectionString);
-        conn.Open();
-        return conn;
-    }
-
-    private void InitializeDatabase()
-    {
-        // Ensure parent directory exists for file-based databases
-        var isMemory = _options.DbPath == ":memory:" || _options.DbPath.Contains("mode=memory");
-        if (!isMemory)
-        {
-            var dir = Path.GetDirectoryName(Path.GetFullPath(_options.DbPath));
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-        }
-
-        using var conn = CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL CHECK(type IN ('file', 'directory')),
-                content BLOB,
-                size INTEGER NOT NULL DEFAULT 0,
-                permissions TEXT DEFAULT '644',
-                created_at TEXT NOT NULL,
-                modified_at TEXT NOT NULL,
-                parent_path TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_path);
-        ";
-        cmd.ExecuteNonQuery();
-    }
-
+    /// <inheritdoc />
     public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
 
-        // Check the path exists and is a directory
         if (normalizedPath != "/")
         {
             var node = GetNode(normalizedPath);
@@ -113,6 +86,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.FromResult(entries);
     }
 
+    /// <inheritdoc />
     public Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -126,18 +100,19 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.FromResult(content);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, Encoding.UTF8.GetBytes(content), ct);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
         var parentPath = GetParentPath(normalizedPath);
         var fileName = GetName(normalizedPath);
 
-        // Verify parent exists
         if (parentPath != "/")
         {
             var parent = GetNode(parentPath);
@@ -153,7 +128,6 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
             if (existing.Type == "directory")
                 throw new FileStorageIsADirectoryError(path);
 
-            // Update existing file
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "UPDATE files SET content = @content, size = @size, modified_at = @modified WHERE path = @path";
@@ -165,7 +139,6 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         }
         else
         {
-            // Insert new file
             var now = DateTime.UtcNow.ToString("o");
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
@@ -185,6 +158,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -205,6 +179,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.FromResult(stat);
     }
 
+    /// <inheritdoc />
     public Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -256,6 +231,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -268,7 +244,6 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         if (node.Type == "directory" && !recursive)
         {
-            // Check if directory has children
             using var conn = CreateConnection();
             using var countCmd = conn.CreateCommand();
             countCmd.CommandText = "SELECT COUNT(*) FROM files WHERE parent_path = @path";
@@ -280,7 +255,6 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         if (recursive)
         {
-            // Delete all descendants (paths starting with normalizedPath + "/") and the node itself
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM files WHERE path = @path OR path LIKE @prefix";
@@ -300,6 +274,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcPath = NormalizePath(src);
@@ -342,6 +317,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcPath = NormalizePath(src);
@@ -378,12 +354,14 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
         return Task.FromResult(GetNode(normalizedPath) != null);
     }
 
+    /// <inheritdoc />
     public Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -397,12 +375,48 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         return Task.FromResult(stream);
     }
 
+    /// <inheritdoc />
     public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, content, ct);
     }
 
-    // --- Helpers ---
+    private SqliteConnection CreateConnection()
+    {
+        var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+        return conn;
+    }
+
+    private void InitializeDatabase()
+    {
+        var isMemory = _options.DbPath == ":memory:" || _options.DbPath.Contains("mode=memory");
+        if (!isMemory)
+        {
+            var dir = Path.GetDirectoryName(Path.GetFullPath(_options.DbPath));
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+        }
+
+        using var conn = CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('file', 'directory')),
+                content BLOB,
+                size INTEGER NOT NULL DEFAULT 0,
+                permissions TEXT DEFAULT '644',
+                created_at TEXT NOT NULL,
+                modified_at TEXT NOT NULL,
+                parent_path TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_path);
+        ";
+        cmd.ExecuteNonQuery();
+    }
 
     private void InsertDirectory(string fullPath, string name, string parentPath)
     {

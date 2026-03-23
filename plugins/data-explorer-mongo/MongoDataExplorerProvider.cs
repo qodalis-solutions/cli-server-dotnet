@@ -7,17 +7,33 @@ using System.Text.RegularExpressions;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Mongo;
 
+/// <summary>
+/// Data explorer provider for MongoDB databases using the official MongoDB .NET driver.
+/// Supports shell-style queries such as <c>db.collection.find({})</c>, aggregation pipelines,
+/// CRUD operations, and convenience commands like <c>show collections</c>.
+/// </summary>
 public class MongoDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
     private readonly string _database;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MongoDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The MongoDB connection string.</param>
+    /// <param name="database">The name of the database to operate on.</param>
     public MongoDataExplorerProvider(string connectionString, string database)
     {
         _connectionString = connectionString;
         _database = database;
     }
 
+    /// <summary>
+    /// Retrieves the database schema by listing all collections and sampling one document from each to infer field structure.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing collections and their inferred columns, or <c>null</c> on failure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -64,6 +80,15 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Executes a MongoDB shell-style query and returns the results.
+    /// Supports operations: find, findOne, aggregate, insertOne, insertMany,
+    /// updateOne, updateMany, deleteOne, deleteMany, countDocuments,
+    /// as well as <c>show collections</c> and <c>show dbs</c>.
+    /// </summary>
+    /// <param name="context">The execution context containing the query string and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing rows and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)
@@ -76,7 +101,6 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         {
             var query = context.Query.Trim();
 
-            // Convenience commands
             if (query.Equals("show collections", StringComparison.OrdinalIgnoreCase))
             {
                 var collections = await (await db.ListCollectionNamesAsync(cancellationToken: cancellationToken)).ToListAsync(cancellationToken);
@@ -92,7 +116,6 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
                 return SuccessResult(context, sw, null, rows, rows.Count);
             }
 
-            // Parse db.collection.operation(...)
             var parsed = ParseQuery(query);
             if (parsed == null)
             {
@@ -216,8 +239,14 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         }
     }
 
+    /// <summary>
+    /// Represents a parsed MongoDB shell-style query with collection name, operation, and arguments.
+    /// </summary>
     private record struct ParsedQuery(string Collection, string Operation, List<string> Args);
 
+    /// <summary>
+    /// Parses a MongoDB shell-style query string (e.g., <c>db.collection.find({...})</c>) into its components.
+    /// </summary>
     private static ParsedQuery? ParseQuery(string query)
     {
         var match = Regex.Match(query, @"^db\.(\w+)\.(\w+)\(([\s\S]*)\)$");
@@ -230,11 +259,13 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         if (string.IsNullOrEmpty(argsStr))
             return new ParsedQuery(collection, operation, new List<string>());
 
-        // Split top-level arguments by comma (respecting nesting)
         var args = SplitArguments(argsStr);
         return new ParsedQuery(collection, operation, args);
     }
 
+    /// <summary>
+    /// Splits a comma-separated argument string while respecting nested braces and brackets.
+    /// </summary>
     private static List<string> SplitArguments(string argsStr)
     {
         var args = new List<string>();
@@ -261,6 +292,9 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         return args;
     }
 
+    /// <summary>
+    /// Converts a <see cref="BsonDocument"/> to a dictionary of string keys and .NET objects.
+    /// </summary>
     private static Dictionary<string, object> BsonDocToDict(BsonDocument doc)
     {
         var dict = new Dictionary<string, object>();
@@ -271,6 +305,9 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         return dict;
     }
 
+    /// <summary>
+    /// Converts a <see cref="BsonValue"/> to its corresponding .NET object representation.
+    /// </summary>
     private static object BsonValueToObject(BsonValue value)
     {
         return value.BsonType switch
@@ -289,6 +326,9 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Creates a successful <see cref="DataExplorerResult"/> with the provided data.
+    /// </summary>
     private static DataExplorerResult SuccessResult(
         DataExplorerExecutionContext context, Stopwatch sw,
         List<string>? columns, List<object> rows, int rowCount, bool truncated = false)
@@ -308,6 +348,9 @@ public class MongoDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Creates a failed <see cref="DataExplorerResult"/> with the provided error message.
+    /// </summary>
     private static DataExplorerResult ErrorResult(
         DataExplorerExecutionContext context, Stopwatch sw, string error)
     {

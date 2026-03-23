@@ -3,15 +3,28 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Mysql;
 
+/// <summary>
+/// Data explorer provider for MySQL databases using MySqlConnector.
+/// </summary>
 public class MysqlDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MysqlDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The MySQL connection string.</param>
     public MysqlDataExplorerProvider(string connectionString)
     {
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Retrieves the database schema for all tables and views in the current database, including column metadata and primary key information.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing tables and columns, or <c>null</c> on failure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -19,7 +32,6 @@ public class MysqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get tables and views
         await using var tablesCmd = connection.CreateCommand();
         tablesCmd.CommandText = "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME";
         await using var tablesReader = await tablesCmd.ExecuteReaderAsync(cancellationToken);
@@ -69,6 +81,12 @@ public class MysqlDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Executes a SQL query against the MySQL database and returns the results.
+    /// </summary>
+    /// <param name="context">The execution context containing the query, parameters, and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)

@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// sqs list
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sqs list" command to list all SQS queues in the account.
+/// </summary>
 internal class SqsListProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "list";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List SQS queues";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -28,8 +31,13 @@ internal class SqsListProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SqsListProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SQS client.</param>
     public SqsListProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -62,16 +70,21 @@ internal class SqsListProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sqs send
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sqs send" command to send a message to an SQS queue.
+/// </summary>
 internal class SqsSendProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "send";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Send a message to an SQS queue";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -93,8 +106,13 @@ internal class SqsSendProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SqsSendProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SQS client.</param>
     public SqsSendProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -141,16 +159,21 @@ internal class SqsSendProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sqs receive
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sqs receive" command to receive messages from an SQS queue.
+/// </summary>
 internal class SqsReceiveProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "receive";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Receive messages from an SQS queue";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -172,8 +195,13 @@ internal class SqsReceiveProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SqsReceiveProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SQS client.</param>
     public SqsReceiveProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -231,16 +259,21 @@ internal class SqsReceiveProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sqs purge
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "sqs purge" command to purge all messages from an SQS queue, with optional dry-run support.
+/// </summary>
 internal class SqsPurgeProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "purge";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Purge all messages from an SQS queue";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -260,8 +293,13 @@ internal class SqsPurgeProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SqsPurgeProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the SQS client.</param>
     public SqsPurgeProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -301,17 +339,24 @@ internal class SqsPurgeProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// sqs (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for SQS commands, aggregating list, send, receive, and purge sub-commands.
+/// </summary>
 public class SqsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "sqs";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS SQS operations — list, send, receive, purge";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SqsProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public SqsProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -323,6 +368,7 @@ public class SqsProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

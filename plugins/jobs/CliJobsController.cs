@@ -3,6 +3,9 @@ using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
+/// <summary>
+/// REST API controller for managing scheduled jobs (list, trigger, pause, resume, stop, cancel, update, history).
+/// </summary>
 [ApiController]
 [Route("api/v1/qcli/jobs")]
 public class CliJobsController : ControllerBase
@@ -10,12 +13,20 @@ public class CliJobsController : ControllerBase
     private readonly CliJobScheduler _scheduler;
     private readonly ICliJobStorageProvider _storage;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CliJobsController"/> class.
+    /// </summary>
+    /// <param name="scheduler">The job scheduler service.</param>
+    /// <param name="storage">The job storage provider for execution history.</param>
     public CliJobsController(CliJobScheduler scheduler, ICliJobStorageProvider storage)
     {
         _scheduler = scheduler;
         _storage = storage;
     }
 
+    /// <summary>
+    /// Lists all registered jobs with their current status and configuration.
+    /// </summary>
     [HttpGet]
     public IActionResult ListJobs()
     {
@@ -23,6 +34,10 @@ public class CliJobsController : ControllerBase
         return Ok(jobs);
     }
 
+    /// <summary>
+    /// Gets details of a specific job by ID.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
     [HttpGet("{id}")]
     public IActionResult GetJob(string id)
     {
@@ -32,6 +47,11 @@ public class CliJobsController : ControllerBase
         return Ok(MapJobDto(reg));
     }
 
+    /// <summary>
+    /// Manually triggers a job for immediate execution.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/trigger")]
     public async Task<IActionResult> TriggerJob(string id, CancellationToken ct)
     {
@@ -50,6 +70,11 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Pauses a job, preventing further scheduled executions.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/pause")]
     public async Task<IActionResult> PauseJob(string id, CancellationToken ct)
     {
@@ -68,6 +93,11 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Resumes a previously paused job.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/resume")]
     public async Task<IActionResult> ResumeJob(string id, CancellationToken ct)
     {
@@ -86,6 +116,11 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Stops a job entirely, cancelling any running execution.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/stop")]
     public async Task<IActionResult> StopJob(string id, CancellationToken ct)
     {
@@ -100,6 +135,11 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Cancels the currently running execution of a job.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> CancelJob(string id, CancellationToken ct)
     {
@@ -118,6 +158,12 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Updates the configuration of a registered job (schedule, retries, timeout, etc.).
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="request">The update request body.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateJob(string id, [FromBody] UpdateJobRequest request, CancellationToken ct)
     {
@@ -152,6 +198,14 @@ public class CliJobsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Retrieves paginated execution history for a job, optionally filtered by status.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="limit">Maximum number of entries to return (capped at 100).</param>
+    /// <param name="offset">Number of entries to skip for pagination.</param>
+    /// <param name="status">Optional status filter (e.g., "completed", "failed").</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpGet("{id}/history")]
     public async Task<IActionResult> GetHistory(
         string id,
@@ -187,6 +241,12 @@ public class CliJobsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Retrieves details of a specific job execution, including logs.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="execId">The execution identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpGet("{id}/history/{execId}")]
     public async Task<IActionResult> GetExecution(string id, string execId, CancellationToken ct)
     {
@@ -232,15 +292,27 @@ public class CliJobsController : ControllerBase
     };
 }
 
+/// <summary>
+/// Request body for updating a job's configuration.
+/// </summary>
 public class UpdateJobRequest
 {
+    /// <summary>Human-readable description of the job.</summary>
     public string? Description { get; set; }
+    /// <summary>Logical group name for organizing jobs.</summary>
     public string? Group { get; set; }
+    /// <summary>Cron expression for scheduling (mutually exclusive with <see cref="Interval"/>).</summary>
     public string? Schedule { get; set; }
+    /// <summary>Interval string (e.g., "30s", "5m") for periodic execution (mutually exclusive with <see cref="Schedule"/>).</summary>
     public string? Interval { get; set; }
+    /// <summary>Maximum number of retry attempts on failure.</summary>
     public int? MaxRetries { get; set; }
+    /// <summary>Delay between retries as an interval string (e.g., "10s").</summary>
     public string? RetryDelay { get; set; }
+    /// <summary>Retry strategy: "fixed", "linear", or "exponential".</summary>
     public string? RetryStrategy { get; set; }
+    /// <summary>Execution timeout as an interval string (e.g., "5m").</summary>
     public string? Timeout { get; set; }
+    /// <summary>Overlap policy: "skip", "cancel", or "queue".</summary>
     public string? OverlapPolicy { get; set; }
 }

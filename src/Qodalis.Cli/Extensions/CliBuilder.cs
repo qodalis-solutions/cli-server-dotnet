@@ -8,6 +8,9 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
 
+/// <summary>
+/// Fluent builder for configuring CLI services, including command processors, modules, filesystem, and data explorer providers.
+/// </summary>
 public class CliBuilder
 {
     private readonly List<ICliModule> _modules = [];
@@ -16,6 +19,9 @@ public class CliBuilder
     internal bool HasDataExplorer { get; private set; }
     internal List<Assembly> AdditionalAssemblyParts { get; } = [];
 
+    /// <summary>
+    /// Gets the service collection for registering additional services.
+    /// </summary>
     public IServiceCollection Services { get; }
 
     /// <summary>
@@ -28,18 +34,33 @@ public class CliBuilder
         Services = services;
     }
 
+    /// <summary>
+    /// Registers a command processor by type.
+    /// </summary>
+    /// <typeparam name="T">The command processor type.</typeparam>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddProcessor<T>() where T : class, ICliCommandProcessor
     {
         Services.AddSingleton<ICliCommandProcessor, T>();
         return this;
     }
 
+    /// <summary>
+    /// Registers a command processor instance.
+    /// </summary>
+    /// <param name="processor">The processor instance to register.</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddProcessor(ICliCommandProcessor processor)
     {
         Services.AddSingleton<ICliCommandProcessor>(processor);
         return this;
     }
 
+    /// <summary>
+    /// Discovers and registers all <see cref="ICliCommandProcessor"/> implementations from the specified assembly.
+    /// </summary>
+    /// <param name="assembly">The assembly to scan for command processors.</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddProcessorsFromAssembly(Assembly assembly)
     {
         var processorTypes = assembly.GetTypes()
@@ -53,6 +74,11 @@ public class CliBuilder
         return this;
     }
 
+    /// <summary>
+    /// Registers a CLI module and all its command processors.
+    /// </summary>
+    /// <param name="module">The module to register.</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddModule(ICliModule module)
     {
         _modules.Add(module);
@@ -75,6 +101,11 @@ public class CliBuilder
         return this;
     }
 
+    /// <summary>
+    /// Enables the filesystem API with optional configuration for allowed paths and custom providers.
+    /// </summary>
+    /// <param name="configure">Optional action to configure filesystem options.</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddFileSystem(Action<FileSystemOptions>? configure = null)
     {
         var options = new FileSystemOptions();
@@ -101,6 +132,12 @@ public class CliBuilder
         return this;
     }
 
+    /// <summary>
+    /// Registers a data explorer provider by type with the specified options.
+    /// </summary>
+    /// <typeparam name="T">The data explorer provider type.</typeparam>
+    /// <param name="configure">Action to configure the provider options (name, description, language, etc.).</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddDataExplorerProvider<T>(Action<DataExplorerProviderOptions> configure)
         where T : class, IDataExplorerProvider
     {
@@ -124,6 +161,12 @@ public class CliBuilder
         return this;
     }
 
+    /// <summary>
+    /// Registers a data explorer provider instance with the specified options.
+    /// </summary>
+    /// <param name="provider">The provider instance.</param>
+    /// <param name="configure">Action to configure the provider options.</param>
+    /// <returns>This builder instance for chaining.</returns>
     public CliBuilder AddDataExplorerProvider(IDataExplorerProvider provider, Action<DataExplorerProviderOptions> configure)
     {
         HasDataExplorer = true;

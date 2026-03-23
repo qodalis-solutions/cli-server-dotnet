@@ -2,6 +2,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor that echoes back the input text.
+/// </summary>
 public class CliEchoCommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "echo";
