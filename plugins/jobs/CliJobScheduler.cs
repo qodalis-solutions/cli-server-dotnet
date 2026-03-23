@@ -14,7 +14,7 @@ public class CliJobScheduler : IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
     private readonly ICliJobStorageProvider _storage;
-    private readonly CliEventSocketManager _eventSocket;
+    private readonly ICliEventSocketManager _eventSocket;
     private readonly ILogger<CliJobScheduler> _logger;
 
     /// <summary>
@@ -25,7 +25,7 @@ public class CliJobScheduler : IHostedService, IDisposable
     /// <param name="logger">The logger instance.</param>
     public CliJobScheduler(
         ICliJobStorageProvider storage,
-        CliEventSocketManager eventSocket,
+        ICliEventSocketManager eventSocket,
         ILogger<CliJobScheduler> logger)
     {
         _storage = storage;

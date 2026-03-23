@@ -13,14 +13,14 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 [Route("api/v1/qcli/status")]
 public class StatusController : ControllerBase
 {
-    private readonly CliEventSocketManager _eventSocketManager;
+    private readonly ICliEventSocketManager _eventSocketManager;
     private readonly ICliCommandRegistry _commandRegistry;
     private readonly IServiceProvider _serviceProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StatusController"/> class.
     /// </summary>
-    public StatusController(CliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider serviceProvider)
+    public StatusController(ICliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider serviceProvider)
     {
         _eventSocketManager = eventSocketManager;
         _commandRegistry = commandRegistry;

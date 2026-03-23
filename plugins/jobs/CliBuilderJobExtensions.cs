@@ -99,7 +99,7 @@ public static class CliBuilderJobExtensions
         builder.Services.AddSingleton<CliJobScheduler>(sp =>
         {
             var storage = sp.GetRequiredService<ICliJobStorageProvider>();
-            var eventSocket = sp.GetRequiredService<CliEventSocketManager>();
+            var eventSocket = sp.GetRequiredService<ICliEventSocketManager>();
             var logger = sp.GetRequiredService<ILogger<CliJobScheduler>>();
             var scheduler = new CliJobScheduler(storage, eventSocket, logger);
 

@@ -48,10 +48,11 @@ public static class MvcBuilderExtensions
         });
 
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
-        builder.Services.AddSingleton<CliEventSocketManager>();
-        builder.Services.AddSingleton<CliLogSocketManager>();
+        builder.Services.AddSingleton<ICliServerInfoService, CliServerInfoService>();
+        builder.Services.AddSingleton<ICliEventSocketManager, CliEventSocketManager>();
+        builder.Services.AddSingleton<ICliLogSocketManager, CliLogSocketManager>();
         builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();
-        builder.Services.AddSingleton<ShellSessionManager>();
+        builder.Services.AddSingleton<IShellSessionManager, ShellSessionManager>();
 
         // Register IFileStorageProvider as singleton
         if (cliBuilder.FileStorageProvider != null)
@@ -90,8 +91,9 @@ public static class MvcBuilderExtensions
 
             return registry;
         });
+        builder.Services.AddSingleton<IDataExplorerRegistry>(sp => sp.GetRequiredService<DataExplorerRegistry>());
 
-        builder.Services.AddSingleton<DataExplorerExecutorService>();
+        builder.Services.AddSingleton<IDataExplorerExecutorService, DataExplorerExecutorService>();
 
         return builder;
     }
