@@ -155,7 +155,7 @@ public class ControllerTests
     {
         var controller = CreateControllerWithHttpContext(_registry, _executor);
 
-        await controller.ExecuteStream(new CliProcessCommand { Command = "echo" });
+        await controller.ExecuteStream(new CliProcessCommand { Command = "echo" }, CancellationToken.None);
 
         controller.Response.Body.Seek(0, SeekOrigin.Begin);
         var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
@@ -171,7 +171,7 @@ public class ControllerTests
     {
         var controller = CreateControllerWithHttpContext(_registry, _executor);
 
-        await controller.ExecuteStream(new CliProcessCommand { Command = "nonexistent" });
+        await controller.ExecuteStream(new CliProcessCommand { Command = "nonexistent" }, CancellationToken.None);
 
         controller.Response.Body.Seek(0, SeekOrigin.Begin);
         var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
@@ -190,7 +190,7 @@ public class ControllerTests
 
         var controller = CreateControllerWithHttpContext(registry, executor);
 
-        await controller.ExecuteStream(new CliProcessCommand { Command = "stream-test" });
+        await controller.ExecuteStream(new CliProcessCommand { Command = "stream-test" }, CancellationToken.None);
 
         controller.Response.Body.Seek(0, SeekOrigin.Begin);
         var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();

@@ -10,7 +10,7 @@ public class TestStreamProcessor : CliCommandProcessor, ICliStreamCommandProcess
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
         => Task.FromResult("non-streaming fallback");
 
-    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit)
+    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
         await emit(new { type = "text", value = "chunk1" });
         await emit(new { type = "text", value = "chunk2" });

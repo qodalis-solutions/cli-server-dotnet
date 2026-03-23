@@ -44,7 +44,7 @@ public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcess
         return await DemoHttpRequestHelper.SendAsync(url, HttpMethod.Get, null, command.Args.ContainsKey("headers"), cancellationToken);
     }
 
-    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit)
+    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
         var url = command.Value;
         if (string.IsNullOrEmpty(url))
@@ -53,7 +53,7 @@ public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcess
             return 1;
         }
 
-        return await DemoHttpStreamHelper.DoStreamRequestAsync(url, "GET", null, command.Args?.ContainsKey("headers") == true, emit);
+        return await DemoHttpStreamHelper.DoStreamRequestAsync(url, "GET", null, command.Args?.ContainsKey("headers") == true, emit, cancellationToken);
     }
 }
 
@@ -89,7 +89,7 @@ public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProces
         return await DemoHttpRequestHelper.SendAsync(url, HttpMethod.Post, body, command.Args.ContainsKey("headers"), cancellationToken);
     }
 
-    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit)
+    public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
         var url = command.Value;
         if (string.IsNullOrEmpty(url))
@@ -99,7 +99,7 @@ public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProces
         }
 
         var body = command.Args?.TryGetValue("body", out var b) == true ? b?.ToString() : null;
-        return await DemoHttpStreamHelper.DoStreamRequestAsync(url, "POST", body, command.Args?.ContainsKey("headers") == true, emit);
+        return await DemoHttpStreamHelper.DoStreamRequestAsync(url, "POST", body, command.Args?.ContainsKey("headers") == true, emit, cancellationToken);
     }
 }
 
@@ -171,7 +171,7 @@ internal static class DemoHttpStreamHelper
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(30) };
 
     public static async Task<int> DoStreamRequestAsync(
-        string url, string method, string? body, bool showHeaders, Func<object, Task> emit)
+        string url, string method, string? body, bool showHeaders, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -183,10 +183,10 @@ internal static class DemoHttpStreamHelper
                 request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
             }
 
-            var resp = await Client.SendAsync(request);
+            var resp = await Client.SendAsync(request, cancellationToken);
 
             var contentType = resp.Content.Headers.ContentType?.MediaType ?? "unknown";
-            var respBody = await resp.Content.ReadAsStringAsync();
+            var respBody = await resp.Content.ReadAsStringAsync(cancellationToken);
 
             await emit(new { type = "text", value = $"Status: {(int)resp.StatusCode}" });
             await emit(new { type = "text", value = $"Content-Type: {contentType}" });
