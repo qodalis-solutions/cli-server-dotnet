@@ -9,7 +9,7 @@ public class CliLogSocketManagerTests
     [Fact]
     public void Constructor_CreatesInstance()
     {
-        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
+        using var manager = new CliLogSocketManager();
         Assert.NotNull(manager);
     }
 
