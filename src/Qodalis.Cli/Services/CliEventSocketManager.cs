@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace Qodalis.Cli.Services;
 
@@ -30,6 +31,16 @@ public class CliEventSocketManager : ICliEventSocketManager
 {
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
+    private readonly ILogger<CliEventSocketManager> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of <see cref="CliEventSocketManager"/>.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    public CliEventSocketManager(ILogger<CliEventSocketManager> logger)
+    {
+        _logger = logger;
+    }
 
     /// <inheritdoc />
     public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
@@ -43,6 +54,8 @@ public class CliEventSocketManager : ICliEventSocketManager
             RemoteAddress = remoteAddress ?? "unknown",
             Type = "events"
         });
+
+        _logger.LogInformation("Event WebSocket client connected (id={ClientId})", id);
 
         try
         {
@@ -67,11 +80,13 @@ public class CliEventSocketManager : ICliEventSocketManager
         catch (WebSocketException)
         {
             // Client disconnected
+            _logger.LogDebug("Event WebSocket client disconnected unexpectedly (id={ClientId})", id);
         }
         finally
         {
             _clients.TryRemove(id, out _);
             _clientInfo.TryRemove(id, out _);
+            _logger.LogInformation("Event WebSocket client disconnected (id={ClientId})", id);
         }
     }
 
@@ -96,6 +111,7 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <inheritdoc />
     public async Task BroadcastDisconnectAsync()
     {
+        _logger.LogInformation("Broadcasting disconnect to {Count} event clients", _clients.Count);
         var message = new { type = "disconnect" };
         var tasks = new List<Task>();
 

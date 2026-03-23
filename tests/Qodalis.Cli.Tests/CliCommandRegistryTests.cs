@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Helpers;
@@ -6,7 +7,7 @@ namespace Qodalis.Cli.Tests;
 
 public class CliCommandRegistryTests
 {
-    private readonly CliCommandRegistry _registry = new();
+    private readonly CliCommandRegistry _registry = new(NullLogger<CliCommandRegistry>.Instance);
 
     [Fact]
     public void Register_And_FindProcessor_ByName()

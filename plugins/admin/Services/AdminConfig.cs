@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
@@ -8,6 +9,17 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// </summary>
 public class AdminConfig
 {
+    private readonly ILogger<AdminConfig> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AdminConfig"/> class.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    public AdminConfig(ILogger<AdminConfig> logger)
+    {
+        _logger = logger;
+    }
+
     /// <summary>Admin username for login.</summary>
     public string Username { get; set; } = "admin";
     /// <summary>Admin password for login.</summary>
@@ -47,9 +59,7 @@ public class AdminConfig
 
         if (Username == "admin" && Password == "admin")
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("[qcli-admin] WARNING: Using default admin credentials. Set QCLI_ADMIN_USERNAME and QCLI_ADMIN_PASSWORD environment variables.");
-            Console.ResetColor();
+            _logger.LogWarning("Using default admin credentials. Set QCLI_ADMIN_USERNAME and QCLI_ADMIN_PASSWORD environment variables.");
         }
     }
 

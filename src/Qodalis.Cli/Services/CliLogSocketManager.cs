@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace Qodalis.Cli.Services;
 
@@ -13,12 +14,24 @@ public class CliLogSocketManager : ICliLogSocketManager
     private static readonly string[] LogLevelOrder = { "verbose", "debug", "information", "warning", "error", "fatal" };
 
     private readonly ConcurrentDictionary<string, (WebSocket Socket, string? LevelFilter)> _clients = new();
+    private readonly ILogger<CliLogSocketManager> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of <see cref="CliLogSocketManager"/>.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    public CliLogSocketManager(ILogger<CliLogSocketManager> logger)
+    {
+        _logger = logger;
+    }
 
     /// <inheritdoc />
     public async Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken)
     {
         var id = Guid.NewGuid().ToString();
         _clients.TryAdd(id, (socket, levelFilter));
+
+        _logger.LogInformation("Log WebSocket client connected (id={ClientId}, level={LevelFilter})", id, levelFilter ?? "all");
 
         try
         {
@@ -47,6 +60,7 @@ public class CliLogSocketManager : ICliLogSocketManager
         finally
         {
             _clients.TryRemove(id, out _);
+            _logger.LogInformation("Log WebSocket client disconnected (id={ClientId})", id);
         }
     }
 
@@ -116,6 +130,7 @@ public class CliLogSocketManager : ICliLogSocketManager
     /// <inheritdoc />
     public async Task BroadcastDisconnectAsync()
     {
+        _logger.LogInformation("Broadcasting disconnect to {Count} log clients", _clients.Count);
         var message = new { type = "disconnect" };
         var tasks = new List<Task>();
 

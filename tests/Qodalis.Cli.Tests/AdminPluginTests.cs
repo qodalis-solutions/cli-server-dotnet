@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Plugin.Admin.Auth;
@@ -42,35 +43,35 @@ public class AdminConfigTests
     [Fact]
     public void ValidateCredentials_ValidCredentials_ReturnsTrue()
     {
-        var config = new AdminConfig { Username = "admin", Password = "secret" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin", Password = "secret" };
         Assert.True(config.ValidateCredentials("admin", "secret"));
     }
 
     [Fact]
     public void ValidateCredentials_WrongPassword_ReturnsFalse()
     {
-        var config = new AdminConfig { Username = "admin", Password = "secret" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin", Password = "secret" };
         Assert.False(config.ValidateCredentials("admin", "wrong"));
     }
 
     [Fact]
     public void ValidateCredentials_WrongUsername_ReturnsFalse()
     {
-        var config = new AdminConfig { Username = "admin", Password = "secret" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin", Password = "secret" };
         Assert.False(config.ValidateCredentials("wrong", "secret"));
     }
 
     [Fact]
     public void ValidateCredentials_CaseSensitive()
     {
-        var config = new AdminConfig { Username = "Admin", Password = "Secret" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "Admin", Password = "Secret" };
         Assert.False(config.ValidateCredentials("admin", "secret"));
     }
 
     [Fact]
     public void DefaultValues_AreCorrect()
     {
-        var config = new AdminConfig();
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance);
         Assert.Equal("admin", config.Username);
         Assert.Equal("admin", config.Password);
         Assert.Equal(TimeSpan.FromHours(24), config.JwtExpiry);
@@ -79,7 +80,7 @@ public class AdminConfigTests
     [Fact]
     public void GetConfigSections_ReturnsExpectedStructure()
     {
-        var config = new AdminConfig { Username = "testuser" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "testuser" };
         var sections = config.GetConfigSections();
         var json = JsonSerializer.Serialize(sections);
 
@@ -95,7 +96,7 @@ public class AdminConfigTests
     [Fact]
     public void GetConfigSections_ContainsJwtExpiryHours()
     {
-        var config = new AdminConfig { JwtExpiry = TimeSpan.FromHours(48) };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { JwtExpiry = TimeSpan.FromHours(48) };
         var sections = config.GetConfigSections();
         var json = JsonSerializer.Serialize(sections);
 
@@ -111,7 +112,7 @@ public class JwtServiceTests
 {
     private static AdminConfig CreateConfigWithSecret()
     {
-        return new AdminConfig
+        return new AdminConfig(NullLogger<AdminConfig>.Instance)
         {
             Username = "admin",
             Password = "admin",
@@ -124,7 +125,7 @@ public class JwtServiceTests
     public void GenerateToken_ReturnsNonEmptyString()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("admin");
 
@@ -135,7 +136,7 @@ public class JwtServiceTests
     public void GenerateToken_ProducesValidJwtFormat()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("admin");
 
@@ -148,7 +149,7 @@ public class JwtServiceTests
     public void ValidateToken_ValidToken_ReturnsClaimsPrincipal()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("testuser");
         var principal = service.ValidateToken(token);
@@ -162,7 +163,7 @@ public class JwtServiceTests
     public void ValidateToken_ValidToken_ContainsAdminRole()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("admin");
         var principal = service.ValidateToken(token);
@@ -175,7 +176,7 @@ public class JwtServiceTests
     public void ValidateToken_ValidToken_ContainsAuthenticatedAtClaim()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("admin");
         var principal = service.ValidateToken(token);
@@ -189,7 +190,7 @@ public class JwtServiceTests
     public void ValidateToken_InvalidToken_ReturnsNull()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var principal = service.ValidateToken("invalid.jwt.token");
 
@@ -200,7 +201,7 @@ public class JwtServiceTests
     public void ValidateToken_TamperedToken_ReturnsNull()
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken("admin");
         // Tamper with the token by modifying a character in the signature
@@ -215,14 +216,14 @@ public class JwtServiceTests
     public void ValidateToken_DifferentSecret_ReturnsNull()
     {
         var config1 = CreateConfigWithSecret();
-        var service1 = new JwtService(config1);
+        var service1 = new JwtService(config1, NullLogger<JwtService>.Instance);
         var token = service1.GenerateToken("admin");
 
-        var config2 = new AdminConfig
+        var config2 = new AdminConfig(NullLogger<AdminConfig>.Instance)
         {
             JwtSecret = "completely-different-secret-key-for-another-instance",
         };
-        var service2 = new JwtService(config2);
+        var service2 = new JwtService(config2, NullLogger<JwtService>.Instance);
 
         var principal = service2.ValidateToken(token);
 
@@ -236,7 +237,7 @@ public class JwtServiceTests
     public void GenerateToken_DifferentUsernames_ProduceDifferentTokens(string username)
     {
         var config = CreateConfigWithSecret();
-        var service = new JwtService(config);
+        var service = new JwtService(config, NullLogger<JwtService>.Instance);
 
         var token = service.GenerateToken(username);
         var principal = service.ValidateToken(token);
@@ -550,8 +551,8 @@ public class AdminStatusControllerTests
     [Fact]
     public void GetStatus_ReturnsOkWithExpectedShape()
     {
-        var esm = new CliEventSocketManager();
-        var registry = new CliCommandRegistry();
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
         registry.Register(new TestProcessor("test", "Test command"));
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
@@ -576,8 +577,8 @@ public class AdminStatusControllerTests
     [Fact]
     public void GetStatus_RegisteredCommandsCount_MatchesRegistry()
     {
-        var esm = new CliEventSocketManager();
-        var registry = new CliCommandRegistry();
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
         registry.Register(new TestProcessor("cmd1", "Command 1"));
         registry.Register(new TestProcessor("cmd2", "Command 2"));
 
@@ -595,8 +596,8 @@ public class AdminStatusControllerTests
     [Fact]
     public void GetStatus_ActiveWsConnections_ZeroByDefault()
     {
-        var esm = new CliEventSocketManager();
-        var registry = new CliCommandRegistry();
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var controller = new StatusController(esm, registry, serviceProvider);
@@ -723,7 +724,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void GetConfig_ReturnsOkWithConfigSections()
     {
-        var config = new AdminConfig { Username = "admin" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin" };
         var controller = new ConfigController(config);
 
         var result = controller.GetConfig() as OkObjectResult;
@@ -739,7 +740,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_UpdatesUsername()
     {
-        var config = new AdminConfig { Username = "admin", Password = "admin" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin", Password = "admin" };
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest
@@ -756,7 +757,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_UpdatesPassword()
     {
-        var config = new AdminConfig { Username = "admin", Password = "admin" };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { Username = "admin", Password = "admin" };
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest
@@ -772,7 +773,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_UpdatesJwtExpiryHours()
     {
-        var config = new AdminConfig();
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance);
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest
@@ -788,7 +789,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_NullAuth_DoesNotThrow()
     {
-        var config = new AdminConfig();
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance);
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest { Auth = null };
@@ -803,7 +804,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_InvalidJwtExpiry_DoesNotUpdate()
     {
-        var config = new AdminConfig { JwtExpiry = TimeSpan.FromHours(24) };
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance) { JwtExpiry = TimeSpan.FromHours(24) };
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest
@@ -819,7 +820,7 @@ public class AdminConfigControllerTests
     [Fact]
     public void UpdateConfig_ReturnsSuccessMessage()
     {
-        var config = new AdminConfig();
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance);
         var controller = new ConfigController(config);
 
         var request = new UpdateConfigRequest
@@ -951,7 +952,7 @@ public class AdminWsClientsControllerTests
     [Fact]
     public void GetClients_NoConnections_ReturnsEmptyWithZeroTotal()
     {
-        var esm = new CliEventSocketManager();
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
         var controller = new WsClientsController(esm);
 
         var result = controller.GetClients() as OkObjectResult;
@@ -967,7 +968,7 @@ public class AdminWsClientsControllerTests
     [Fact]
     public void GetClients_ReturnsExpectedShape()
     {
-        var esm = new CliEventSocketManager();
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
         var controller = new WsClientsController(esm);
 
         var result = controller.GetClients() as OkObjectResult;
@@ -989,14 +990,14 @@ public class AdminAuthControllerTests
 {
     private static AuthController CreateAuthController(AdminConfig? config = null)
     {
-        config ??= new AdminConfig
+        config ??= new AdminConfig(NullLogger<AdminConfig>.Instance)
         {
             Username = "admin",
             Password = "secret",
             JwtSecret = "test-secret-key-that-is-long-enough-for-hmac-sha256",
             JwtExpiry = TimeSpan.FromHours(1),
         };
-        var jwtService = new JwtService(config);
+        var jwtService = new JwtService(config, NullLogger<JwtService>.Instance);
         var controller = new AuthController(config, jwtService);
 
         // Set up HttpContext with a mock
@@ -1062,14 +1063,14 @@ public class AdminAuthControllerTests
     [Fact]
     public void Me_WithAuthenticatedUser_ReturnsUserInfo()
     {
-        var config = new AdminConfig
+        var config = new AdminConfig(NullLogger<AdminConfig>.Instance)
         {
             Username = "admin",
             Password = "secret",
             JwtSecret = "test-secret-key-that-is-long-enough-for-hmac-sha256",
             JwtExpiry = TimeSpan.FromHours(1),
         };
-        var jwtService = new JwtService(config);
+        var jwtService = new JwtService(config, NullLogger<JwtService>.Instance);
         var controller = new AuthController(config, jwtService);
 
         var httpContext = new DefaultHttpContext();

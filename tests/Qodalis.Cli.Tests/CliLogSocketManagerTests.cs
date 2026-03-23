@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Tests;
@@ -8,7 +9,7 @@ public class CliLogSocketManagerTests
     [Fact]
     public void Constructor_CreatesInstance()
     {
-        using var manager = new CliLogSocketManager();
+        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
         Assert.NotNull(manager);
     }
 

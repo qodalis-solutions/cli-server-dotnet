@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Qodalis.Cli.Plugin.Admin.Services;
 
@@ -12,6 +13,7 @@ namespace Qodalis.Cli.Plugin.Admin.Auth;
 public class JwtService
 {
     private readonly AdminConfig _config;
+    private readonly ILogger<JwtService> _logger;
     private readonly SigningCredentials _signingCredentials;
     private readonly TokenValidationParameters _validationParameters;
 
@@ -19,9 +21,11 @@ public class JwtService
     /// Initializes a new instance of the <see cref="JwtService"/> class.
     /// </summary>
     /// <param name="config">The admin configuration containing the JWT secret and expiry settings.</param>
-    public JwtService(AdminConfig config)
+    /// <param name="logger">The logger instance.</param>
+    public JwtService(AdminConfig config, ILogger<JwtService> logger)
     {
         _config = config;
+        _logger = logger;
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config.JwtSecret));
         _signingCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -61,7 +65,9 @@ public class JwtService
             expires: DateTime.UtcNow.Add(_config.JwtExpiry),
             signingCredentials: _signingCredentials);
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+        _logger.LogDebug("Generated JWT token for user {Username}, expires {Expiry}", username, token.ValidTo);
+        return tokenString;
     }
 
     /// <summary>
@@ -77,8 +83,9 @@ public class JwtService
             var principal = handler.ValidateToken(token, _validationParameters, out _);
             return principal;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug("Token validation failed: {Error}", ex.Message);
             return null;
         }
     }

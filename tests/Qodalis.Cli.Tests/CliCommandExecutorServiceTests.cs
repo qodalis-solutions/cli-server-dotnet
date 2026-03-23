@@ -8,7 +8,7 @@ namespace Qodalis.Cli.Tests;
 
 public class CliCommandExecutorServiceTests
 {
-    private readonly CliCommandRegistry _registry = new();
+    private readonly CliCommandRegistry _registry = new(NullLogger<CliCommandRegistry>.Instance);
     private readonly CliCommandExecutorService _executor;
 
     public CliCommandExecutorServiceTests()

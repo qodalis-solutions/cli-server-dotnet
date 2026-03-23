@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Services;
 
@@ -13,16 +14,19 @@ public class DataExplorerController : ControllerBase
 {
     private readonly IDataExplorerRegistry _registry;
     private readonly IDataExplorerExecutorService _executor;
+    private readonly ILogger<DataExplorerController> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="DataExplorerController"/>.
     /// </summary>
     /// <param name="registry">The data explorer provider registry.</param>
     /// <param name="executor">The data explorer query executor service.</param>
-    public DataExplorerController(IDataExplorerRegistry registry, IDataExplorerExecutorService executor)
+    /// <param name="logger">The logger instance.</param>
+    public DataExplorerController(IDataExplorerRegistry registry, IDataExplorerExecutorService executor, ILogger<DataExplorerController> logger)
     {
         _registry = registry;
         _executor = executor;
+        _logger = logger;
     }
 
     /// <summary>
@@ -45,6 +49,7 @@ public class DataExplorerController : ControllerBase
         [FromBody] DataExplorerExecuteRequest request,
         CancellationToken ct)
     {
+        _logger.LogDebug("Executing data explorer query on source: {Source}", request.Source);
         var result = await _executor.ExecuteAsync(request, ct);
         return Ok(result);
     }
@@ -67,6 +72,7 @@ public class DataExplorerController : ControllerBase
         var entry = _registry.Get(source);
         if (entry == null)
         {
+            _logger.LogWarning("Data explorer source not found: {Source}", source);
             return NotFound(new { error = $"Unknown data source: '{source}'" });
         }
 
