@@ -13,6 +13,7 @@ public interface ICliStreamCommandProcessor
     /// </summary>
     /// <param name="command">Parsed command with arguments.</param>
     /// <param name="emit">Async callback to send a single output chunk to the client.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>Exit code (0 for success).</returns>
-    Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit);
+    Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default);
 }

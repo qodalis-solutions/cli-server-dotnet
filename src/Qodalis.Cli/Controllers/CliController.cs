@@ -90,8 +90,11 @@ public class CliController : ControllerBase
     /// Executes a CLI command and streams the output as Server-Sent Events.
     /// </summary>
     /// <param name="command">The command to execute.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
     [HttpPost("execute/stream")]
-    public async Task ExecuteStream([FromBody] CliProcessCommand command)
+    public async Task ExecuteStream(
+        [FromBody] CliProcessCommand command,
+        CancellationToken cancellationToken)
     {
         _logger.LogDebug("Stream executing command: {Command}", command.Command);
 
@@ -129,20 +132,27 @@ public class CliController : ControllerBase
             {
                 exitCode = await streamProcessor.HandleStreamAsync(command, async output =>
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await WriteEvent("output", output);
-                });
+                }, cancellationToken);
             }
             else
             {
-                var response = await _executor.ExecuteAsync(command);
+                var response = await _executor.ExecuteAsync(command, cancellationToken);
                 foreach (var output in response.Outputs)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await WriteEvent("output", output);
                 }
                 exitCode = response.ExitCode;
             }
 
             await WriteEvent("done", new { exitCode });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Client disconnected — silently end the stream
+            _logger.LogDebug("Stream cancelled for command: {Command}", command.Command);
         }
         catch (Exception ex)
         {
