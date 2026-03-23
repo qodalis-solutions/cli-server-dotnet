@@ -36,6 +36,7 @@ public class CliServerInfoService : ICliServerInfoService
             Os = os,
             ShellPath = shellPath,
             Version = ServerVersion,
+            Streaming = true,
         };
     }
 

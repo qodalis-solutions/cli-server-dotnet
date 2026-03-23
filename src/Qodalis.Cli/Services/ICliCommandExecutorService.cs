@@ -15,4 +15,11 @@ public interface ICliCommandExecutorService
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The structured server response containing output blocks and an exit code.</returns>
     Task<CliServerResponse> ExecuteAsync(CliProcessCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns true if the given processor is blocked by any registered filter.
+    /// </summary>
+    /// <param name="processor">The processor to check.</param>
+    /// <returns><c>true</c> if any filter disallows the processor; otherwise <c>false</c>.</returns>
+    bool IsBlocked(ICliCommandProcessor processor);
 }
