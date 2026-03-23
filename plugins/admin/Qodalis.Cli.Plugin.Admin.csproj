@@ -60,19 +60,16 @@
     <Message Importance="high" Text="Dashboard UI not found. Admin dashboard will not be available." Condition="'$(DashboardResolvedDir)' == ''" />
   </Target>
 
-  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" DependsOnTargets="ResolveDashboard"
-          Condition="'$(DashboardResolvedDir)' != ''">
-    <ItemGroup>
-      <DashboardFiles Include="$(DashboardResolvedDir)**\*" />
+  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" DependsOnTargets="ResolveDashboard">
+    <ItemGroup Condition="'$(DashboardResolvedDir)' != ''">
+      <DashboardFiles Include="$(DashboardResolvedDir)**/*" />
     </ItemGroup>
-    <Copy SourceFiles="@(DashboardFiles)" DestinationFolder="$(DashboardStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(DashboardFiles)" DestinationFolder="$(DashboardStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(DashboardResolvedDir)' != ''" />
   </Target>
 
-  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild" DependsOnTargets="CopyDashboardFiles"
-          Condition="Exists('$(DashboardStagingDir)')">
-    <ItemGroup>
-      <_DashboardEmbeddedFiles Include="wwwroot\admin\**\*.*" />
-      <EmbeddedResource Include="@(_DashboardEmbeddedFiles)" />
+  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild;GenerateEmbeddedFilesManifest" DependsOnTargets="CopyDashboardFiles">
+    <ItemGroup Condition="Exists('$(DashboardStagingDir)')">
+      <EmbeddedResource Include="wwwroot/admin/**/*.*" />
     </ItemGroup>
   </Target>
 </Project>

@@ -81,7 +81,7 @@ public static class CliBuilderAdminExtensions
                     fileProvider = embeddedProvider;
                 }
             }
-            catch
+            catch(Exception e)
             {
                 // No embedded manifest — dashboard not available
             }
