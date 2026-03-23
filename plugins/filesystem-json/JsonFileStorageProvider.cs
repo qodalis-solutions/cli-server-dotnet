@@ -4,8 +4,13 @@ using System.Text.Json.Serialization;
 
 namespace Qodalis.Cli.Plugin.FileSystem.Json;
 
+/// <summary>
+/// File storage provider that persists the virtual filesystem as a JSON file on disk.
+/// The entire file tree is serialized to and deserialized from a single JSON file.
+/// </summary>
 public class JsonFileStorageProvider : IFileStorageProvider
 {
+    /// <inheritdoc />
     public string Name => "json-file";
 
     private readonly JsonFileStorageProviderOptions _options;
@@ -18,12 +23,17 @@ public class JsonFileStorageProvider : IFileStorageProvider
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>
+    /// Initializes a new instance, loading the filesystem tree from the configured JSON file if it exists.
+    /// </summary>
+    /// <param name="options">Options specifying the JSON file path.</param>
     public JsonFileStorageProvider(JsonFileStorageProviderOptions options)
     {
         _options = options;
         _root = Load();
     }
 
+    /// <inheritdoc />
     public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -44,6 +54,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.FromResult(entries);
     }
 
+    /// <inheritdoc />
     public Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -58,11 +69,13 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.FromResult(content);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, Encoding.UTF8.GetBytes(content), ct);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -105,6 +118,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -124,6 +138,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.FromResult(stat);
     }
 
+    /// <inheritdoc />
     public Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -186,6 +201,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var parts = SplitPath(path);
@@ -212,6 +228,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcNode = Resolve(src);
@@ -230,7 +247,6 @@ public class JsonFileStorageProvider : IFileStorageProvider
             throw new FileStorageNotADirectoryError(string.Join("/", destParentParts));
 
         var children = destParent.Children ??= [];
-        // Remove existing with same name if present
         children.RemoveAll(c => c.Name == destName);
         children.Add(CloneNode(srcNode, destName));
 
@@ -238,6 +254,7 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcParts = SplitPath(src);
@@ -274,11 +291,13 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         return Task.FromResult(Resolve(path) != null);
     }
 
+    /// <inheritdoc />
     public Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var node = Resolve(path);
@@ -294,12 +313,11 @@ public class JsonFileStorageProvider : IFileStorageProvider
         return Task.FromResult(stream);
     }
 
+    /// <inheritdoc />
     public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, content, ct);
     }
-
-    // --- Persistence ---
 
     private JsonFileNode Load()
     {
@@ -331,8 +349,6 @@ public class JsonFileStorageProvider : IFileStorageProvider
         var json = JsonSerializer.Serialize(_root, JsonOptions);
         File.WriteAllText(_options.FilePath, json);
     }
-
-    // --- Tree helpers ---
 
     private static string[] SplitPath(string path)
     {
@@ -392,8 +408,6 @@ public class JsonFileStorageProvider : IFileStorageProvider
 
         return clone;
     }
-
-    // --- Internal serializable node ---
 
     internal class JsonFileNode
     {

@@ -4,17 +4,27 @@ using Qodalis.Cli.Models;
 
 namespace Qodalis.Cli.Services;
 
+/// <summary>
+/// Default implementation of <see cref="ICliCommandExecutorService"/> that resolves processors from
+/// the registry and executes commands, preferring structured responses when available.
+/// </summary>
 public class CliCommandExecutorService : ICliCommandExecutorService
 {
     private readonly ICliCommandRegistry _registry;
     private readonly ILogger<CliCommandExecutorService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CliCommandExecutorService"/>.
+    /// </summary>
+    /// <param name="registry">The command processor registry.</param>
+    /// <param name="logger">The logger instance.</param>
     public CliCommandExecutorService(ICliCommandRegistry registry, ILogger<CliCommandExecutorService> logger)
     {
         _registry = registry;
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public async Task<CliServerResponse> ExecuteAsync(
         CliProcessCommand command,
         CancellationToken cancellationToken = default)

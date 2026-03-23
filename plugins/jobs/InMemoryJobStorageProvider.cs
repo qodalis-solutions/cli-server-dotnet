@@ -2,12 +2,17 @@ using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
+/// <summary>
+/// Thread-safe in-memory implementation of <see cref="ICliJobStorageProvider"/>.
+/// Suitable for development and testing; data is lost on application restart.
+/// </summary>
 public class InMemoryJobStorageProvider : ICliJobStorageProvider
 {
     private readonly List<JobExecution> _executions = [];
     private readonly Dictionary<string, JobState> _states = new();
     private readonly object _lock = new();
 
+    /// <inheritdoc />
     public Task SaveExecutionAsync(JobExecution execution, CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -21,6 +26,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<(List<JobExecution> Items, int Total)> GetExecutionsAsync(
         string jobId, int limit = 20, int offset = 0, string? statusFilter = null,
         CancellationToken cancellationToken = default)
@@ -38,6 +44,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
         }
     }
 
+    /// <inheritdoc />
     public Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -46,6 +53,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
         }
     }
 
+    /// <inheritdoc />
     public Task SaveJobStateAsync(string jobId, JobState state, CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -55,6 +63,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<JobState?> GetJobStateAsync(string jobId, CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -63,6 +72,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
         }
     }
 
+    /// <inheritdoc />
     public Task<Dictionary<string, JobState>> GetAllJobStatesAsync(CancellationToken cancellationToken = default)
     {
         lock (_lock)

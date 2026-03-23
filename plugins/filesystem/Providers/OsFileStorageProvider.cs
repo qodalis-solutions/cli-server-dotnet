@@ -2,17 +2,27 @@ using System.Runtime.InteropServices;
 
 namespace Qodalis.Cli.Plugin.FileSystem;
 
+/// <summary>
+/// File storage provider backed by the host operating system's filesystem.
+/// All paths are validated against a configurable allowlist to prevent unauthorized access.
+/// </summary>
 public class OsFileStorageProvider : IFileStorageProvider
 {
+    /// <inheritdoc />
     public string Name => "os";
 
     private readonly OsProviderOptions _options;
 
+    /// <summary>
+    /// Initializes a new instance with the specified options.
+    /// </summary>
+    /// <param name="options">Options controlling allowed paths and provider behavior.</param>
     public OsFileStorageProvider(OsProviderOptions options)
     {
         _options = options;
     }
 
+    /// <inheritdoc />
     public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -34,6 +44,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         return Task.FromResult(entries);
     }
 
+    /// <inheritdoc />
     public async Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -47,6 +58,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         return await File.ReadAllTextAsync(resolved, ct);
     }
 
+    /// <inheritdoc />
     public async Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -60,6 +72,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         await File.WriteAllTextAsync(resolved, content, ct);
     }
 
+    /// <inheritdoc />
     public async Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -73,6 +86,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         await File.WriteAllBytesAsync(resolved, content, ct);
     }
 
+    /// <inheritdoc />
     public Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -108,6 +122,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         throw new FileStorageNotFoundError(path);
     }
 
+    /// <inheritdoc />
     public Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -130,6 +145,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -149,6 +165,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         throw new FileStorageNotFoundError(path);
     }
 
+    /// <inheritdoc />
     public Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var resolvedSrc = ValidatePath(src);
@@ -165,6 +182,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         var resolvedSrc = ValidatePath(src);
@@ -185,12 +203,14 @@ public class OsFileStorageProvider : IFileStorageProvider
         throw new FileStorageNotFoundError(src);
     }
 
+    /// <inheritdoc />
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
         return Task.FromResult(File.Exists(resolved) || Directory.Exists(resolved));
     }
 
+    /// <inheritdoc />
     public Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
@@ -205,6 +225,7 @@ public class OsFileStorageProvider : IFileStorageProvider
         return Task.FromResult(stream);
     }
 
+    /// <inheritdoc />
     public async Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         await WriteFileAsync(path, content, ct);
@@ -240,7 +261,7 @@ public class OsFileStorageProvider : IFileStorageProvider
             }
             catch
             {
-                // Fall through
+                // Unix file mode not available on this platform; fall through to attributes.
             }
         }
 

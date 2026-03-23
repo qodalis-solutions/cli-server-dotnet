@@ -3,17 +3,30 @@ using Qodalis.Cli.Plugin.Admin.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
 
+/// <summary>
+/// Admin controller for querying recent server log entries.
+/// </summary>
 [ApiController]
 [Route("api/v1/qcli/logs")]
 public class LogsController : ControllerBase
 {
     private readonly LogRingBuffer _logBuffer;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LogsController"/> class.
+    /// </summary>
     public LogsController(LogRingBuffer logBuffer)
     {
         _logBuffer = logBuffer;
     }
 
+    /// <summary>
+    /// Queries recent log entries with optional filtering by level and search text.
+    /// </summary>
+    /// <param name="level">Optional log level filter (e.g., "INFO", "ERROR").</param>
+    /// <param name="search">Optional text to search in messages and sources.</param>
+    /// <param name="limit">Maximum number of entries to return.</param>
+    /// <param name="offset">Number of entries to skip for pagination.</param>
     [HttpGet]
     public IActionResult GetLogs(
         [FromQuery] string? level = null,

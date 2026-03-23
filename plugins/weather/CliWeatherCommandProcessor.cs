@@ -4,19 +4,27 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Plugin.Weather;
 
+/// <summary>
+/// CLI command processor that provides weather information for a given location.
+/// Supports sub-commands for current conditions and multi-day forecasts.
+/// </summary>
 public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
 {
     private static readonly HttpClient _httpClient = new();
 
+    /// <inheritdoc />
     public override string Command { get; set; } = "weather";
+    /// <inheritdoc />
     public override string Description { get; set; } = "Shows weather information for a location";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } =
     [
         new WeatherCurrentProcessor(),
         new WeatherForecastProcessor(),
     ];
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -29,13 +37,16 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         },
     ];
 
+    /// <inheritdoc />
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        // Default behavior: show current weather
         var location = GetLocation(command);
         return await FetchWeather(location, cancellationToken);
     }
 
+    /// <summary>
+    /// Extracts the location from the command arguments, falling back to "London".
+    /// </summary>
     internal static string GetLocation(CliProcessCommand command)
     {
         if (command.Args.TryGetValue("location", out var loc))
@@ -47,6 +58,9 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         return "London";
     }
 
+    /// <summary>
+    /// Fetches current weather conditions from wttr.in for the specified location.
+    /// </summary>
     internal static async Task<string> FetchWeather(string location, CancellationToken cancellationToken)
     {
         try
@@ -88,6 +102,9 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         }
     }
 
+    /// <summary>
+    /// Fetches a 3-day weather forecast from wttr.in for the specified location.
+    /// </summary>
     internal static async Task<string> FetchForecast(string location, CancellationToken cancellationToken)
     {
         try
@@ -127,6 +144,9 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that displays current weather conditions for a location.
+/// </summary>
 internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "current";
@@ -151,6 +171,9 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that displays a 3-day weather forecast for a location.
+/// </summary>
 internal class WeatherForecastProcessor : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "forecast";

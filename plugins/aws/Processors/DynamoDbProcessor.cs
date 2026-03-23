@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// dynamodb tables
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "dynamodb tables" command to list all DynamoDB tables in the account.
+/// </summary>
 internal class DynamoDbTablesProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "tables";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List DynamoDB tables";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -28,8 +31,13 @@ internal class DynamoDbTablesProcessor : CliCommandProcessor, ICliCommandProcess
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DynamoDbTablesProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the DynamoDB client.</param>
     public DynamoDbTablesProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -62,16 +70,21 @@ internal class DynamoDbTablesProcessor : CliCommandProcessor, ICliCommandProcess
     }
 }
 
-// ---------------------------------------------------------------------------
-// dynamodb describe
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "dynamodb describe" command to show detailed information about a DynamoDB table.
+/// </summary>
 internal class DynamoDbDescribeProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "describe";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Describe a DynamoDB table";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -85,8 +98,13 @@ internal class DynamoDbDescribeProcessor : CliCommandProcessor, ICliCommandProce
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DynamoDbDescribeProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the DynamoDB client.</param>
     public DynamoDbDescribeProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -144,16 +162,21 @@ internal class DynamoDbDescribeProcessor : CliCommandProcessor, ICliCommandProce
     }
 }
 
-// ---------------------------------------------------------------------------
-// dynamodb scan
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "dynamodb scan" command to retrieve items from a DynamoDB table using a full table scan.
+/// </summary>
 internal class DynamoDbScanProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "scan";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Scan items from a DynamoDB table";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -175,8 +198,13 @@ internal class DynamoDbScanProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DynamoDbScanProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the DynamoDB client.</param>
     public DynamoDbScanProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -221,6 +249,11 @@ internal class DynamoDbScanProcessor : CliCommandProcessor, ICliCommandProcessor
         return builder.Build();
     }
 
+    /// <summary>
+    /// Converts a DynamoDB item (attribute map) into a plain dictionary for JSON serialization.
+    /// </summary>
+    /// <param name="item">The DynamoDB attribute map representing a single item.</param>
+    /// <returns>A dictionary with string keys and native .NET values.</returns>
     internal static Dictionary<string, object?> SerializeItem(Dictionary<string, AttributeValue> item)
     {
         return item.ToDictionary(kvp => kvp.Key, kvp => SerializeAttributeValue(kvp.Value));
@@ -240,16 +273,21 @@ internal class DynamoDbScanProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// dynamodb query
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "dynamodb query" command to query items from a DynamoDB table using a key condition expression.
+/// </summary>
 internal class DynamoDbQueryProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "query";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Query items from a DynamoDB table";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -278,8 +316,13 @@ internal class DynamoDbQueryProcessor : CliCommandProcessor, ICliCommandProcesso
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DynamoDbQueryProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the DynamoDB client.</param>
     public DynamoDbQueryProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -335,17 +378,24 @@ internal class DynamoDbQueryProcessor : CliCommandProcessor, ICliCommandProcesso
     }
 }
 
-// ---------------------------------------------------------------------------
-// dynamodb (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for DynamoDB commands, aggregating tables, describe, scan, and query sub-commands.
+/// </summary>
 public class DynamoDbProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "dynamodb";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS DynamoDB operations — tables, describe, scan, query";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DynamoDbProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public DynamoDbProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -357,6 +407,7 @@ public class DynamoDbProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

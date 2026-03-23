@@ -2,6 +2,9 @@ using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Server.Jobs;
 
+/// <summary>
+/// Sample background job that performs a periodic health check simulation.
+/// </summary>
 public class SampleHealthCheckJob : ICliJob
 {
     public async Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)

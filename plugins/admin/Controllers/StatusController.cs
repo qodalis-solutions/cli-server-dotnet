@@ -6,6 +6,9 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
 
+/// <summary>
+/// Admin controller that reports server status including uptime, memory usage, and enabled features.
+/// </summary>
 [ApiController]
 [Route("api/v1/qcli/status")]
 public class StatusController : ControllerBase
@@ -14,6 +17,9 @@ public class StatusController : ControllerBase
     private readonly ICliCommandRegistry _commandRegistry;
     private readonly IServiceProvider _serviceProvider;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StatusController"/> class.
+    /// </summary>
     public StatusController(CliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider serviceProvider)
     {
         _eventSocketManager = eventSocketManager;
@@ -21,6 +27,9 @@ public class StatusController : ControllerBase
         _serviceProvider = serviceProvider;
     }
 
+    /// <summary>
+    /// Returns the current server status including uptime, memory, connections, and enabled features.
+    /// </summary>
     [HttpGet]
     public IActionResult GetStatus()
     {
@@ -36,10 +45,8 @@ public class StatusController : ControllerBase
             platformVersion = RuntimeInformation.FrameworkDescription,
             os = RuntimeInformation.OSDescription,
             activeWsConnections = _eventSocketManager.GetClients().Count,
-            // TODO: Wire to real shell session count from CliShellSessionManager once available
             activeShellSessions = 0,
             registeredCommands = _commandRegistry.Processors.Count,
-            // TODO: Wire to real job count from CliJobScheduler once the jobs plugin is available
             registeredJobs = 0,
             enabledFeatures = DetectEnabledFeatures(),
         });

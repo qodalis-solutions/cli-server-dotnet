@@ -2,11 +2,20 @@ using System.Text.RegularExpressions;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
+/// <summary>
+/// Parses human-readable interval strings (e.g., "30s", "5m", "1h", "1d") into <see cref="TimeSpan"/> values.
+/// </summary>
 internal static partial class IntervalParser
 {
     [GeneratedRegex(@"^(\d+)(s|m|h|d)$")]
     private static partial Regex IntervalRegex();
 
+    /// <summary>
+    /// Parses an interval string into a <see cref="TimeSpan"/>.
+    /// </summary>
+    /// <param name="interval">The interval string (e.g., "30s", "5m", "1h", "1d").</param>
+    /// <returns>The parsed <see cref="TimeSpan"/>.</returns>
+    /// <exception cref="ArgumentException">Thrown when the format is invalid.</exception>
     public static TimeSpan Parse(string interval)
     {
         var match = IntervalRegex().Match(interval);

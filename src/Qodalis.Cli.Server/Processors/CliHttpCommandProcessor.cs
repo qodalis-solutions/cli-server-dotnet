@@ -2,6 +2,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor for making HTTP requests from the server, with "get" and "post" sub-commands.
+/// </summary>
 public class CliHttpCommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "http";
@@ -20,6 +23,9 @@ public class CliHttpCommandProcessor : CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that performs HTTP GET requests.
+/// </summary>
 public class CliHttpGetProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "get";
@@ -45,6 +51,9 @@ public class CliHttpGetProcessor : CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that performs HTTP POST requests.
+/// </summary>
 public class CliHttpPostProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "post";
@@ -78,6 +87,9 @@ public class CliHttpPostProcessor : CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Helper for sending HTTP requests and formatting responses.
+/// </summary>
 internal static class HttpRequestHelper
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(30) };

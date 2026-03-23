@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// iam users
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "iam users" command to list all IAM users in the account.
+/// </summary>
 internal class IamUsersProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "users";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List IAM users";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -28,8 +31,13 @@ internal class IamUsersProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="IamUsersProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the IAM client.</param>
     public IamUsersProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -71,15 +79,18 @@ internal class IamUsersProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// iam roles
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "iam roles" command to list all IAM roles in the account.
+/// </summary>
 internal class IamRolesProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "roles";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List IAM roles";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -93,8 +104,13 @@ internal class IamRolesProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="IamRolesProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the IAM client.</param>
     public IamRolesProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -136,15 +152,18 @@ internal class IamRolesProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// iam policies
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "iam policies" command to list customer-managed IAM policies.
+/// </summary>
 internal class IamPoliciesProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "policies";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List IAM policies (local/customer-managed)";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -158,8 +177,13 @@ internal class IamPoliciesProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="IamPoliciesProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the IAM client.</param>
     public IamPoliciesProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -204,17 +228,24 @@ internal class IamPoliciesProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// iam (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for IAM commands, aggregating users, roles, and policies sub-commands.
+/// </summary>
 public class IamProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "iam";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS IAM operations — users, roles, policies";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="IamProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public IamProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -225,6 +256,7 @@ public class IamProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

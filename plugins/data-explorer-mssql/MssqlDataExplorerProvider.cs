@@ -3,15 +3,28 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Mssql;
 
+/// <summary>
+/// Data explorer provider for Microsoft SQL Server databases using Microsoft.Data.SqlClient.
+/// </summary>
 public class MssqlDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MssqlDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The MSSQL connection string.</param>
     public MssqlDataExplorerProvider(string connectionString)
     {
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Retrieves the database schema for all tables and views in the <c>dbo</c> schema, including column metadata.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing tables and columns, or <c>null</c> on failure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -19,7 +32,6 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get tables and views
         await using var tablesCmd = connection.CreateCommand();
         tablesCmd.CommandText = "SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' ORDER BY TABLE_NAME";
         await using var tablesReader = await tablesCmd.ExecuteReaderAsync(cancellationToken);
@@ -45,9 +57,9 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
             {
                 columns.Add(new DataExplorerSchemaColumn
                 {
-                    Name = colReader.GetString(0),                          // COLUMN_NAME
-                    Type = colReader.GetString(1),                          // DATA_TYPE
-                    Nullable = colReader.GetString(2) == "YES",             // IS_NULLABLE
+                    Name = colReader.GetString(0),
+                    Type = colReader.GetString(1),
+                    Nullable = colReader.GetString(2) == "YES",
                     PrimaryKey = false
                 });
             }
@@ -67,6 +79,12 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Executes a SQL query against the Microsoft SQL Server database and returns the results.
+    /// </summary>
+    /// <param name="context">The execution context containing the query, parameters, and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)

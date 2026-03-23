@@ -6,15 +6,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// aws configure set
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "aws configure set" command to persist AWS credentials and region.
+/// </summary>
 internal class AwsConfigureSetProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "set";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Set AWS credentials and region";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -51,12 +54,18 @@ internal class AwsConfigureSetProcessor : CliCommandProcessor, ICliCommandProces
     private readonly AwsConfigService _configService;
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AwsConfigureSetProcessor"/>.
+    /// </summary>
+    /// <param name="configService">The AWS configuration service.</param>
+    /// <param name="credentialManager">The credential manager whose cache is cleared on config changes.</param>
     public AwsConfigureSetProcessor(AwsConfigService configService, AwsCredentialManager credentialManager)
     {
         _configService = configService;
         _credentialManager = credentialManager;
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -105,19 +114,26 @@ internal class AwsConfigureSetProcessor : CliCommandProcessor, ICliCommandProces
     }
 }
 
-// ---------------------------------------------------------------------------
-// aws configure get
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "aws configure get" command to display the current AWS configuration with secrets masked.
+/// </summary>
 internal class AwsConfigureGetProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "get";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Show current AWS configuration (secrets masked)";
 
     private readonly AwsConfigService _configService;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AwsConfigureGetProcessor"/>.
+    /// </summary>
+    /// <param name="configService">The AWS configuration service to read from.</param>
     public AwsConfigureGetProcessor(AwsConfigService configService) => _configService = configService;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -130,15 +146,18 @@ internal class AwsConfigureGetProcessor : CliCommandProcessor, ICliCommandProces
     }
 }
 
-// ---------------------------------------------------------------------------
-// aws configure profiles
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "aws configure profiles" command to list available AWS profiles from disk.
+/// </summary>
 internal class AwsConfigureProfilesProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "profiles";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List available AWS profiles from ~/.aws/credentials and ~/.aws/config";
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -176,22 +195,30 @@ internal class AwsConfigureProfilesProcessor : CliCommandProcessor, ICliCommandP
         }
         catch
         {
-            // File doesn't exist or is unreadable — skip
+            // File doesn't exist or is unreadable -- skip
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// aws configure (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for the "aws configure" command group, aggregating set, get, and profiles sub-commands.
+/// </summary>
 internal class AwsConfigureProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "configure";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Manage AWS credentials and configuration";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AwsConfigureProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="configService">The AWS configuration service.</param>
+    /// <param name="credentialManager">The credential manager for cache invalidation.</param>
     public AwsConfigureProcessor(AwsConfigService configService, AwsCredentialManager credentialManager)
     {
         Processors =
@@ -202,23 +229,31 @@ internal class AwsConfigureProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }
 
-// ---------------------------------------------------------------------------
-// aws status
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "aws status" command to verify AWS connectivity using STS GetCallerIdentity.
+/// </summary>
 internal class AwsStatusProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "status";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Test AWS connectivity using STS GetCallerIdentity";
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AwsStatusProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the STS client.</param>
     public AwsStatusProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -259,20 +294,27 @@ internal class AwsStatusProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// aws (root processor)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Root command processor for all AWS operations, registering service-specific sub-processors
+/// (S3, EC2, Lambda, CloudWatch, SNS, SQS, ECS, DynamoDB, IAM).
+/// </summary>
 public class AwsCommandProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "aws";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS cloud resource management";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
     private readonly AwsConfigService _configService;
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AwsCommandProcessor"/> with all AWS service sub-processors.
+    /// </summary>
     public AwsCommandProcessor()
     {
         _configService = new AwsConfigService();
@@ -294,6 +336,7 @@ public class AwsCommandProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

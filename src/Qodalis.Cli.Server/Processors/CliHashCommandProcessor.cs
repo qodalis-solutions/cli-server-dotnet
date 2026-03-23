@@ -4,6 +4,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor that computes cryptographic hashes (MD5, SHA1, SHA256, SHA512) of input text.
+/// </summary>
 public class CliHashCommandProcessor : CliCommandProcessor
 {
     private static readonly string[] SupportedAlgorithms = ["md5", "sha1", "sha256", "sha512"];

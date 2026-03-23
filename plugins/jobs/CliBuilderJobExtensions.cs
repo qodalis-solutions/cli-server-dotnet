@@ -7,8 +7,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
+/// <summary>
+/// Extension methods for registering jobs and job infrastructure on <see cref="CliBuilder"/>.
+/// </summary>
 public static class CliBuilderJobExtensions
 {
+    /// <summary>
+    /// Registers a job of type <typeparamref name="T"/> with the scheduler.
+    /// </summary>
+    /// <typeparam name="T">The job implementation type.</typeparam>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <param name="configure">Optional callback to configure job options.</param>
+    /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddJob<T>(this CliBuilder builder, Action<CliJobOptions>? configure = null) where T : class, ICliJob
     {
         EnsureJobInfrastructure(builder);
@@ -20,6 +30,13 @@ public static class CliBuilderJobExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Registers an existing job instance with the scheduler.
+    /// </summary>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <param name="job">The job instance to register.</param>
+    /// <param name="configure">Optional callback to configure job options.</param>
+    /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddJob(this CliBuilder builder, ICliJob job, Action<CliJobOptions>? configure = null)
     {
         EnsureJobInfrastructure(builder);
@@ -30,6 +47,12 @@ public static class CliBuilderJobExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Replaces the job storage provider with the specified instance.
+    /// </summary>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <param name="provider">The storage provider instance to use.</param>
+    /// <returns>The builder for chaining.</returns>
     public static CliBuilder SetJobStorageProvider(this CliBuilder builder, ICliJobStorageProvider provider)
     {
         EnsureJobInfrastructure(builder);
@@ -39,6 +62,12 @@ public static class CliBuilderJobExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Replaces the job storage provider with a type registered via DI.
+    /// </summary>
+    /// <typeparam name="T">The storage provider implementation type.</typeparam>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <returns>The builder for chaining.</returns>
     public static CliBuilder SetJobStorageProvider<T>(this CliBuilder builder) where T : class, ICliJobStorageProvider
     {
         EnsureJobInfrastructure(builder);
@@ -110,7 +139,13 @@ public static class CliBuilderJobExtensions
     }
 }
 
+/// <summary>
+/// Internal state holder for job registrations collected during service configuration.
+/// </summary>
 internal class JobsPluginState
 {
+    /// <summary>
+    /// Gets the list of job registrations accumulated by <see cref="CliBuilderJobExtensions.AddJob{T}"/> calls.
+    /// </summary>
     public List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> Registrations { get; } = [];
 }

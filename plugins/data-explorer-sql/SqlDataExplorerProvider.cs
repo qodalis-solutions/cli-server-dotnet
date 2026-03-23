@@ -3,15 +3,28 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Sql;
 
+/// <summary>
+/// Data explorer provider for SQLite databases using Microsoft.Data.Sqlite.
+/// </summary>
 public class SqlDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SqlDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The SQLite connection string.</param>
     public SqlDataExplorerProvider(string connectionString)
     {
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Retrieves the database schema including all tables, views, and their columns.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing tables and columns, or <c>null</c> on failure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -19,7 +32,6 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get tables and views
         await using var tablesCmd = connection.CreateCommand();
         tablesCmd.CommandText = "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name";
         await using var tablesReader = await tablesCmd.ExecuteReaderAsync(cancellationToken);
@@ -42,10 +54,10 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
             {
                 columns.Add(new DataExplorerSchemaColumn
                 {
-                    Name = colReader.GetString(1),      // name
-                    Type = colReader.IsDBNull(2) ? "TEXT" : colReader.GetString(2), // type
-                    Nullable = colReader.GetInt32(3) == 0, // notnull (0 = nullable)
-                    PrimaryKey = colReader.GetInt32(5) > 0  // pk
+                    Name = colReader.GetString(1),
+                    Type = colReader.IsDBNull(2) ? "TEXT" : colReader.GetString(2),
+                    Nullable = colReader.GetInt32(3) == 0,
+                    PrimaryKey = colReader.GetInt32(5) > 0
                 });
             }
 
@@ -64,6 +76,12 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <summary>
+    /// Executes a SQL query against the SQLite database and returns the results.
+    /// </summary>
+    /// <param name="context">The execution context containing the query, parameters, and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)

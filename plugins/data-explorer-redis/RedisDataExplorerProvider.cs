@@ -3,10 +3,17 @@ using StackExchange.Redis;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Redis;
 
+/// <summary>
+/// Data explorer provider for Redis using StackExchange.Redis.
+/// Supports a curated set of safe Redis commands and normalizes results into tabular format.
+/// </summary>
 public class RedisDataExplorerProvider : IDataExplorerProvider
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// The set of Redis commands that are allowed for execution through this provider.
+    /// </summary>
     private static readonly HashSet<string> AllowedCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "GET", "SET", "DEL", "KEYS", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRE",
@@ -18,11 +25,22 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
         "SCAN", "HSCAN", "SSCAN", "ZSCAN", "INFO", "DBSIZE", "SELECT", "PING"
     };
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="RedisDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="connectionString">The Redis connection string.</param>
     public RedisDataExplorerProvider(string connectionString)
     {
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Executes a Redis command and returns the results in a normalized tabular format.
+    /// Only commands in the allowed set are permitted.
+    /// </summary>
+    /// <param name="context">The execution context containing the Redis command string and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)
@@ -75,6 +93,13 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
         return result;
     }
 
+    /// <summary>
+    /// Retrieves the Redis key space schema by scanning keys and grouping them by data type.
+    /// Samples up to 1000 keys to build the schema.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result with tables representing Redis data types and their typical structure.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
@@ -133,6 +158,9 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
         }
     }
 
+    /// <summary>
+    /// Parses a Redis command string into individual tokens, respecting quoted strings.
+    /// </summary>
     private static string[] ParseCommand(string query)
     {
         var parts = new List<string>();
@@ -174,6 +202,10 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
         return parts.ToArray();
     }
 
+    /// <summary>
+    /// Normalizes a raw Redis result into the tabular format expected by <see cref="DataExplorerResult"/>,
+    /// applying command-specific formatting for commands like HGETALL, KEYS, INFO, etc.
+    /// </summary>
     private static void NormalizeResult(string command, RedisResult redisResult, DataExplorerResult result)
     {
         var upperCommand = command.ToUpperInvariant();
@@ -251,7 +283,6 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
             }
             default:
             {
-                // Scalar or simple results
                 var value = redisResult.ToString() ?? "(nil)";
                 result.Columns = new List<string> { "Result" };
                 result.Rows = new List<object> { new object[] { value } };
@@ -261,6 +292,9 @@ public class RedisDataExplorerProvider : IDataExplorerProvider
         }
     }
 
+    /// <summary>
+    /// Returns the typical column definitions for a given Redis data type (e.g., string, hash, list, set, zset).
+    /// </summary>
     private static List<DataExplorerSchemaColumn> GetColumnsForType(string typeName)
     {
         return typeName.ToLowerInvariant() switch

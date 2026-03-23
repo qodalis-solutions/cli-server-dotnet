@@ -2,12 +2,18 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Services;
 
+/// <summary>
+/// Default implementation of <see cref="ICliCommandRegistry"/> that stores processors in memory
+/// and supports lookup with sub-command traversal.
+/// </summary>
 public class CliCommandRegistry : ICliCommandRegistry
 {
     private readonly List<ICliCommandProcessor> _processors = [];
 
+    /// <inheritdoc />
     public IReadOnlyList<ICliCommandProcessor> Processors => _processors;
 
+    /// <inheritdoc />
     public void Register(ICliCommandProcessor processor)
     {
         var existingIndex = _processors.FindIndex(
@@ -19,6 +25,7 @@ public class CliCommandRegistry : ICliCommandRegistry
             _processors.Add(processor);
     }
 
+    /// <inheritdoc />
     public ICliCommandProcessor? FindProcessor(string command, IEnumerable<string>? chainCommands = null)
     {
         var processor = _processors.FirstOrDefault(

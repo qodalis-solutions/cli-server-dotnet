@@ -2,6 +2,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor that displays server status information including uptime and runtime version.
+/// </summary>
 public class CliStatusCommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "status";

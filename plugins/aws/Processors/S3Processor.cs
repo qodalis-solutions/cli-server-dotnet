@@ -6,12 +6,16 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Utility methods for S3 URI parsing and byte formatting.
+/// </summary>
 internal static class S3Helpers
 {
+    /// <summary>
+    /// Parses an S3 URI (e.g., "s3://bucket/key") into its bucket and key components.
+    /// </summary>
+    /// <param name="uri">The S3 URI to parse.</param>
+    /// <returns>A tuple of (Bucket, Key) if valid, or <c>null</c> if the URI format is invalid.</returns>
     public static (string Bucket, string Key)? ParseS3Uri(string uri)
     {
         var match = System.Text.RegularExpressions.Regex.Match(uri, @"^s3://([^/]+)/?(.*)$");
@@ -19,6 +23,11 @@ internal static class S3Helpers
         return (match.Groups[1].Value, match.Groups[2].Value);
     }
 
+    /// <summary>
+    /// Formats a byte count into a human-readable string (e.g., "1.5 MB").
+    /// </summary>
+    /// <param name="bytes">The number of bytes.</param>
+    /// <returns>A formatted string with the appropriate unit.</returns>
     public static string FormatBytes(long bytes)
     {
         if (bytes == 0) return "0 B";
@@ -28,15 +37,18 @@ internal static class S3Helpers
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 ls
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 ls" command to list S3 buckets or objects within a bucket.
+/// </summary>
 internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "ls";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List S3 buckets or objects in a bucket";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -50,8 +62,13 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3LsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3LsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -93,7 +110,6 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
             return builder.Build();
         }
 
-        // List objects in a bucket
         var parsed = S3Helpers.ParseS3Uri(value);
         if (parsed == null)
         {
@@ -145,16 +161,21 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 cp
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 cp" command to copy objects between S3 locations (S3-to-S3 only).
+/// </summary>
 internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "cp";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Copy objects between S3 locations (S3-to-S3 only)";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -176,8 +197,13 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3CpProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3CpProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -242,16 +268,21 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 rm
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 rm" command to delete an S3 object, with optional dry-run support.
+/// </summary>
 internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "rm";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Delete an S3 object";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -271,8 +302,13 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3RmProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3RmProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -325,16 +361,21 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 mb (make bucket)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 mb" command to create a new S3 bucket.
+/// </summary>
 internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "mb";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Create an S3 bucket";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -348,8 +389,13 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3MbProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3MbProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -383,16 +429,21 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 rb (remove bucket)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 rb" command to delete an S3 bucket, with optional dry-run support.
+/// </summary>
 internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "rb";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Delete an S3 bucket";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -412,8 +463,13 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3RbProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3RbProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -453,16 +509,21 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 presign
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "s3 presign" command to generate a time-limited pre-signed URL for an S3 object.
+/// </summary>
 internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "presign";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Generate a pre-signed URL for an S3 object";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -484,8 +545,13 @@ internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3PresignProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the S3 client.</param>
     public S3PresignProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -547,17 +613,24 @@ internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// s3 (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for S3 commands, aggregating ls, cp, rm, mb, rb, and presign sub-commands.
+/// </summary>
 public class S3Processor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "s3";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Amazon S3 operations — list, copy, remove objects and buckets";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="S3Processor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public S3Processor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -571,6 +644,7 @@ public class S3Processor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

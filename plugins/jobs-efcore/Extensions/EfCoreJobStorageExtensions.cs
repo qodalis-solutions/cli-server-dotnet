@@ -5,8 +5,17 @@ using Qodalis.Cli.Extensions;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
+/// <summary>
+/// Extension methods for configuring EF Core-based job storage on <see cref="CliBuilder"/>.
+/// </summary>
 public static class EfCoreJobStorageExtensions
 {
+    /// <summary>
+    /// Registers the EF Core job storage provider, replacing the default in-memory provider.
+    /// </summary>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <param name="configure">Callback to configure the <see cref="DbContextOptionsBuilder"/> (e.g., connection string).</param>
+    /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddEfCoreJobStorage(this CliBuilder builder, Action<DbContextOptionsBuilder> configure)
     {
         builder.Services.AddDbContextFactory<JobStorageDbContext>(configure);

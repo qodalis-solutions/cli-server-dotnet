@@ -8,15 +8,18 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Aws.Processors;
 
-// ---------------------------------------------------------------------------
-// lambda list
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "lambda list" command to list all Lambda functions in the account.
+/// </summary>
 internal class LambdaListProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "list";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "List Lambda functions";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -30,8 +33,13 @@ internal class LambdaListProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="LambdaListProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the Lambda client.</param>
     public LambdaListProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -73,16 +81,21 @@ internal class LambdaListProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// lambda invoke
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "lambda invoke" command to invoke a Lambda function with an optional JSON payload.
+/// </summary>
 internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "invoke";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Invoke a Lambda function";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -103,8 +116,13 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="LambdaInvokeProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the Lambda client.</param>
     public LambdaInvokeProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -168,16 +186,21 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// lambda logs
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Handles the "lambda logs" command to fetch recent CloudWatch log events for a Lambda function.
+/// </summary>
 internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "logs";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "View recent logs for a Lambda function";
+
+    /// <inheritdoc />
     public override bool? ValueRequired { get; set; } = true;
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -199,8 +222,13 @@ internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
 
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="LambdaLogsProcessor"/>.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager used to create the CloudWatch Logs client.</param>
     public LambdaLogsProcessor(AwsCredentialManager credentialManager) => _credentialManager = credentialManager;
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 
@@ -270,17 +298,24 @@ internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
     }
 }
 
-// ---------------------------------------------------------------------------
-// lambda (parent)
-// ---------------------------------------------------------------------------
-
+/// <summary>
+/// Parent processor for Lambda commands, aggregating list, invoke, and logs sub-commands.
+/// </summary>
 public class LambdaProcessor : CliCommandProcessor, ICliCommandProcessor
 {
+    /// <inheritdoc />
     public override string Command { get; set; } = "lambda";
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "AWS Lambda operations — list, invoke, and view logs";
 
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="LambdaProcessor"/> with its sub-command processors.
+    /// </summary>
+    /// <param name="credentialManager">The credential manager passed to child processors.</param>
     public LambdaProcessor(AwsCredentialManager credentialManager)
     {
         Processors =
@@ -291,6 +326,7 @@ public class LambdaProcessor : CliCommandProcessor, ICliCommandProcessor
         ];
     }
 
+    /// <inheritdoc />
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
 }

@@ -5,19 +5,38 @@ using System.Text.Json;
 
 namespace Qodalis.Cli.Services;
 
+/// <summary>
+/// Holds metadata about a connected WebSocket client.
+/// </summary>
 public class CliWebSocketClientInfo
 {
+    /// <summary>Gets or sets the unique client identifier.</summary>
     public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the ISO 8601 timestamp when the client connected.</summary>
     public string ConnectedAt { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the client's remote address.</summary>
     public string RemoteAddress { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the connection type (e.g., "events").</summary>
     public string Type { get; set; } = "events";
 }
 
+/// <summary>
+/// Manages WebSocket connections for server-push event broadcasting to connected clients.
+/// </summary>
 public class CliEventSocketManager : IDisposable
 {
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
 
+    /// <summary>
+    /// Accepts and manages a WebSocket connection, keeping it alive until the client disconnects or the server shuts down.
+    /// </summary>
+    /// <param name="socket">The WebSocket connection.</param>
+    /// <param name="cancellationToken">A token to signal server shutdown.</param>
+    /// <param name="remoteAddress">The client's remote address for tracking.</param>
     public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
     {
         var id = Guid.NewGuid().ToString();
@@ -61,6 +80,10 @@ public class CliEventSocketManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Broadcasts a text message to all connected WebSocket clients.
+    /// </summary>
+    /// <param name="message">The message to broadcast.</param>
     public async Task BroadcastMessageAsync(string message)
     {
         var bytes = Encoding.UTF8.GetBytes(message);
@@ -78,6 +101,9 @@ public class CliEventSocketManager : IDisposable
         await Task.WhenAll(tasks);
     }
 
+    /// <summary>
+    /// Sends a disconnect message to all connected clients and closes their connections.
+    /// </summary>
     public async Task BroadcastDisconnectAsync()
     {
         var message = new { type = "disconnect" };
@@ -126,6 +152,7 @@ public class CliEventSocketManager : IDisposable
         return _clientInfo.Values.ToList().AsReadOnly();
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         foreach (var (_, socket) in _clients)

@@ -6,44 +6,58 @@ using Amazon.S3.Model;
 
 namespace Qodalis.Cli.Plugin.FileSystem.S3;
 
+/// <summary>
+/// File storage provider backed by Amazon S3 or any S3-compatible object store.
+/// Directories are represented using zero-byte marker objects with a trailing slash.
+/// </summary>
 public class S3FileStorageProvider : IFileStorageProvider, IDisposable
 {
+    /// <inheritdoc />
     public string Name => "s3";
 
     private readonly S3ProviderOptions _options;
     private readonly IAmazonS3 _client;
 
+    /// <summary>
+    /// Initializes a new instance, creating an S3 client from the provided options.
+    /// </summary>
+    /// <param name="options">Options specifying bucket, region, credentials, and optional service URL.</param>
     public S3FileStorageProvider(S3ProviderOptions options)
         : this(options, CreateClient(options))
     {
     }
 
+    /// <summary>
+    /// Initializes a new instance with a pre-configured S3 client.
+    /// </summary>
+    /// <param name="options">Options specifying bucket and key prefix.</param>
+    /// <param name="client">The S3 client to use for operations.</param>
     public S3FileStorageProvider(S3ProviderOptions options, IAmazonS3 client)
     {
         _options = options;
         _client = client;
     }
 
+    /// <summary>
+    /// Disposes the underlying S3 client.
+    /// </summary>
     public void Dispose()
     {
         _client.Dispose();
     }
 
-    // --- IFileStorageProvider implementation ---
-
+    /// <inheritdoc />
     public async Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
         var prefix = ToKey(path);
         if (prefix.Length > 0 && !prefix.EndsWith('/'))
             prefix += "/";
 
-        // If listing a non-root path, verify it exists as a directory
         if (path.Trim('/').Length > 0)
         {
             var dirExists = await IsDirectoryAsync(prefix, ct);
             if (!dirExists)
             {
-                // Check if it exists as a file
                 var fileExists = await ObjectExistsAsync(prefix.TrimEnd('/'), ct);
                 if (fileExists)
                     throw new FileStorageNotADirectoryError(path);
@@ -65,7 +79,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         {
             response = await _client.ListObjectsV2Async(request, ct);
 
-            // Directories (common prefixes)
             foreach (var commonPrefix in response.CommonPrefixes)
             {
                 var name = ExtractName(commonPrefix, prefix);
@@ -81,18 +94,15 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
                 });
             }
 
-            // Files
             foreach (var obj in response.S3Objects)
             {
                 var key = obj.Key;
 
-                // Skip the directory marker itself
                 if (key == prefix)
                     continue;
 
                 var name = key[prefix.Length..];
 
-                // Skip nested objects (shouldn't happen with delimiter, but be safe)
                 if (name.Contains('/'))
                     continue;
 
@@ -111,6 +121,7 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         return entries;
     }
 
+    /// <inheritdoc />
     public async Task<string> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var key = ToKey(path);
@@ -123,17 +134,18 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         return await reader.ReadToEndAsync(ct);
     }
 
+    /// <inheritdoc />
     public Task WriteFileAsync(string path, string content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, Encoding.UTF8.GetBytes(content), ct);
     }
 
+    /// <inheritdoc />
     public async Task WriteFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         var key = ToKey(path);
         var parentPath = GetParentPath(path);
 
-        // Verify parent directory exists (for non-root parents)
         if (parentPath.Trim('/').Length > 0)
         {
             var parentKey = ToKey(parentPath);
@@ -145,7 +157,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
                 throw new FileStorageNotFoundError(path);
         }
 
-        // Check if the path is a directory
         if (await IsDirectoryAsync(key + "/", ct))
             throw new FileStorageIsADirectoryError(path);
 
@@ -160,15 +171,14 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         await _client.PutObjectAsync(request, ct);
     }
 
+    /// <inheritdoc />
     public async Task<FileStat> StatAsync(string path, CancellationToken ct = default)
     {
         var key = ToKey(path);
 
-        // Try as file first
         var obj = await GetMetadataSafeAsync(key, ct);
         if (obj != null)
         {
-            // Could be a directory marker (trailing /)
             if (key.EndsWith('/'))
             {
                 return new FileStat
@@ -191,7 +201,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
             };
         }
 
-        // Try as directory (prefix with /)
         var dirKey = key.EndsWith('/') ? key : key + "/";
         if (await IsDirectoryAsync(dirKey, ct))
         {
@@ -208,6 +217,7 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         throw new FileStorageNotFoundError(path);
     }
 
+    /// <inheritdoc />
     public async Task MkdirAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -223,7 +233,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
                 currentPath = currentPath.Length == 0 ? part : currentPath + "/" + part;
                 var dirKey = ToKey(currentPath) + "/";
 
-                // Check if something exists as a file at this path
                 var fileKey = ToKey(currentPath);
                 if (await ObjectExistsAsync(fileKey, ct))
                     throw new FileStorageNotADirectoryError(part);
@@ -245,7 +254,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
 
             var key = ToKey(normalizedPath);
 
-            // Check if already exists
             if (await ObjectExistsAsync(key + "/", ct) || await IsDirectoryAsync(key + "/", ct))
                 throw new FileStorageExistsError(path);
 
@@ -253,6 +261,7 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         }
     }
 
+    /// <inheritdoc />
     public async Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var normalizedPath = NormalizePath(path);
@@ -261,21 +270,18 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
 
         var key = ToKey(normalizedPath);
 
-        // Check if it's a file
         if (await ObjectExistsAsync(key, ct))
         {
             await _client.DeleteObjectAsync(_options.Bucket, key, ct);
             return;
         }
 
-        // Check if it's a directory
         var dirKey = key + "/";
         if (!await IsDirectoryAsync(dirKey, ct))
             throw new FileStorageNotFoundError(path);
 
         if (!recursive)
         {
-            // Check if directory has children (beyond the marker)
             var listRequest = new ListObjectsV2Request
             {
                 BucketName = _options.Bucket,
@@ -290,7 +296,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
                 throw new FileStoragePermissionError(path);
         }
 
-        // Delete all objects under the prefix
         var deleteRequest = new ListObjectsV2Request
         {
             BucketName = _options.Bucket,
@@ -317,10 +322,10 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
             deleteRequest.ContinuationToken = deleteResponse.NextContinuationToken;
         } while (deleteResponse.IsTruncated);
 
-        // Also delete the directory marker itself if it wasn't included
         await DeleteObjectSafeAsync(dirKey, ct);
     }
 
+    /// <inheritdoc />
     public async Task CopyAsync(string src, string dest, CancellationToken ct = default)
     {
         var srcKey = ToKey(src);
@@ -348,6 +353,7 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         await _client.CopyObjectAsync(copyRequest, ct);
     }
 
+    /// <inheritdoc />
     public async Task MoveAsync(string src, string dest, CancellationToken ct = default)
     {
         await CopyAsync(src, dest, ct);
@@ -355,23 +361,22 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         await _client.DeleteObjectAsync(_options.Bucket, srcKey, ct);
     }
 
+    /// <inheritdoc />
     public async Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
         var key = ToKey(path);
 
-        // Check as file
         if (await ObjectExistsAsync(key, ct))
             return true;
 
-        // Check as directory
         return await IsDirectoryAsync(key + "/", ct);
     }
 
+    /// <inheritdoc />
     public async Task<Stream> GetDownloadStreamAsync(string path, CancellationToken ct = default)
     {
         var key = ToKey(path);
 
-        // Check if it's a directory
         if (key.EndsWith('/') || await IsDirectoryAsync(key + "/", ct))
         {
             if (!await ObjectExistsAsync(key, ct))
@@ -381,19 +386,17 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         var response = await GetObjectSafeAsync(key, ct)
             ?? throw new FileStorageNotFoundError(path);
 
-        // Copy to memory stream so we can dispose the S3 response
         var ms = new MemoryStream();
         await response.ResponseStream.CopyToAsync(ms, ct);
         ms.Position = 0;
         return ms;
     }
 
+    /// <inheritdoc />
     public Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         return WriteFileAsync(path, content, ct);
     }
-
-    // --- Helpers ---
 
     private string ToKey(string path)
     {
@@ -451,7 +454,6 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
 
     private async Task<bool> IsDirectoryAsync(string dirKey, CancellationToken ct)
     {
-        // A directory exists if the marker object exists or if any objects share the prefix
         if (await ObjectExistsAsync(dirKey, ct))
             return true;
 
@@ -509,7 +511,7 @@ public class S3FileStorageProvider : IFileStorageProvider, IDisposable
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            // Already deleted, ignore
+            // Already deleted, safe to ignore.
         }
     }
 

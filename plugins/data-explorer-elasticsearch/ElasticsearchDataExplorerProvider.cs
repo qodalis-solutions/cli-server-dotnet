@@ -6,6 +6,10 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 
 namespace Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
 
+/// <summary>
+/// Data explorer provider for Elasticsearch clusters using the REST API.
+/// Supports search queries, cat APIs, index mappings, and arbitrary REST requests.
+/// </summary>
 public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
 {
     private readonly HttpClient _httpClient;
@@ -15,6 +19,10 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ElasticsearchDataExplorerProvider"/> class.
+    /// </summary>
+    /// <param name="node">The Elasticsearch node URL (e.g., <c>http://localhost:9200</c>).</param>
     public ElasticsearchDataExplorerProvider(string node)
     {
         _httpClient = new HttpClient
@@ -25,6 +33,14 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
             new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
+    /// <summary>
+    /// Executes an Elasticsearch REST request parsed from the query string.
+    /// The first line specifies the HTTP verb and path (e.g., <c>GET /my-index/_search</c>),
+    /// and subsequent lines form the JSON request body.
+    /// </summary>
+    /// <param name="context">The execution context containing the query string and options.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The query result containing columns, rows, and metadata.</returns>
     public async Task<DataExplorerResult> ExecuteAsync(
         DataExplorerExecutionContext context,
         CancellationToken cancellationToken = default)
@@ -41,7 +57,7 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         {
             var (method, path, body) = ParseQuery(context.Query);
 
-            // _cat endpoints: append ?format=json if not already present
+            // Append ?format=json to _cat endpoints if not already present
             if (path.Contains("/_cat/") || path.StartsWith("_cat/"))
             {
                 if (!path.Contains("format="))
@@ -57,7 +73,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
                 return result;
             }
 
-            // Determine how to shape the result
             if (path.Contains("/_search") || path.EndsWith("/_search"))
             {
                 FlattenSearchHits(responseJson, result);
@@ -68,7 +83,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
             }
             else
             {
-                // Raw JSON result
                 result.Columns = new List<string> { "response" };
                 result.Rows = new List<object> { new object[] { responseJson.ToJsonString() } };
                 result.RowCount = 1;
@@ -84,13 +98,18 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         return result;
     }
 
+    /// <summary>
+    /// Retrieves the Elasticsearch cluster schema by listing all non-system indices and their field mappings.
+    /// </summary>
+    /// <param name="options">The provider options containing the data source name.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The schema result containing indices and their field definitions.</returns>
     public async Task<DataExplorerSchemaResult?> GetSchemaAsync(
         DataExplorerProviderOptions options,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Get index list
             var indicesJson = await SendRequestAsync(
                 HttpMethod.Get, "_cat/indices?format=json&h=index,health,status,pri,rep,docs.count,store.size",
                 null, cancellationToken);
@@ -113,7 +132,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
                         new() { Name = "_index", Type = "keyword", Nullable = false, PrimaryKey = false }
                     };
 
-                    // Get mapping for each index
                     try
                     {
                         var mappingJson = await SendRequestAsync(
@@ -121,7 +139,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
 
                         if (mappingJson is JsonObject mappingObj)
                         {
-                            // mappingObj structure: { "<indexName>": { "mappings": { "properties": { ... } } } }
                             var indexMappingNode = mappingObj[indexName];
                             var propertiesNode = indexMappingNode?["mappings"]?["properties"];
                             if (propertiesNode is JsonObject properties)
@@ -132,7 +149,7 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
                     }
                     catch
                     {
-                        // If mapping fails, still add the index with minimal columns
+                        // If mapping retrieval fails, the index is still added with minimal columns
                     }
 
                     tables.Add(new DataExplorerSchemaTable
@@ -156,7 +173,10 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         }
     }
 
-    // Parse query: first non-empty line = "[VERB] /path", rest = JSON body
+    /// <summary>
+    /// Parses a query string into an HTTP method, path, and optional JSON body.
+    /// The first non-empty line is expected to contain <c>[VERB] /path</c>; remaining lines form the body.
+    /// </summary>
     private static (HttpMethod Method, string Path, string? Body) ParseQuery(string query)
     {
         var lines = query.Split('\n');
@@ -194,7 +214,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         }
         else
         {
-            // No verb — bare path, default to GET
             method = HttpMethod.Get;
             path = firstLine.TrimStart('/');
         }
@@ -205,6 +224,14 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         return (method, path, body);
     }
 
+    /// <summary>
+    /// Sends an HTTP request to the Elasticsearch cluster and returns the parsed JSON response.
+    /// </summary>
+    /// <param name="method">The HTTP method to use.</param>
+    /// <param name="path">The request path relative to the base URL.</param>
+    /// <param name="body">The optional JSON request body.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The parsed JSON response, or <c>null</c> if the response body is empty.</returns>
     private async Task<JsonNode?> SendRequestAsync(
         HttpMethod method, string path, string? body, CancellationToken cancellationToken)
     {
@@ -224,6 +251,9 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         return JsonNode.Parse(content);
     }
 
+    /// <summary>
+    /// Flattens Elasticsearch <c>_search</c> response hits into a tabular result with columns derived from <c>_source</c> fields.
+    /// </summary>
     private static void FlattenSearchHits(JsonNode responseJson, DataExplorerResult result)
     {
         var hitsNode = responseJson["hits"]?["hits"];
@@ -236,11 +266,9 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
             return;
         }
 
-        // Collect all field keys across all hits
         var columnSet = new LinkedList<string>();
         var columnIndex = new Dictionary<string, int>();
 
-        // Always include meta fields first
         foreach (var meta in new[] { "_index", "_id", "_score" })
         {
             columnIndex[meta] = columnSet.Count;
@@ -294,6 +322,9 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         result.RowCount = rows.Count;
     }
 
+    /// <summary>
+    /// Flattens a JSON array response (typically from <c>_cat</c> APIs) into a tabular result.
+    /// </summary>
     private static void FlattenArrayResponse(JsonNode responseJson, DataExplorerResult result)
     {
         if (responseJson is not JsonArray arr || arr.Count == 0)
@@ -304,7 +335,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
             return;
         }
 
-        // Collect all keys
         var columnSet = new LinkedList<string>();
         var columnIndex = new Dictionary<string, int>();
 
@@ -343,6 +373,13 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
         result.RowCount = rows.Count;
     }
 
+    /// <summary>
+    /// Recursively extracts column definitions from an Elasticsearch index mapping's properties object.
+    /// Nested object properties are flattened using dot notation (e.g., <c>address.city</c>).
+    /// </summary>
+    /// <param name="properties">The JSON object containing field definitions.</param>
+    /// <param name="prefix">The dot-separated prefix for nested fields.</param>
+    /// <param name="columns">The list to append extracted columns to.</param>
     private static void ExtractMappingColumns(
         JsonObject properties, string prefix, List<DataExplorerSchemaColumn> columns)
     {
@@ -352,7 +389,6 @@ public class ElasticsearchDataExplorerProvider : IDataExplorerProvider
             var fieldDef = prop.Value as JsonObject;
             var fieldType = fieldDef?["type"]?.GetValue<string>() ?? "object";
 
-            // Recurse into nested object/nested type properties
             var nestedProps = fieldDef?["properties"] as JsonObject;
             if (nestedProps != null)
             {

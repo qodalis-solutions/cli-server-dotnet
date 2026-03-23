@@ -11,12 +11,21 @@ public class AdminAuthMiddleware
     private readonly RequestDelegate _next;
     private readonly JwtService _jwtService;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AdminAuthMiddleware"/> class.
+    /// </summary>
+    /// <param name="next">The next middleware in the pipeline.</param>
+    /// <param name="jwtService">The JWT service for token validation.</param>
     public AdminAuthMiddleware(RequestDelegate next, JwtService jwtService)
     {
         _next = next;
         _jwtService = jwtService;
     }
 
+    /// <summary>
+    /// Validates the JWT Bearer token for admin API routes and passes through non-admin requests.
+    /// </summary>
+    /// <param name="context">The HTTP context for the current request.</param>
     public async Task Invoke(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;

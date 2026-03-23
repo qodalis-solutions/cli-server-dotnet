@@ -2,6 +2,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor for Base64 encoding and decoding, with "encode" and "decode" sub-commands.
+/// </summary>
 public class CliBase64CommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "base64";
@@ -20,6 +23,9 @@ public class CliBase64CommandProcessor : CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that encodes text to Base64.
+/// </summary>
 public class CliBase64EncodeProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "encode";
@@ -36,6 +42,9 @@ public class CliBase64EncodeProcessor : CliCommandProcessor
     }
 }
 
+/// <summary>
+/// Sub-command processor that decodes Base64 text back to plain text.
+/// </summary>
 public class CliBase64DecodeProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "decode";

@@ -3,6 +3,9 @@ using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Server.Processors;
 
+/// <summary>
+/// Command processor that displays detailed system information including hostname, OS, CPU, memory, and uptime.
+/// </summary>
 public class CliSystemCommandProcessor : CliCommandProcessor
 {
     private static readonly DateTime StartTime = DateTime.UtcNow;

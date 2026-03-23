@@ -6,6 +6,10 @@ using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
+/// <summary>
+/// Hosted service that schedules and executes registered jobs using cron expressions or intervals.
+/// Supports pause, resume, stop, manual trigger, cancellation, and configurable retry policies.
+/// </summary>
 public class CliJobScheduler : IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
@@ -13,6 +17,12 @@ public class CliJobScheduler : IHostedService, IDisposable
     private readonly CliEventSocketManager _eventSocket;
     private readonly ILogger<CliJobScheduler> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class.
+    /// </summary>
+    /// <param name="storage">The storage provider for persisting job state and execution history.</param>
+    /// <param name="eventSocket">The WebSocket manager for broadcasting job events.</param>
+    /// <param name="logger">The logger instance.</param>
     public CliJobScheduler(
         ICliJobStorageProvider storage,
         CliEventSocketManager eventSocket,
@@ -23,6 +33,9 @@ public class CliJobScheduler : IHostedService, IDisposable
         _logger = logger;
     }
 
+    /// <summary>
+    /// Gets all registered job registrations keyed by job ID.
+    /// </summary>
     public IReadOnlyDictionary<string, JobRegistration> Jobs => _jobs;
 
     internal void Register(ICliJob job, CliJobOptions options)
@@ -42,6 +55,7 @@ public class CliJobScheduler : IHostedService, IDisposable
         _jobs[id] = registration;
     }
 
+    /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var states = await _storage.GetAllJobStatesAsync(cancellationToken);
@@ -64,6 +78,7 @@ public class CliJobScheduler : IHostedService, IDisposable
         _logger.LogInformation("Job scheduler started with {Count} jobs", _jobs.Count);
     }
 
+    /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         foreach (var reg in _jobs.Values)
@@ -88,6 +103,11 @@ public class CliJobScheduler : IHostedService, IDisposable
         _logger.LogInformation("Job scheduler stopped");
     }
 
+    /// <summary>
+    /// Manually triggers immediate execution of the specified job.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to trigger.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public async Task TriggerAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -101,6 +121,11 @@ public class CliJobScheduler : IHostedService, IDisposable
         _ = ExecuteJobAsync(reg);
     }
 
+    /// <summary>
+    /// Pauses the specified job, stopping its scheduled timer.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to pause.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public async Task PauseAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -115,6 +140,11 @@ public class CliJobScheduler : IHostedService, IDisposable
         await BroadcastAsync("job:paused", new { jobId });
     }
 
+    /// <summary>
+    /// Resumes a previously paused job and restarts its scheduled timer.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to resume.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public async Task ResumeAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -128,6 +158,11 @@ public class CliJobScheduler : IHostedService, IDisposable
         await BroadcastAsync("job:resumed", new { jobId });
     }
 
+    /// <summary>
+    /// Stops the specified job, cancelling any running execution and disposing its timer.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to stop.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public async Task StopJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -145,6 +180,11 @@ public class CliJobScheduler : IHostedService, IDisposable
         await BroadcastAsync("job:stopped", new { jobId });
     }
 
+    /// <summary>
+    /// Cancels the currently running execution of the specified job.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job whose execution to cancel.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public async Task CancelCurrentAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -155,6 +195,12 @@ public class CliJobScheduler : IHostedService, IDisposable
         reg.CurrentCancellation = null;
     }
 
+    /// <summary>
+    /// Updates the options for the specified job and restarts its timer if the schedule changed.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to update.</param>
+    /// <param name="update">A callback that mutates the job options.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
     public Task UpdateOptionsAsync(string jobId, Action<CliJobOptions> update, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
@@ -349,6 +395,7 @@ public class CliJobScheduler : IHostedService, IDisposable
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         foreach (var reg in _jobs.Values)

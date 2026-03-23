@@ -15,6 +15,10 @@ public class JwtService
     private readonly SigningCredentials _signingCredentials;
     private readonly TokenValidationParameters _validationParameters;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JwtService"/> class.
+    /// </summary>
+    /// <param name="config">The admin configuration containing the JWT secret and expiry settings.</param>
     public JwtService(AdminConfig config)
     {
         _config = config;
@@ -35,6 +39,11 @@ public class JwtService
         };
     }
 
+    /// <summary>
+    /// Generates a signed JWT token for the specified admin user.
+    /// </summary>
+    /// <param name="username">The username to include in the token claims.</param>
+    /// <returns>The serialized JWT token string.</returns>
     public string GenerateToken(string username)
     {
         var claims = new[]
@@ -55,6 +64,11 @@ public class JwtService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    /// <summary>
+    /// Validates a JWT token and returns the claims principal if valid.
+    /// </summary>
+    /// <param name="token">The JWT token string to validate.</param>
+    /// <returns>The <see cref="ClaimsPrincipal"/> if the token is valid; otherwise, null.</returns>
     public ClaimsPrincipal? ValidateToken(string token)
     {
         try
