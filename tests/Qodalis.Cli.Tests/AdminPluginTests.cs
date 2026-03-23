@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
+
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Plugin.Admin.Auth;
 using Qodalis.Cli.Plugin.Admin.Controllers;

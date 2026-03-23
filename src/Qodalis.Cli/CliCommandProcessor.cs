@@ -27,7 +27,7 @@ public abstract class CliCommandProcessor : ICliCommandProcessor
     public virtual string Version { get; set; } = "1.0.0";
 
     /// <inheritdoc />
-    public virtual int ApiVersion { get; set; } = 1;
+    public virtual int ApiVersion { get; set; } = 2;
 
     /// <inheritdoc />
     public virtual IEnumerable<ICliCommandProcessor>? Processors { get; set; }

@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Services;
 
