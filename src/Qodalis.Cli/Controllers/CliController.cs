@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Controllers;
@@ -105,7 +106,10 @@ public class CliController : ControllerBase
 
         async Task WriteEvent(string eventType, object data)
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(data, data.GetType(), _jsonOptions);
+            // For CliServerOutput, serialize as the base type so the [JsonPolymorphic]
+            // type discriminator ("type": "text", etc.) is included in the JSON.
+            var type = data is CliServerOutput ? typeof(CliServerOutput) : data.GetType();
+            var json = System.Text.Json.JsonSerializer.Serialize(data, type, _jsonOptions);
             await Response.WriteAsync($"event: {eventType}\ndata: {json}\n\n");
             await Response.Body.FlushAsync();
         }

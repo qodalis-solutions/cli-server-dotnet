@@ -58,6 +58,13 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -76,7 +83,8 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         var value = command.Value?.Trim();
 
@@ -193,6 +201,13 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -244,7 +259,8 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         try
         {
@@ -298,6 +314,13 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -339,7 +362,8 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         try
         {
@@ -385,6 +409,13 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -412,7 +443,8 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         try
         {
@@ -459,6 +491,13 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -492,7 +531,8 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         try
         {
@@ -539,6 +579,13 @@ internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
             Name = "region",
             Aliases = ["-r"],
             Description = "AWS region override",
+            Type = CommandParameterType.String,
+        },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
             Type = CommandParameterType.String,
         },
     ];
@@ -589,7 +636,8 @@ internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
         try
         {

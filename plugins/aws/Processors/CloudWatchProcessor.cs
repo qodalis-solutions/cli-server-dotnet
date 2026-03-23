@@ -29,6 +29,13 @@ internal class CloudWatchAlarmsProcessor : CliCommandProcessor, ICliCommandProce
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -47,7 +54,8 @@ internal class CloudWatchAlarmsProcessor : CliCommandProcessor, ICliCommandProce
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonCloudWatchClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonCloudWatchClient>(regionOverride, profileOverride);
 
         try
         {
@@ -120,6 +128,13 @@ internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcess
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -147,7 +162,8 @@ internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcess
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonCloudWatchLogsClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonCloudWatchLogsClient>(regionOverride, profileOverride);
 
         var limit = 50;
         if (command.Args.TryGetValue("limit", out var l) && int.TryParse(l.ToString(), out var parsedLimit))
@@ -222,6 +238,13 @@ internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProc
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -249,7 +272,8 @@ internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProc
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonCloudWatchClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonCloudWatchClient>(regionOverride, profileOverride);
 
         try
         {

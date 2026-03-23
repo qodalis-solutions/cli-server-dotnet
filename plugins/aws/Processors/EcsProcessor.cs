@@ -28,6 +28,13 @@ internal class EcsClustersProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -46,7 +53,8 @@ internal class EcsClustersProcessor : CliCommandProcessor, ICliCommandProcessor
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride, profileOverride);
 
         try
         {
@@ -111,6 +119,13 @@ internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -138,7 +153,8 @@ internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride, profileOverride);
 
         try
         {
@@ -209,6 +225,13 @@ internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -236,7 +259,8 @@ internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonECSClient>(regionOverride, profileOverride);
 
         try
         {
