@@ -3,6 +3,7 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Helpers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -115,5 +116,92 @@ public class ControllerTests
         Assert.Contains("\"SupportedVersions\":[1]", json);
         Assert.Contains("\"PreferredVersion\":1", json);
         Assert.Contains("\"ServerVersion\":\"1.0.0\"", json);
+    }
+
+    // --- V1 Streaming ---
+
+    private CliController CreateControllerWithHttpContext(CliCommandRegistry registry, CliCommandExecutorService executor)
+    {
+        var controller = new CliController(registry, executor, _serverInfo, NullLogger<CliController>.Instance);
+        var httpContext = new DefaultHttpContext();
+        httpContext.Response.Body = new MemoryStream();
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = httpContext,
+        };
+        return controller;
+    }
+
+    private static List<(string EventType, string Data)> ParseSseEvents(string text)
+    {
+        var events = new List<(string, string)>();
+        foreach (var block in text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eventType = "message";
+            var data = "";
+            foreach (var line in block.Split('\n'))
+            {
+                if (line.StartsWith("event: ")) eventType = line[7..];
+                else if (line.StartsWith("data: ")) data = line[6..];
+            }
+            if (!string.IsNullOrEmpty(data))
+                events.Add((eventType, data));
+        }
+        return events;
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_KnownCommand_ReturnsSseEvents()
+    {
+        var controller = CreateControllerWithHttpContext(_registry, _executor);
+
+        await controller.ExecuteStream(new CliProcessCommand { Command = "echo" });
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+
+        Assert.Contains(events, e => e.EventType == "output");
+        Assert.Contains(events, e => e.EventType == "done" && e.Data.Contains("\"exitCode\":0"));
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_UnknownCommand_ReturnsSseError()
+    {
+        var controller = CreateControllerWithHttpContext(_registry, _executor);
+
+        await controller.ExecuteStream(new CliProcessCommand { Command = "nonexistent" });
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+
+        Assert.Contains(events, e => e.EventType == "error" && e.Data.Contains("Unknown command"));
+    }
+
+    [Fact]
+    public async Task V1_ExecuteStream_StreamCapableProcessor_EmitsChunks()
+    {
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        registry.Register(new TestStreamProcessor());
+        var executor = new CliCommandExecutorService(registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
+
+        var controller = CreateControllerWithHttpContext(registry, executor);
+
+        await controller.ExecuteStream(new CliProcessCommand { Command = "stream-test" });
+
+        controller.Response.Body.Seek(0, SeekOrigin.Begin);
+        var body = await new StreamReader(controller.Response.Body).ReadToEndAsync();
+
+        var events = ParseSseEvents(body);
+
+        var outputEvents = events.Where(e => e.EventType == "output").ToList();
+        Assert.Equal(3, outputEvents.Count);
+
+        var doneEvents = events.Where(e => e.EventType == "done").ToList();
+        Assert.Single(doneEvents);
+        Assert.Contains("\"exitCode\":0", doneEvents[0].Data);
     }
 }
