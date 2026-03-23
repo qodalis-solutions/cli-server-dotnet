@@ -29,6 +29,13 @@ internal class LambdaListProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -47,7 +54,8 @@ internal class LambdaListProcessor : CliCommandProcessor, ICliCommandProcessor
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonLambdaClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonLambdaClient>(regionOverride, profileOverride);
 
         try
         {
@@ -112,6 +120,13 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -139,7 +154,8 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonLambdaClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var pr) ? pr.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonLambdaClient>(regionOverride, profileOverride);
 
         var payloadStr = command.Args.TryGetValue("payload", out var p) ? p.ToString() : null;
 
@@ -218,6 +234,13 @@ internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -258,7 +281,8 @@ internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonCloudWatchLogsClient>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonCloudWatchLogsClient>(regionOverride, profileOverride);
 
         var logGroupName = $"/aws/lambda/{functionName}";
 

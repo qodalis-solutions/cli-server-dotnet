@@ -1,5 +1,6 @@
 using Amazon;
 using Amazon.Runtime;
+using Amazon.Runtime.CredentialManagement;
 
 namespace Qodalis.Cli.Plugin.Aws.Services;
 
@@ -19,20 +20,23 @@ public class AwsCredentialManager
 
     /// <summary>
     /// Gets or creates a cached AWS service client of the specified type.
-    /// Credentials are resolved from the config service, then environment variables, falling back to the default credential chain.
+    /// Credentials are resolved in order: explicit keys, named profile (credentials + config), env vars, default SDK chain.
     /// </summary>
     /// <typeparam name="T">The AWS service client type (e.g., <c>AmazonS3Client</c>).</typeparam>
     /// <param name="regionOverride">Optional region override; takes precedence over configured and environment regions.</param>
+    /// <param name="profileOverride">Optional profile override; takes precedence over the configured profile.</param>
     /// <returns>A cached or newly created instance of the specified AWS service client.</returns>
-    public T GetClient<T>(string? regionOverride = null) where T : AmazonServiceClient
+    public T GetClient<T>(string? regionOverride = null, string? profileOverride = null) where T : AmazonServiceClient
     {
+        var profile = profileOverride ?? _config.Profile ?? "default";
+
         var regionName = regionOverride
             ?? _config.Region
             ?? Environment.GetEnvironmentVariable("AWS_REGION")
-            ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION")
-            ?? "us-east-1";
+            ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
 
-        var cacheKey = $"{typeof(T).Name}:{regionName}:{_config.Profile ?? "default"}";
+        // Update cache key to include resolved region later if needed
+        var cacheKey = $"{typeof(T).Name}:{regionOverride ?? "auto"}:{profile}";
 
         if (_clientCache.TryGetValue(cacheKey, out var cached))
         {
@@ -40,6 +44,8 @@ public class AwsCredentialManager
         }
 
         AWSCredentials? credentials = null;
+
+        // 1. Explicit keys from config or env vars
         var accessKeyId = _config.AccessKeyId ?? Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID");
         var secretAccessKey = _config.SecretAccessKey ?? Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
 
@@ -48,6 +54,13 @@ public class AwsCredentialManager
             credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey);
         }
 
+        // 2. Named profile — try ~/.aws/credentials first, then ~/.aws/config
+        if (credentials == null)
+        {
+            credentials = ResolveProfileCredentials(profile, ref regionName);
+        }
+
+        regionName ??= "us-east-1";
         var region = RegionEndpoint.GetBySystemName(regionName);
 
         T client;
@@ -57,6 +70,7 @@ public class AwsCredentialManager
         }
         else
         {
+            // 3. Fall back to default SDK credential chain
             client = (T)Activator.CreateInstance(typeof(T), region)!;
         }
 
@@ -74,5 +88,41 @@ public class AwsCredentialManager
             client.Dispose();
         }
         _clientCache.Clear();
+    }
+
+    private static AWSCredentials? ResolveProfileCredentials(string profile, ref string? regionName)
+    {
+        // CredentialProfileStoreChain searches both ~/.aws/credentials and ~/.aws/config
+        var chain = new CredentialProfileStoreChain();
+        if (chain.TryGetAWSCredentials(profile, out var creds))
+        {
+            // Pick up region from profile if not explicitly set
+            if (regionName == null && chain.TryGetProfile(profile, out var p) && p.Region != null)
+            {
+                regionName = p.Region.SystemName;
+            }
+            return creds;
+        }
+
+        // Fallback: try SharedCredentialsFile directly (handles some edge cases)
+        try
+        {
+            var sharedFile = new SharedCredentialsFile();
+            if (sharedFile.TryGetProfile(profile, out var sharedProfile)
+                && sharedProfile.CanCreateAWSCredentials)
+            {
+                if (regionName == null && sharedProfile.Region != null)
+                {
+                    regionName = sharedProfile.Region.SystemName;
+                }
+                return sharedProfile.GetAWSCredentials(sharedFile);
+            }
+        }
+        catch
+        {
+            // Ignore — fall through to default chain
+        }
+
+        return null;
     }
 }

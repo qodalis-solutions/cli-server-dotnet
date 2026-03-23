@@ -27,6 +27,13 @@ internal class Ec2ListProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -45,7 +52,8 @@ internal class Ec2ListProcessor : CliCommandProcessor, ICliCommandProcessor
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
@@ -110,6 +118,13 @@ internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -137,7 +152,8 @@ internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
@@ -208,6 +224,13 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -235,7 +258,8 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
@@ -286,6 +310,13 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -319,7 +350,8 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
@@ -370,6 +402,13 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -403,7 +442,8 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
         }
 
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
@@ -445,6 +485,13 @@ internal class Ec2SgListProcessor : CliCommandProcessor, ICliCommandProcessor
             Description = "AWS region override",
             Type = CommandParameterType.String,
         },
+        new CliCommandParameterDescriptor
+        {
+            Name = "profile",
+            Aliases = ["-p"],
+            Description = "AWS profile name from ~/.aws/credentials",
+            Type = CommandParameterType.String,
+        },
     ];
 
     private readonly AwsCredentialManager _credentialManager;
@@ -463,7 +510,8 @@ internal class Ec2SgListProcessor : CliCommandProcessor, ICliCommandProcessor
     {
         var builder = new CliResponseBuilder();
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
-        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride);
+        var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
+        var client = _credentialManager.GetClient<AmazonEC2Client>(regionOverride, profileOverride);
 
         try
         {
