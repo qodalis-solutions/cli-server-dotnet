@@ -41,19 +41,35 @@
     <DashboardSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'cli-server-dashboard', 'dist'))</DashboardSourceDir>
     <DashboardNpmDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'node_modules', '@qodalis', 'cli-server-dashboard', 'dist'))</DashboardNpmDir>
     <DashboardStagingDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot', 'admin'))</DashboardStagingDir>
-    <!-- Prefer sibling repo, fall back to npm package -->
-    <DashboardResolvedDir Condition="Exists('$(DashboardSourceDir)')">$(DashboardSourceDir)</DashboardResolvedDir>
-    <DashboardResolvedDir Condition="'$(DashboardResolvedDir)' == '' AND Exists('$(DashboardNpmDir)')">$(DashboardNpmDir)</DashboardResolvedDir>
   </PropertyGroup>
 
-  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" Condition="'$(DashboardResolvedDir)' != ''">
+  <!-- Auto-install npm package when neither sibling repo nor node_modules exist -->
+  <Target Name="NpmInstallDashboard" BeforeTargets="ResolveDashboard"
+          Condition="!Exists('$(DashboardSourceDir)') AND !Exists('$(DashboardNpmDir)')">
+    <Message Importance="high" Text="Dashboard not found locally or in node_modules. Running npm install..." />
+    <Exec Command="npm install --ignore-scripts" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <!-- Resolve dashboard directory: prefer sibling repo, fall back to npm package -->
+  <Target Name="ResolveDashboard" BeforeTargets="CopyDashboardFiles" DependsOnTargets="NpmInstallDashboard">
+    <PropertyGroup>
+      <DashboardResolvedDir Condition="Exists('$(DashboardSourceDir)')">$(DashboardSourceDir)</DashboardResolvedDir>
+      <DashboardResolvedDir Condition="'$(DashboardResolvedDir)' == '' AND Exists('$(DashboardNpmDir)')">$(DashboardNpmDir)</DashboardResolvedDir>
+    </PropertyGroup>
+    <Message Importance="high" Text="Dashboard resolved: $(DashboardResolvedDir)" Condition="'$(DashboardResolvedDir)' != ''" />
+    <Message Importance="high" Text="Dashboard UI not found. Admin dashboard will not be available." Condition="'$(DashboardResolvedDir)' == ''" />
+  </Target>
+
+  <Target Name="CopyDashboardFiles" BeforeTargets="PrepareForBuild" DependsOnTargets="ResolveDashboard"
+          Condition="'$(DashboardResolvedDir)' != ''">
     <ItemGroup>
       <DashboardFiles Include="$(DashboardResolvedDir)**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(DashboardFiles)" DestinationFolder="$(DashboardStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild" DependsOnTargets="CopyDashboardFiles" Condition="Exists('$(DashboardStagingDir)')">
+  <Target Name="IncludeDashboardEmbeddedResources" BeforeTargets="PrepareForBuild" DependsOnTargets="CopyDashboardFiles"
+          Condition="Exists('$(DashboardStagingDir)')">
     <ItemGroup>
       <_DashboardEmbeddedFiles Include="wwwroot\admin\**\*.*" />
       <EmbeddedResource Include="@(_DashboardEmbeddedFiles)" />
