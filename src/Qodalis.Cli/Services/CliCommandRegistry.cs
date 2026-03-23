@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Services;
@@ -9,6 +10,16 @@ namespace Qodalis.Cli.Services;
 public class CliCommandRegistry : ICliCommandRegistry
 {
     private readonly List<ICliCommandProcessor> _processors = [];
+    private readonly ILogger<CliCommandRegistry> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of <see cref="CliCommandRegistry"/>.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    public CliCommandRegistry(ILogger<CliCommandRegistry> logger)
+    {
+        _logger = logger;
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<ICliCommandProcessor> Processors => _processors;
@@ -23,6 +34,8 @@ public class CliCommandRegistry : ICliCommandRegistry
             _processors[existingIndex] = processor;
         else
             _processors.Add(processor);
+
+        _logger.LogDebug("Registered command processor: {Command}", processor.Command);
     }
 
     /// <inheritdoc />

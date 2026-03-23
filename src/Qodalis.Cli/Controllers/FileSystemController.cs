@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
 
 namespace Qodalis.Cli.Controllers;
@@ -13,14 +14,17 @@ namespace Qodalis.Cli.Controllers;
 public class FileSystemController : ControllerBase
 {
     private readonly IFileStorageProvider _provider;
+    private readonly ILogger<FileSystemController> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="FileSystemController"/>.
     /// </summary>
     /// <param name="provider">The file storage provider.</param>
-    public FileSystemController(IFileStorageProvider provider)
+    /// <param name="logger">The logger instance.</param>
+    public FileSystemController(IFileStorageProvider provider, ILogger<FileSystemController> logger)
     {
         _provider = provider;
+        _logger = logger;
     }
 
     /// <summary>
@@ -31,6 +35,7 @@ public class FileSystemController : ControllerBase
     [HttpGet("ls")]
     public async Task<IActionResult> ListDirectory([FromQuery] string path, CancellationToken ct)
     {
+        _logger.LogDebug("Listing directory: {Path}", path);
         try
         {
             var entries = await _provider.ListAsync(path, ct);
@@ -42,6 +47,7 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (FileStorageNotADirectoryError ex)
@@ -50,6 +56,7 @@ public class FileSystemController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to list directory: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -62,6 +69,7 @@ public class FileSystemController : ControllerBase
     [HttpGet("cat")]
     public async Task<IActionResult> ReadFile([FromQuery] string path, CancellationToken ct)
     {
+        _logger.LogDebug("Reading file: {Path}", path);
         try
         {
             var content = await _provider.ReadFileAsync(path, ct);
@@ -73,6 +81,7 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (FileStorageIsADirectoryError ex)
@@ -81,6 +90,7 @@ public class FileSystemController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to read file: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -93,6 +103,7 @@ public class FileSystemController : ControllerBase
     [HttpGet("stat")]
     public async Task<IActionResult> GetFileInfo([FromQuery] string path, CancellationToken ct)
     {
+        _logger.LogDebug("Getting file info: {Path}", path);
         try
         {
             var stat = await _provider.StatAsync(path, ct);
@@ -104,10 +115,12 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to get file info: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -120,6 +133,7 @@ public class FileSystemController : ControllerBase
     [HttpGet("download")]
     public async Task<IActionResult> DownloadFile([FromQuery] string path, CancellationToken ct)
     {
+        _logger.LogDebug("Downloading file: {Path}", path);
         try
         {
             var stream = await _provider.GetDownloadStreamAsync(path, ct);
@@ -132,6 +146,7 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (FileStorageIsADirectoryError ex)
@@ -140,6 +155,7 @@ public class FileSystemController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to download file: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -157,6 +173,8 @@ public class FileSystemController : ControllerBase
         {
             return BadRequest(new { Error = "No file provided." });
         }
+
+        _logger.LogDebug("Uploading file: {Path}, size={Size}", path, file.Length);
 
         try
         {
@@ -176,10 +194,12 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to upload file: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -196,6 +216,8 @@ public class FileSystemController : ControllerBase
         {
             return BadRequest(new { Error = "Path is required." });
         }
+
+        _logger.LogDebug("Creating directory: {Path}", request.Path);
 
         try
         {
@@ -214,10 +236,12 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", request.Path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to create directory: {Path}", request.Path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
@@ -230,6 +254,7 @@ public class FileSystemController : ControllerBase
     [HttpDelete("rm")]
     public async Task<IActionResult> Delete([FromQuery] string path, CancellationToken ct)
     {
+        _logger.LogDebug("Deleting: {Path}", path);
         try
         {
             var stat = await _provider.StatAsync(path, ct);
@@ -242,10 +267,12 @@ public class FileSystemController : ControllerBase
         }
         catch (FileStoragePermissionError ex)
         {
+            _logger.LogWarning("Permission denied: {Path}", path);
             return StatusCode(403, new { Error = ex.Message });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to delete: {Path}", path);
             return StatusCode(500, new { Error = ex.Message });
         }
     }

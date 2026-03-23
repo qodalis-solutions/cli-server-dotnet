@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Services;
 
@@ -9,7 +10,7 @@ public class WebSocketLoggerProviderTests
     [Fact]
     public void CreateLogger_ReturnsNonNull()
     {
-        using var manager = new CliLogSocketManager();
+        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
         using var provider = new WebSocketLoggerProvider(manager);
 
         var logger = provider.CreateLogger("TestCategory");
@@ -20,7 +21,7 @@ public class WebSocketLoggerProviderTests
     [Fact]
     public void CreateLogger_ReturnsDifferentInstancesForDifferentCategories()
     {
-        using var manager = new CliLogSocketManager();
+        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
         using var provider = new WebSocketLoggerProvider(manager);
 
         var logger1 = provider.CreateLogger("Category1");
@@ -39,7 +40,7 @@ public class WebSocketLoggerProviderTests
     [InlineData(LogLevel.None, false)]
     public void IsEnabled_ReturnsExpected(LogLevel level, bool expected)
     {
-        using var manager = new CliLogSocketManager();
+        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
         var logger = new WebSocketLogger("Test", manager);
 
         Assert.Equal(expected, logger.IsEnabled(level));
@@ -60,7 +61,7 @@ public class WebSocketLoggerProviderTests
     [Fact]
     public void BeginScope_ReturnsNull()
     {
-        using var manager = new CliLogSocketManager();
+        using var manager = new CliLogSocketManager(NullLogger<CliLogSocketManager>.Instance);
         var logger = new WebSocketLogger("Test", manager);
 
         var scope = logger.BeginScope("scope");

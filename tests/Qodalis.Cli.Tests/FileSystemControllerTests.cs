@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Plugin.FileSystem;
 
@@ -13,7 +14,7 @@ public class FileSystemControllerTests
     public FileSystemControllerTests()
     {
         _provider = new InMemoryFileStorageProvider();
-        _controller = new FileSystemController(_provider);
+        _controller = new FileSystemController(_provider, NullLogger<FileSystemController>.Instance);
     }
 
     // --- ListDirectory ---

@@ -38,7 +38,8 @@ public static class MvcBuilderExtensions
 
         builder.Services.AddSingleton<ICliCommandRegistry>(sp =>
         {
-            var registry = new CliCommandRegistry();
+            var logger = sp.GetRequiredService<ILogger<CliCommandRegistry>>();
+            var registry = new CliCommandRegistry(logger);
             var processors = sp.GetServices<ICliCommandProcessor>();
             foreach (var processor in processors)
             {

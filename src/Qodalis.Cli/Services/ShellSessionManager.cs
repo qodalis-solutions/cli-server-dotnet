@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace Qodalis.Cli.Services;
 
@@ -14,6 +15,17 @@ public class ShellSessionManager : IShellSessionManager
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
+
+    private readonly ILogger<ShellSessionManager> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of <see cref="ShellSessionManager"/>.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    public ShellSessionManager(ILogger<ShellSessionManager> logger)
+    {
+        _logger = logger;
+    }
 
     /// <inheritdoc />
     public async Task HandleShellSessionAsync(
@@ -72,6 +84,8 @@ public class ShellSessionManager : IShellSessionManager
 
             process.Start();
 
+            _logger.LogInformation("Shell session started (shell={Shell}, cols={Cols}, rows={Rows})", Path.GetFileName(shell), cols, rows);
+
             var os = Environment.OSVersion.Platform switch
             {
                 PlatformID.Win32NT => "win32",
@@ -104,7 +118,7 @@ public class ShellSessionManager : IShellSessionManager
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Shell session error: {ex}");
+            _logger.LogError(ex, "Shell session error");
             try
             {
                 await SendJsonAsync(webSocket, new
@@ -113,7 +127,7 @@ public class ShellSessionManager : IShellSessionManager
                     message = ex.Message,
                 }, CancellationToken.None);
             }
-            catch { }
+            catch (Exception sendEx) { _logger.LogDebug(sendEx, "Failed to send error message to client"); }
         }
         finally
         {
@@ -124,8 +138,10 @@ public class ShellSessionManager : IShellSessionManager
                     if (!process.HasExited)
                         process.Kill(entireProcessTree: true);
                 }
-                catch { }
+                catch (Exception killEx) { _logger.LogDebug(killEx, "Failed to kill shell process"); }
                 process.Dispose();
+
+                _logger.LogInformation("Shell session ended");
             }
 
             if (webSocket.State == WebSocketState.Open)
@@ -137,7 +153,7 @@ public class ShellSessionManager : IShellSessionManager
                         "Shell session ended",
                         CancellationToken.None);
                 }
-                catch { }
+                catch (Exception closeEx) { _logger.LogDebug(closeEx, "Failed to close WebSocket gracefully"); }
             }
         }
     }
@@ -213,7 +229,7 @@ public class ShellSessionManager : IShellSessionManager
                                 $"stty cols {newCols} rows {newRows}\n");
                             await process.StandardInput.FlushAsync();
                         }
-                        catch { }
+                        catch (Exception resizeEx) { _logger.LogDebug(resizeEx, "Failed to send terminal resize"); }
                         break;
                 }
             }

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Services;
 
@@ -14,6 +15,7 @@ public class CliController : ControllerBase
     private readonly ICliCommandRegistry _registry;
     private readonly ICliCommandExecutorService _executor;
     private readonly ICliServerInfoService _serverInfo;
+    private readonly ILogger<CliController> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliController"/>.
@@ -21,14 +23,17 @@ public class CliController : ControllerBase
     /// <param name="registry">The command processor registry.</param>
     /// <param name="executor">The command executor service.</param>
     /// <param name="serverInfo">The server info service.</param>
+    /// <param name="logger">The logger instance.</param>
     public CliController(
         ICliCommandRegistry registry,
         ICliCommandExecutorService executor,
-        ICliServerInfoService serverInfo)
+        ICliServerInfoService serverInfo,
+        ILogger<CliController> logger)
     {
         _registry = registry;
         _executor = executor;
         _serverInfo = serverInfo;
+        _logger = logger;
     }
 
     /// <summary>
@@ -69,6 +74,7 @@ public class CliController : ControllerBase
         [FromBody] CliProcessCommand command,
         CancellationToken cancellationToken)
     {
+        _logger.LogDebug("Executing command: {Command}", command.Command);
         var response = await _executor.ExecuteAsync(command, cancellationToken);
         return Ok(response);
     }

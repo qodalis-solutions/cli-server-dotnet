@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
@@ -19,17 +20,22 @@ public static class WebApplicationExtensions
     {
         app.Use(async (context, next) =>
         {
+            var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("Qodalis.Cli.WebSocketMiddleware");
+
             var eventsPath = context.Request.Path.Value;
             if (eventsPath == "/ws/v1/qcli/events" || eventsPath == "/ws/qcli/events")
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
+                    logger.LogDebug("WebSocket connection accepted: {Path}", eventsPath);
                     var manager = context.RequestServices.GetRequiredService<ICliEventSocketManager>();
                     var socket = await context.WebSockets.AcceptWebSocketAsync();
                     await manager.HandleConnectionAsync(socket, context.RequestAborted);
                 }
                 else
                 {
+                    logger.LogWarning("Non-WebSocket request to WebSocket endpoint: {Path}", context.Request.Path.Value);
                     context.Response.StatusCode = 400;
                 }
 
@@ -51,11 +57,13 @@ public static class WebApplicationExtensions
                     if (rows <= 0) rows = 24;
                     var cmd = query["cmd"].FirstOrDefault();
 
+                    logger.LogDebug("Shell WebSocket connection accepted (cols={Cols}, rows={Rows}, cmd={Cmd})", cols, rows, cmd ?? "(interactive)");
                     await shellManager.HandleShellSessionAsync(
                         webSocket, cols, rows, cmd, context.RequestAborted);
                 }
                 else
                 {
+                    logger.LogWarning("Non-WebSocket request to WebSocket endpoint: {Path}", context.Request.Path.Value);
                     context.Response.StatusCode = 400;
                 }
 
@@ -70,10 +78,12 @@ public static class WebApplicationExtensions
                     var logManager = context.RequestServices.GetRequiredService<ICliLogSocketManager>();
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
                     var levelFilter = context.Request.Query["level"].FirstOrDefault();
+                    logger.LogDebug("Log WebSocket connection accepted (level={Level})", levelFilter ?? "all");
                     await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted);
                 }
                 else
                 {
+                    logger.LogWarning("Non-WebSocket request to WebSocket endpoint: {Path}", context.Request.Path.Value);
                     context.Response.StatusCode = 400;
                 }
 
@@ -85,6 +95,7 @@ public static class WebApplicationExtensions
             {
                 if (context.WebSockets.IsWebSocketRequest)
                 {
+                    logger.LogDebug("Terminal WebSocket connection accepted: {Path}", terminalPath);
                     var terminalManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
                     await terminalManager.HandleShellSessionAsync(
@@ -92,6 +103,7 @@ public static class WebApplicationExtensions
                 }
                 else
                 {
+                    logger.LogWarning("Non-WebSocket request to WebSocket endpoint: {Path}", context.Request.Path.Value);
                     context.Response.StatusCode = 400;
                 }
 
