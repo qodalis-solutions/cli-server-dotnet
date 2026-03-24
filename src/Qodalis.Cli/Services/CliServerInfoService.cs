@@ -48,7 +48,6 @@ public class CliServerInfoService : ICliServerInfoService
             Command = processor.Command,
             Description = processor.Description,
             Version = processor.Version,
-            ApiVersion = processor.ApiVersion,
             Parameters = processor.Parameters?.Select(p => new CliCommandParameterDescriptorDto
             {
                 Name = p.Name,

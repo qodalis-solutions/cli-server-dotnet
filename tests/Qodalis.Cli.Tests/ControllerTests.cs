@@ -18,8 +18,7 @@ public class ControllerTests
     public ControllerTests()
     {
         _registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
-        _registry.Register(new TestProcessor("echo", "Echo command", apiVersion: 1));
-        _registry.Register(new TestProcessor("v2cmd", "V2 only command", apiVersion: 2));
+        _registry.Register(new TestProcessor("echo", "Echo command"));
         _executor = new CliCommandExecutorService(_registry, NullLogger<CliCommandExecutorService>.Instance, Array.Empty<ICliProcessorFilter>());
         _serverInfo = new CliServerInfoService();
     }
@@ -46,7 +45,7 @@ public class ControllerTests
         Assert.NotNull(result);
         var commands = result.Value as System.Collections.IList;
         Assert.NotNull(commands);
-        Assert.Equal(2, commands.Count);
+        Assert.Single(commands);
     }
 
     [Fact]
@@ -75,32 +74,6 @@ public class ControllerTests
         var response = result.Value as Qodalis.Cli.Models.CliServerResponse;
         Assert.NotNull(response);
         Assert.Equal(1, response.ExitCode);
-    }
-
-    // --- V2 Controller ---
-
-    [Fact]
-    public void V2_GetVersion_ReturnsApiVersion2()
-    {
-        var controller = new CliControllerV2(_registry, _executor, _serverInfo, NullLogger<CliControllerV2>.Instance);
-        var result = controller.GetVersion() as OkObjectResult;
-
-        Assert.NotNull(result);
-        var json = JsonSerializer.Serialize(result.Value);
-        Assert.Contains("\"ApiVersion\":2", json);
-        Assert.Contains("\"ServerVersion\":\"1.0.0\"", json);
-    }
-
-    [Fact]
-    public void V2_GetCommands_ReturnsOnlyV2Plus()
-    {
-        var controller = new CliControllerV2(_registry, _executor, _serverInfo, NullLogger<CliControllerV2>.Instance);
-        var result = controller.GetCommands() as OkObjectResult;
-
-        Assert.NotNull(result);
-        var commands = result.Value as System.Collections.IList;
-        Assert.NotNull(commands);
-        Assert.Single(commands); // only v2cmd, not echo (apiVersion 1)
     }
 
     // --- Version Discovery ---
