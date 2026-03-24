@@ -47,7 +47,7 @@
   <Target Name="NpmInstallDashboard" BeforeTargets="ResolveDashboard"
           Condition="!Exists('$(DashboardSourceDir)') AND !Exists('$(DashboardNpmDir)')">
     <Message Importance="high" Text="Dashboard not found locally or in node_modules. Running npm install..." />
-    <Exec Command="npm install --ignore-scripts" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Exec Command="npm install --ignore-scripts" WorkingDirectory="$(MSBuildProjectDirectory)" IgnoreExitCode="true" />
   </Target>
 
   <!-- Resolve dashboard directory: prefer sibling repo, fall back to npm package -->
