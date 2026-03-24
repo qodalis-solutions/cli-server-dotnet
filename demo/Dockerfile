@@ -31,7 +31,7 @@ COPY demo/ demo/
 
 # Install dashboard SPA for embedding into the admin plugin
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
-    && cd plugins/admin && npm init -y && npm install @qodalis/cli-server-dashboard \
+    && cd plugins/admin && npm install \
     && apt-get purge -y nodejs npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 RUN dotnet publish demo/Demo.csproj -c Release -o /app/publish
