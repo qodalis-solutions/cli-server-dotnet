@@ -1,13 +1,16 @@
 # Qodalis CLI Server (.NET)
 
+[![NuGet Qodalis.Cli](https://img.shields.io/nuget/v/Qodalis.Cli?label=Qodalis.Cli)](https://www.nuget.org/packages/Qodalis.Cli)
+[![NuGet Qodalis.Cli.Abstractions](https://img.shields.io/nuget/v/Qodalis.Cli.Abstractions?label=Qodalis.Cli.Abstractions)](https://www.nuget.org/packages/Qodalis.Cli.Abstractions)
+
 A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-solutions/web-cli) ecosystem. Build custom server-side commands that integrate with the Qodalis web terminal.
 
 ## Packages
 
-| Package | Purpose | NuGet |
-|---------|---------|-------|
-| `Qodalis.Cli.Abstractions` | Interfaces and base classes for writing command processors | [![NuGet](https://img.shields.io/nuget/v/Qodalis.Cli.Abstractions)](https://www.nuget.org/packages/Qodalis.Cli.Abstractions) |
-| `Qodalis.Cli` | ASP.NET Core integration (controllers, DI, WebSocket) | [![NuGet](https://img.shields.io/nuget/v/Qodalis.Cli)](https://www.nuget.org/packages/Qodalis.Cli) |
+| Package | Purpose |
+|---------|---------|
+| `Qodalis.Cli.Abstractions` | Interfaces and base classes for writing command processors |
+| `Qodalis.Cli` | ASP.NET Core integration (controllers, DI, WebSocket) |
 
 ### File Storage Plugins
 
@@ -436,16 +439,17 @@ The server exposes versioned endpoints:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/cli/versions` | Version discovery (supported versions, preferred version) |
-| GET | `/api/v1/cli/version` | V1 server version |
-| GET | `/api/v1/cli/commands` | V1 commands (all processors) |
-| POST | `/api/v1/cli/execute` | V1 execute |
-| GET | `/api/v2/cli/version` | V2 server version |
-| GET | `/api/v2/cli/commands` | V2 commands (only `ApiVersion >= 2`) |
-| POST | `/api/v2/cli/execute` | V2 execute |
-| WS | `/ws/cli/events` | WebSocket events (also `/ws/v1/cli/events`, `/ws/v2/cli/events`) |
+| GET | `/api/qcli/versions` | Version discovery (supported versions, preferred version) |
+| GET | `/api/v1/qcli/version` | V1 server version |
+| GET | `/api/v1/qcli/commands` | V1 commands (all processors) |
+| POST | `/api/v1/qcli/execute` | V1 execute |
+| POST | `/api/v1/qcli/execute/stream` | V1 execute with SSE streaming |
+| GET | `/api/v1/qcli/capabilities` | Server capabilities (OS, shell, features) |
+| WS | `/ws/v1/qcli/events` | WebSocket server-push event broadcast |
+| WS | `/ws/v1/qcli/logs` | WebSocket log streaming (supports `?level=` filter) |
+| WS | `/ws/v1/qcli/shell` | Interactive PTY shell session |
 
-The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/cli/versions` discovery endpoint.
+The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/qcli/versions` discovery endpoint.
 
 ## Processor Base Class Reference
 
@@ -472,30 +476,28 @@ The `Qodalis.Cli.Server` package and demo include these sample processors:
 |---------|-------------|
 | `echo` | Echoes input text |
 | `status` | Server status (uptime, OS, .NET version) |
-| `time` | Current date/time with UTC and format options |
-| `hello` | Greeting with optional name parameter |
-| `math` | Math operations with `add` and `multiply` sub-commands |
 | `system` | Detailed system information |
 | `http` | HTTP request operations |
 | `hash` | Hash computation (MD5, SHA1, SHA256, SHA512) |
 | `base64` | Base64 encode/decode |
-| `uuid` | UUID generation |
+
+The demo app additionally includes `time`, `hello`, and `math` sample processors.
 
 ## File Storage
 
-The server includes a pluggable file storage system exposed at `/api/cli/fs/*`. Enable it with `AddFileSystem()` and choose a storage backend.
+The server includes a pluggable file storage system exposed at `/api/qcli/fs/*`. Enable it with `AddFileSystem()` and choose a storage backend.
 
 ### Filesystem API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/cli/fs/ls?path=/` | List directory contents |
-| GET | `/api/cli/fs/cat?path=/file.txt` | Read file content |
-| GET | `/api/cli/fs/stat?path=/file.txt` | File/directory metadata |
-| GET | `/api/cli/fs/download?path=/file.txt` | Download file |
-| POST | `/api/cli/fs/upload` | Upload file (multipart) |
-| POST | `/api/cli/fs/mkdir` | Create directory |
-| DELETE | `/api/cli/fs/rm?path=/file.txt` | Delete file or directory |
+| GET | `/api/qcli/fs/ls?path=/` | List directory contents |
+| GET | `/api/qcli/fs/cat?path=/file.txt` | Read file content |
+| GET | `/api/qcli/fs/stat?path=/file.txt` | File/directory metadata |
+| GET | `/api/qcli/fs/download?path=/file.txt` | Download file |
+| POST | `/api/qcli/fs/upload` | Upload file (multipart) |
+| POST | `/api/qcli/fs/mkdir` | Create directory |
+| DELETE | `/api/qcli/fs/rm?path=/file.txt` | Delete file or directory |
 
 ### Storage Providers
 
@@ -753,9 +755,10 @@ src/
     CliCommandProcessor.cs         # Processor base class with defaults
     CliModule.cs                   # Module base class with defaults
     Controllers/
-      CliController.cs             # V1 REST API (/api/v1/cli)
-      CliControllerV2.cs           # V2 REST API (/api/v2/cli)
-      CliVersionController.cs      # Version discovery (/api/cli/versions)
+      CliController.cs             # REST API (/api/v1/qcli)
+      CliVersionController.cs      # Version discovery (/api/qcli/versions)
+      FileSystemController.cs      # Filesystem API (/api/qcli/fs)
+      DataExplorerController.cs    # Data Explorer API (/api/qcli/data-explorer)
     Extensions/
       CliBuilder.cs                # Fluent registration API (AddProcessor, AddModule)
       MvcBuilderExtensions.cs      # AddCli() extension method
@@ -765,6 +768,8 @@ src/
       CliCommandExecutorService.cs # Command execution pipeline
       CliResponseBuilder.cs        # Structured output builder
       CliEventSocketManager.cs     # WebSocket event broadcasting
+      CliLogSocketManager.cs       # WebSocket log streaming
+      ShellSessionManager.cs       # Interactive PTY shell sessions
     Models/
       CliServerResponse.cs         # Response wrapper (exitCode + outputs)
       CliServerOutput.cs           # Output types (text, table, list, json, key-value)
@@ -776,7 +781,18 @@ plugins/
   filesystem-sqlite/           # SQLite persistence provider
   filesystem-efcore/           # EF Core persistence provider
   filesystem-s3/               # Amazon S3 storage provider
+  data-explorer-sql/           # SQLite data explorer provider
+  data-explorer-mongo/         # MongoDB data explorer provider
+  data-explorer-postgres/      # PostgreSQL data explorer provider
+  data-explorer-mysql/         # MySQL data explorer provider
+  data-explorer-mssql/         # MS SQL Server data explorer provider
+  data-explorer-redis/         # Redis data explorer provider
+  data-explorer-elasticsearch/ # Elasticsearch data explorer provider
   weather/                     # Weather module (example plugin)
+  admin/                       # Admin dashboard and monitoring
+  jobs/                        # Job scheduling and management
+  jobs-efcore/                 # EF Core persistence for jobs
+  aws/                         # AWS cloud resource management
 demo/                          # Demo app with sample processors
 tests/                         # Unit tests (xUnit)
 ```
