@@ -16,9 +16,6 @@ public class CliServerCommandDescriptor
     /// <summary>Gets or sets the command version.</summary>
     public string? Version { get; set; }
 
-    /// <summary>Gets or sets the API version this command targets.</summary>
-    public int? ApiVersion { get; set; }
-
     /// <summary>Gets or sets the parameter descriptors for this command.</summary>
     public List<CliCommandParameterDescriptorDto>? Parameters { get; set; }
 

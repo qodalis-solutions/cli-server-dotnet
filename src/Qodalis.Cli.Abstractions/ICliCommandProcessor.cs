@@ -37,11 +37,6 @@ public interface ICliCommandProcessor
     string Version { get; }
 
     /// <summary>
-    /// The API version this processor targets. Default is 1 for backward compatibility.
-    /// </summary>
-    int ApiVersion { get; }
-
-    /// <summary>
     /// Gets the nested sub-command processors (e.g., "encode" and "decode" under "base64").
     /// </summary>
     IEnumerable<ICliCommandProcessor>? Processors { get; }
