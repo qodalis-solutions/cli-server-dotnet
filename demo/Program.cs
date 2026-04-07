@@ -15,6 +15,7 @@ using Qodalis.Cli.Plugin.DataExplorer.Mssql;
 using Qodalis.Cli.Plugin.DataExplorer.Redis;
 using Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
 using Qodalis.Cli.Plugin.Aws;
+using Qodalis.Cli.Plugin.Users.Extensions;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -247,6 +248,7 @@ builder.Services
             });
         }
 
+        cli.AddUsers();
         cli.AddAdmin();
     })
     .AddJsonOptions(options =>
@@ -270,6 +272,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseHttpsRedirection();
+app.UseQodalisUsers();
 app.UseQodalisAdmin();
 app.UseAuthorization();
 app.MapControllers();

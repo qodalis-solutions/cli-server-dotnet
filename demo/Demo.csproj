@@ -30,6 +30,7 @@
         <ProjectReference Include="../plugins/data-explorer-redis/Qodalis.Cli.Plugin.DataExplorer.Redis.csproj" />
         <ProjectReference Include="../plugins/data-explorer-elasticsearch/Qodalis.Cli.Plugin.DataExplorer.Elasticsearch.csproj" />
         <ProjectReference Include="../plugins/aws/Qodalis.Cli.Plugin.Aws.csproj" />
+        <ProjectReference Include="../plugins/users/Qodalis.Cli.Plugin.Users.csproj" />
     </ItemGroup>
 
 </Project>

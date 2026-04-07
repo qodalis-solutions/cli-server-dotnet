@@ -34,6 +34,11 @@
     <ProjectReference Include="..\..\plugins\jobs\Qodalis.Cli.Plugin.Jobs.csproj" />
     <ProjectReference Include="..\..\plugins\jobs-efcore\Qodalis.Cli.Plugin.Jobs.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\admin\Qodalis.Cli.Plugin.Admin.csproj" />
+    <ProjectReference Include="..\..\plugins\users\Qodalis.Cli.Plugin.Users.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
