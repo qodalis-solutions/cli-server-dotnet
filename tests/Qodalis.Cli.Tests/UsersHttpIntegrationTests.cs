@@ -187,9 +187,6 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Logout_WithoutToken_Returns401()
     {
-        // The auth middleware does not process /api/v1/qcli/auth/* routes
-        // (only /login is explicitly skipped), so the session is never set
-        // and the controller returns 401.
         var res = await _client.PostAsync("/api/v1/qcli/auth/logout", null);
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
@@ -202,6 +199,24 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WithValidToken_Returns204()
+    {
+        var login = await LoginAsync("root", "root");
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/qcli/auth/logout");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", login.Token);
+        var res = await _client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
+
+        // Token should be invalidated — subsequent requests should fail
+        var checkReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/users");
+        checkReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", login.Token);
+        var checkRes = await _client.SendAsync(checkReq);
+        Assert.Equal(HttpStatusCode.Unauthorized, checkRes.StatusCode);
     }
 
     [Fact]
