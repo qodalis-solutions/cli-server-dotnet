@@ -16,6 +16,7 @@ public class UsersAuthMiddleware
 
     private static readonly string[] ProtectedPrefixes =
     [
+        "/api/v1/qcli/auth",
         "/api/v1/qcli/users",
         "/api/v1/qcli/sessions",
         "/api/v1/qcli/groups",
@@ -32,8 +33,9 @@ public class UsersAuthMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
-        // Skip the login endpoint (no auth needed)
-        if (path.StartsWith("/api/v1/qcli/auth/login", StringComparison.OrdinalIgnoreCase))
+        // Skip unauthenticated auth endpoints
+        if (path.StartsWith("/api/v1/qcli/auth/login", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/qcli/auth/verify", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
