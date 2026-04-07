@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
 
 namespace Qodalis.Cli.Plugin.Users;
@@ -41,4 +43,20 @@ public class UsersModuleOptions
     /// Default admin password used when seeding the initial admin user. Defaults to "root".
     /// </summary>
     public string? DefaultAdminPassword { get; set; }
+
+    /// <summary>
+    /// Optional external auth adapter. When set, the plugin delegates authentication
+    /// to the host application instead of using its own Bearer token scheme.
+    /// </summary>
+    public IExternalAuthAdapter? AuthAdapter { get; set; }
+
+    /// <summary>
+    /// Convenience method to set a delegate-based external auth adapter.
+    /// When an adapter is configured, the plugin's built-in login/logout/verify
+    /// endpoints return 501 and the bootstrap service (seed user) is skipped.
+    /// </summary>
+    public void UseExternalAuth(Func<HttpContext, ExternalAuthResult?> adapter)
+    {
+        AuthAdapter = new DelegateAuthAdapter(adapter);
+    }
 }

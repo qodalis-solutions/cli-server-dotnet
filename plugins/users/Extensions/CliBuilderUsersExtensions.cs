@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Users.Controllers;
 using Qodalis.Cli.Plugin.Users.Middleware;
+using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
 using Qodalis.Cli.Plugin.Users.Stores;
 
@@ -34,8 +35,18 @@ public static class CliBuilderUsersExtensions
         // Register services
         builder.Services.AddSingleton<AuthService>();
 
-        // Register hosted service for bootstrapping and session cleanup
-        builder.Services.AddHostedService<UsersBootstrapService>();
+        // Register external auth adapter when provided
+        if (options.AuthAdapter != null)
+        {
+            builder.Services.AddSingleton<IExternalAuthAdapter>(options.AuthAdapter);
+        }
+
+        // Only register the bootstrap service (seed user, session cleanup) when
+        // there is no external auth adapter — the host app manages users externally.
+        if (options.AuthAdapter == null)
+        {
+            builder.Services.AddHostedService<UsersBootstrapService>();
+        }
 
         // Register controllers from this assembly
         builder.AddApplicationPart(typeof(UsersAuthController).Assembly);

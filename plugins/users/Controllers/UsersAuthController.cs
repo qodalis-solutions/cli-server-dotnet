@@ -7,16 +7,20 @@ namespace Qodalis.Cli.Plugin.Users.Controllers;
 
 /// <summary>
 /// Authentication endpoints: login, logout, verify.
+/// When an <see cref="IExternalAuthAdapter"/> is registered, these endpoints
+/// return 501 because authentication is managed by the host application.
 /// </summary>
 [ApiController]
 [Route("api/v1/qcli/auth")]
 public class UsersAuthController : ControllerBase
 {
     private readonly AuthService _authService;
+    private readonly IExternalAuthAdapter? _authAdapter;
 
-    public UsersAuthController(AuthService authService)
+    public UsersAuthController(AuthService authService, IExternalAuthAdapter? authAdapter = null)
     {
         _authService = authService;
+        _authAdapter = authAdapter;
     }
 
     /// <summary>
@@ -26,6 +30,9 @@ public class UsersAuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        if (_authAdapter != null)
+            return StatusCode(501, new { error = "Authentication is managed by the host application" });
+
         if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
             return BadRequest(new { error = "username and password are required" });
 
@@ -51,6 +58,9 @@ public class UsersAuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
+        if (_authAdapter != null)
+            return StatusCode(501, new { error = "Authentication is managed by the host application" });
+
         var session = HttpContext.GetUsersSession();
         if (session == null)
             return Unauthorized(new { error = "Unauthorized" });
@@ -70,6 +80,9 @@ public class UsersAuthController : ControllerBase
     [HttpPost("verify")]
     public async Task<IActionResult> Verify([FromBody] VerifyRequest request)
     {
+        if (_authAdapter != null)
+            return StatusCode(501, new { error = "Authentication is managed by the host application" });
+
         if (string.IsNullOrEmpty(request.UserId) || string.IsNullOrEmpty(request.Password))
             return BadRequest(new { error = "userId and password are required" });
 
