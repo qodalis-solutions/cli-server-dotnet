@@ -19,7 +19,6 @@ public class UsersAuthMiddleware
 
     private static readonly string[] ProtectedPrefixes =
     [
-        "/api/v1/qcli/auth",
         "/api/v1/qcli/users",
         "/api/v1/qcli/sessions",
         "/api/v1/qcli/groups",
@@ -58,8 +57,8 @@ public class UsersAuthMiddleware
             return;
         }
 
-        // Let auth endpoints through to the controller (which returns 501 in external mode)
-        if (path.StartsWith("/api/v1/qcli/auth", StringComparison.OrdinalIgnoreCase))
+        // Let login/logout through to the controller (which returns 501 in external mode)
+        if (IsLogin(context, path) || IsLogout(context, path))
         {
             await _next(context);
             return;
@@ -104,9 +103,8 @@ public class UsersAuthMiddleware
 
     private async Task InvokeWithBuiltInAuth(HttpContext context, string path)
     {
-        // Skip unauthenticated auth endpoints
-        if (path.StartsWith("/api/v1/qcli/auth/login", StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith("/api/v1/qcli/auth/verify", StringComparison.OrdinalIgnoreCase))
+        // Login (POST /sessions) is the only unauthenticated users-plugin endpoint
+        if (IsLogin(context, path))
         {
             await _next(context);
             return;
@@ -147,11 +145,29 @@ public class UsersAuthMiddleware
         await _next(context);
     }
 
+    private const string SessionsPath = "/api/v1/qcli/sessions";
+
+    /// <summary>POST /api/v1/qcli/sessions — login.</summary>
+    private static bool IsLogin(HttpContext context, string path) =>
+        HttpMethods.IsPost(context.Request.Method) && IsExactly(path, SessionsPath);
+
+    /// <summary>DELETE /api/v1/qcli/sessions/current — logout.</summary>
+    private static bool IsLogout(HttpContext context, string path) =>
+        HttpMethods.IsDelete(context.Request.Method) && IsExactly(path, SessionsPath + "/current");
+
+    private static bool IsExactly(string path, string expected) =>
+        string.Equals(path.TrimEnd('/'), expected, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Segment-aware prefix match: "/api/v1/qcli/users" matches "/api/v1/qcli/users"
+    /// and "/api/v1/qcli/users/..." but not "/api/v1/qcli/users-something".
+    /// </summary>
     private static bool IsProtectedRoute(string path)
     {
         foreach (var prefix in ProtectedPrefixes)
         {
-            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (path.Equals(prefix, StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;

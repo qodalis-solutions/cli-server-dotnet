@@ -49,7 +49,7 @@ public static class CliBuilderUsersExtensions
         }
 
         // Register controllers from this assembly
-        builder.AddApplicationPart(typeof(UsersAuthController).Assembly);
+        builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
         return builder;
     }

@@ -98,7 +98,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
 
     private async Task<LoginResponseDto> LoginAsync(string username, string password)
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username, password }, JsonOptions);
         res.EnsureSuccessStatusCode();
         return (await res.Content.ReadFromJsonAsync<LoginResponseDto>(JsonOptions))!;
@@ -119,12 +119,12 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     // =========================================================================
 
     [Fact]
-    public async Task Login_ValidCredentials_Returns200WithTokenAndSession()
+    public async Task Login_ValidCredentials_Returns201WithTokenAndSession()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "root", password = "root" }, JsonOptions);
 
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
 
         var body = await ReadJsonAsync(res);
         Assert.True(body.TryGetProperty("token", out var token));
@@ -135,7 +135,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Login_InvalidPassword_Returns401()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "root", password = "wrong" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
@@ -146,7 +146,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Login_UnknownUser_Returns401()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "nobody", password = "pass" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
@@ -155,7 +155,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Login_MissingUsername_Returns400()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "", password = "root" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
@@ -164,7 +164,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Login_MissingPassword_Returns400()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "root", password = "" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
@@ -178,7 +178,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
 
         await UpdateUserAsync(userId, new { disabled = true });
 
-        var loginRes = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var loginRes = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "disabled-user", password = "pass123" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.Unauthorized, loginRes.StatusCode);
@@ -187,14 +187,14 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task Logout_WithoutToken_Returns401()
     {
-        var res = await _client.PostAsync("/api/v1/qcli/auth/logout", null);
+        var res = await _client.DeleteAsync("/api/v1/qcli/sessions/current");
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
     [Fact]
     public async Task Logout_WithInvalidToken_Returns401()
     {
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/qcli/auth/logout");
+        var req = new HttpRequestMessage(HttpMethod.Delete, "/api/v1/qcli/sessions/current");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
         var res = await _client.SendAsync(req);
 
@@ -206,7 +206,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     {
         var login = await LoginAsync("root", "root");
 
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/qcli/auth/logout");
+        var req = new HttpRequestMessage(HttpMethod.Delete, "/api/v1/qcli/sessions/current");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", login.Token);
         var res = await _client.SendAsync(req);
 
@@ -220,10 +220,11 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Verify_CorrectPassword_ReturnsValid()
+    public async Task VerifyPassword_CorrectPassword_ReturnsValid()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/verify",
-            new { userId = _adminUserId, password = "root" }, JsonOptions);
+        var req = AuthRequest(HttpMethod.Post, $"/api/v1/qcli/users/{_adminUserId}/verify-password");
+        req.Content = JsonContent.Create(new { password = "root" }, options: JsonOptions);
+        var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var body = await ReadJsonAsync(res);
@@ -231,10 +232,11 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Verify_WrongPassword_ReturnsNotValid()
+    public async Task VerifyPassword_WrongPassword_ReturnsNotValid()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/verify",
-            new { userId = _adminUserId, password = "wrong" }, JsonOptions);
+        var req = AuthRequest(HttpMethod.Post, $"/api/v1/qcli/users/{_adminUserId}/verify-password");
+        req.Content = JsonContent.Create(new { password = "wrong" }, options: JsonOptions);
+        var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var body = await ReadJsonAsync(res);
@@ -242,21 +244,31 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Verify_MissingUserId_Returns400()
+    public async Task VerifyPassword_MissingPassword_Returns400()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/verify",
-            new { userId = "", password = "root" }, JsonOptions);
+        var req = AuthRequest(HttpMethod.Post, $"/api/v1/qcli/users/{_adminUserId}/verify-password");
+        req.Content = JsonContent.Create(new { password = "" }, options: JsonOptions);
+        var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
     [Fact]
-    public async Task Verify_MissingPassword_Returns400()
+    public async Task VerifyPassword_WithoutSession_Returns401()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/verify",
-            new { userId = _adminUserId, password = "" }, JsonOptions);
+        var res = await _client.PostAsJsonAsync($"/api/v1/qcli/users/{_adminUserId}/verify-password",
+            new { password = "root" }, JsonOptions);
 
-        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnrelatedPathSharingPrefix_IsNotProtected()
+    {
+        // Segment-aware matching: "/api/v1/qcli/users-x" is not a users-plugin route
+        var res = await _client.GetAsync("/api/v1/qcli/users-x");
+
+        Assert.NotEqual(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
     // =========================================================================
@@ -402,9 +414,9 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
         // Verify new password works
-        var loginRes = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var loginRes = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "pw-admin-change", password = "newpass" }, JsonOptions);
-        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, loginRes.StatusCode);
     }
 
     [Fact]
@@ -424,7 +436,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ChangePassword_SelfChangeWrongCurrentPassword_Returns401()
+    public async Task ChangePassword_SelfChangeWrongCurrentPassword_Returns403()
     {
         await CreateUserAsync("pw-wrong-curr", "pwwc@test.com", "rightpass");
         var login = await LoginAsync("pw-wrong-curr", "rightpass");
@@ -436,7 +448,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
             new { currentPassword = "wrongpass", newPassword = "newpass" }, options: JsonOptions);
         var res = await _client.SendAsync(req);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
     }
 
     [Fact]

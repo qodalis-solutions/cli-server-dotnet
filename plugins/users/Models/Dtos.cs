@@ -43,11 +43,10 @@ public class LoginResponse
 }
 
 /// <summary>
-/// Request body for password verification.
+/// Request body for <c>POST /users/{id}/verify-password</c>.
 /// </summary>
-public class VerifyRequest
+public class VerifyPasswordRequest
 {
-    public string UserId { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
 }
 

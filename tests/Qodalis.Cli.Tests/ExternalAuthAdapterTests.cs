@@ -125,7 +125,7 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
     [Fact]
     public async Task Login_WithExternalAdapter_Returns501()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
             new { username = "root", password = "root" }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.NotImplemented, res.StatusCode);
@@ -137,7 +137,7 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
     [Fact]
     public async Task Logout_WithExternalAdapter_Returns501()
     {
-        var req = MakeRequest(HttpMethod.Post, "/api/v1/qcli/auth/logout", "admin-user", admin: true);
+        var req = MakeRequest(HttpMethod.Delete, "/api/v1/qcli/sessions/current", "admin-user", admin: true);
         var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.NotImplemented, res.StatusCode);
@@ -149,8 +149,9 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
     [Fact]
     public async Task Verify_WithExternalAdapter_Returns501()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/verify",
-            new { userId = "some-id", password = "some-pass" }, JsonOptions);
+        var req = MakeRequest(HttpMethod.Post, "/api/v1/qcli/users/some-id/verify-password", "admin-user", admin: true);
+        req.Content = JsonContent.Create(new { password = "some-pass" }, options: JsonOptions);
+        var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.NotImplemented, res.StatusCode);
         var body = await ReadJsonAsync(res);

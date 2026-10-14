@@ -17,17 +17,20 @@ public class UsersController : ControllerBase
     private readonly AuthService _authService;
     private readonly ICredentialStore _credentialStore;
     private readonly ISessionStore _sessionStore;
+    private readonly IExternalAuthAdapter? _authAdapter;
 
     public UsersController(
         IUserStore userStore,
         AuthService authService,
         ICredentialStore credentialStore,
-        ISessionStore sessionStore)
+        ISessionStore sessionStore,
+        IExternalAuthAdapter? authAdapter = null)
     {
         _userStore = userStore;
         _authService = authService;
         _credentialStore = credentialStore;
         _sessionStore = sessionStore;
+        _authAdapter = authAdapter;
     }
 
     /// <summary>
@@ -134,11 +137,32 @@ public class UsersController : ControllerBase
                 return BadRequest(new { error = "currentPassword is required" });
 
             var valid = await _authService.VerifyPasswordAsync(id, request.CurrentPassword);
+            // 403, not 401: the session is valid, the supplied password is not
             if (!valid)
-                return Unauthorized(new { error = "Current password is incorrect" });
+                return StatusCode(403, new { error = "Current password is incorrect" });
         }
 
         await _authService.SetPasswordAsync(id, request.NewPassword);
         return Ok(new { message = "Password updated" });
+    }
+
+    /// <summary>
+    /// Verify a user's password. Returns <c>{ valid: true/false }</c>.
+    /// Requires an authenticated session (used by <c>su</c> and <c>passwd</c> on the client).
+    /// </summary>
+    [HttpPost("{id}/verify-password")]
+    public async Task<IActionResult> VerifyPassword(string id, [FromBody] VerifyPasswordRequest request)
+    {
+        if (_authAdapter != null)
+            return StatusCode(501, new { error = "Authentication is managed by the host application" });
+
+        if (HttpContext.GetUsersSession() == null)
+            return Unauthorized(new { error = "Unauthorized" });
+
+        if (string.IsNullOrEmpty(request.Password))
+            return BadRequest(new { error = "password is required" });
+
+        var valid = await _authService.VerifyPasswordAsync(id, request.Password);
+        return Ok(new VerifyResponse { Valid = valid });
     }
 }
