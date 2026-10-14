@@ -1,34 +1,39 @@
-using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.DependencyInjection;
+using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Plugin.Users;
+using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
 using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Tests.Helpers;
 
 namespace Qodalis.Cli.Tests;
 
+/// <summary>
+/// Unit tests for the users plugin services and in-memory stores.
+/// </summary>
 public class UsersApiTests
 {
+    private readonly ManualTimeProvider _time = new();
+    private readonly FakeEventSocketManager _events = new();
+    private readonly IUserStore _userStore = new InMemoryUserStore();
+    private readonly ISessionStore _sessionStore = new InMemorySessionStore();
+    private readonly ICredentialStore _credentialStore = new InMemoryCredentialStore();
+    private readonly IAuditStore _auditStore = new InMemoryAuditStore();
+    private readonly IGroupStore _groupStore = new InMemoryGroupStore();
     private readonly AuthService _authService;
-    private readonly IUserStore _userStore;
-    private readonly ISessionStore _sessionStore;
-    private readonly ICredentialStore _credentialStore;
-    private readonly IAuditStore _auditStore;
-    private readonly IGroupStore _groupStore;
 
     public UsersApiTests()
     {
-        _userStore = new InMemoryUserStore();
-        _sessionStore = new InMemorySessionStore();
-        _credentialStore = new InMemoryCredentialStore();
-        _auditStore = new InMemoryAuditStore();
-        _groupStore = new InMemoryGroupStore();
-        _authService = new AuthService(_userStore, _sessionStore, _credentialStore, _auditStore);
+        _authService = new AuthService(_userStore, _sessionStore, _credentialStore, _auditStore, _groupStore,
+            new UsersModuleOptions(), _events, _time);
     }
 
     private async Task<(User admin, string token)> SeedAdminAndLogin()
     {
+        await _groupStore.CreateGroupAsync(new Group { Name = "admin", Permissions = ["*"], BuiltIn = true });
         var admin = await _userStore.CreateUserAsync(new CreateUserDto
         {
             Name = "root",
@@ -36,342 +41,326 @@ public class UsersApiTests
             Groups = ["admin"],
         });
         await _authService.SetPasswordAsync(admin.Id, "root");
-        await _groupStore.CreateGroupAsync("admin", "Administrator group");
 
         var result = await _authService.LoginAsync("root", "root");
         return (admin, result.Token);
     }
 
-    // --- AuthService Tests ---
+    // --- AuthService ---
 
     [Fact]
-    public async Task Login_ValidCredentials_ReturnsTokenAndSession()
+    public async Task Login_ValidCredentials_ReturnsTokenSessionAndPermissions()
     {
         var (admin, token) = await SeedAdminAndLogin();
-
-        Assert.NotNull(token);
-        Assert.NotEmpty(token);
 
         var session = await _sessionStore.GetSessionAsync(token);
         Assert.NotNull(session);
         Assert.Equal(admin.Id, session.UserId);
-        Assert.Equal("root", session.User.Name);
+        Assert.Equal("root", session.UserName);
+
+        var auth = await _authService.AuthenticateTokenAsync(token);
+        Assert.Equal(["*"], auth.Permissions);
+        Assert.True(auth.Can("users:delete"));
     }
 
     [Fact]
-    public async Task Login_InvalidPassword_Throws()
+    public async Task Login_InvalidPassword_Throws401()
     {
         await SeedAdminAndLogin();
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _authService.LoginAsync("root", "wrong"));
-        Assert.Equal("Invalid credentials", ex.Message);
+        var ex = await Assert.ThrowsAsync<UsersApiException>(() => _authService.LoginAsync("root", "wrong"));
+        Assert.Equal(401, ex.StatusCode);
+        Assert.Equal("invalid credentials", ex.Message);
     }
 
     [Fact]
-    public async Task Login_NonexistentUser_Throws()
+    public async Task Login_NonexistentUser_Throws401()
     {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _authService.LoginAsync("nobody", "pass"));
-        Assert.Equal("Invalid credentials", ex.Message);
+        var ex = await Assert.ThrowsAsync<UsersApiException>(() => _authService.LoginAsync("nobody", "pass"));
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
-    public async Task Login_DisabledUser_Throws()
+    public async Task Login_DisabledUser_Throws403()
     {
         var (admin, _) = await SeedAdminAndLogin();
         await _userStore.UpdateUserAsync(admin.Id, new UpdateUserDto { Disabled = true });
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _authService.LoginAsync("root", "root"));
-        Assert.Equal("Account is disabled", ex.Message);
+        var ex = await Assert.ThrowsAsync<UsersApiException>(() => _authService.LoginAsync("root", "root"));
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Equal("account disabled", ex.Message);
+    }
+
+    [Fact]
+    public async Task Login_PersistsLastLoginAtThroughStore()
+    {
+        var spy = new SpyUserStore();
+        var auth = new AuthService(spy, _sessionStore, _credentialStore, _auditStore, _groupStore, timeProvider: _time);
+        var user = await spy.CreateUserAsync(new CreateUserDto { Name = "spy", Email = "s@s.s" });
+        await auth.SetPasswordAsync(user.Id, "pass");
+
+        await auth.LoginAsync("spy", "pass");
+
+        Assert.Contains(spy.Updates, u => u.LastLoginAt == _time.GetUtcNow().ToUnixTimeMilliseconds());
+        Assert.Equal(_time.GetUtcNow().ToUnixTimeMilliseconds(), (await spy.GetUserAsync(user.Id))!.LastLoginAt);
+    }
+
+    [Fact]
+    public async Task Lockout_IsConfigurable()
+    {
+        var options = new UsersModuleOptions { MaxLoginAttempts = 2, LockoutMs = 1000 };
+        var auth = new AuthService(_userStore, _sessionStore, _credentialStore, _auditStore, _groupStore, options, null, _time);
+        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "lk", Email = "lk@x" });
+        await auth.SetPasswordAsync(user.Id, "pass");
+
+        await Assert.ThrowsAsync<UsersApiException>(() => auth.LoginAsync("lk", "bad"));
+        await Assert.ThrowsAsync<UsersApiException>(() => auth.LoginAsync("lk", "bad"));
+        var locked = await Assert.ThrowsAsync<UsersApiException>(() => auth.LoginAsync("lk", "pass"));
+        Assert.Equal(429, locked.StatusCode);
+
+        _time.Advance(TimeSpan.FromMilliseconds(1001));
+        await auth.LoginAsync("lk", "pass");
     }
 
     [Fact]
     public async Task Logout_RemovesSession()
     {
         var (_, token) = await SeedAdminAndLogin();
-
         await _authService.LogoutAsync(token);
-
-        var session = await _sessionStore.GetSessionAsync(token);
-        Assert.Null(session);
+        Assert.Null(await _sessionStore.GetSessionAsync(token));
     }
 
     [Fact]
-    public async Task VerifyPassword_Valid_ReturnsTrue()
+    public async Task AuthenticateToken_IdleExpired_ThrowsAndDeletes()
     {
-        var (admin, _) = await SeedAdminAndLogin();
-        var valid = await _authService.VerifyPasswordAsync(admin.Id, "root");
-        Assert.True(valid);
+        var (_, token) = await SeedAdminAndLogin();
+        _time.Advance(TimeSpan.FromMinutes(30).Add(TimeSpan.FromMilliseconds(1)));
+
+        var ex = await Assert.ThrowsAsync<UsersApiException>(() => _authService.AuthenticateTokenAsync(token));
+        Assert.Equal(401, ex.StatusCode);
+        Assert.Null(await _sessionStore.GetSessionAsync(token));
     }
 
     [Fact]
-    public async Task VerifyPassword_Invalid_ReturnsFalse()
-    {
-        var (admin, _) = await SeedAdminAndLogin();
-        var valid = await _authService.VerifyPasswordAsync(admin.Id, "wrong");
-        Assert.False(valid);
-    }
-
-    // --- User CRUD Tests ---
-
-    [Fact]
-    public async Task CreateUser_Success()
-    {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto
-        {
-            Name = "alice",
-            Email = "alice@example.com",
-            Groups = ["users"],
-        });
-
-        Assert.Equal("alice", user.Name);
-        Assert.Equal("alice@example.com", user.Email);
-        Assert.Contains("users", user.Groups);
-        Assert.NotEmpty(user.Id);
-        Assert.True(user.CreatedAt > 0);
-    }
-
-    [Fact]
-    public async Task CreateUser_Duplicate_Throws()
-    {
-        await _userStore.CreateUserAsync(new CreateUserDto { Name = "bob", Email = "bob@test.com" });
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _userStore.CreateUserAsync(new CreateUserDto { Name = "bob", Email = "bob2@test.com" }));
-    }
-
-    [Fact]
-    public async Task GetUser_ById()
-    {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "charlie", Email = "c@test.com" });
-        var found = await _userStore.GetUserAsync(user.Id);
-        Assert.NotNull(found);
-        Assert.Equal("charlie", found.Name);
-    }
-
-    [Fact]
-    public async Task GetUser_ByName()
-    {
-        await _userStore.CreateUserAsync(new CreateUserDto { Name = "diana", Email = "d@test.com" });
-        var found = await _userStore.GetUserAsync("diana");
-        Assert.NotNull(found);
-        Assert.Equal("diana", found.Name);
-    }
-
-    [Fact]
-    public async Task UpdateUser_ChangesFields()
-    {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "eve", Email = "e@test.com" });
-        var updated = await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto
-        {
-            Email = "eve@updated.com",
-            Disabled = true,
-        });
-
-        Assert.Equal("eve@updated.com", updated.Email);
-        Assert.True(updated.Disabled);
-    }
-
-    [Fact]
-    public async Task DeleteUser_Removes()
-    {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "frank", Email = "f@test.com" });
-        await _userStore.DeleteUserAsync(user.Id);
-        var found = await _userStore.GetUserAsync(user.Id);
-        Assert.Null(found);
-    }
-
-    // --- Session Tests ---
-
-    [Fact]
-    public async Task Session_ListAndKick()
+    public async Task RevokeUserSessions_BroadcastsSessionKickedWithReason()
     {
         var (admin, token) = await SeedAdminAndLogin();
+        var session = await _sessionStore.GetSessionAsync(token);
 
-        var sessions = await _sessionStore.GetActiveSessionsAsync();
-        Assert.Single(sessions);
-        Assert.Equal(admin.Id, sessions[0].UserId);
+        await _authService.RevokeUserSessionsAsync(admin.Id, AuthService.RevokeReasons.UserDisabled, "someone");
 
-        // Kick session by id
-        await _sessionStore.DeleteSessionByIdAsync(sessions[0].Id);
-        var afterKick = await _sessionStore.GetActiveSessionsAsync();
-        Assert.Empty(afterKick);
+        var kicked = Assert.Single(_events.SessionKicked());
+        Assert.Equal(session!.Id, kicked.GetProperty("sessionId").GetString());
+        Assert.Equal(admin.Id, kicked.GetProperty("userId").GetString());
+        Assert.Equal("user_disabled", kicked.GetProperty("reason").GetString());
+        Assert.Null(await _sessionStore.GetSessionAsync(token));
     }
 
     [Fact]
-    public async Task Session_Cleanup_RemovesExpired()
+    public async Task SweepIdleSessions_RemovesExpired()
     {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "test", Email = "t@t.com" });
-        var session = await _sessionStore.CreateSessionAsync(user.Id, "tok1", user, new SessionMetadata());
-
-        // Force old lastActivity
-        session.LastActivity = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 100_000;
-
-        await _sessionStore.CleanupAsync(50_000);
-
-        var remaining = await _sessionStore.GetActiveSessionsAsync();
-        Assert.Empty(remaining);
+        var (_, token) = await SeedAdminAndLogin();
+        _time.Advance(TimeSpan.FromMinutes(31));
+        await _authService.SweepIdleSessionsAsync();
+        Assert.Null(await _sessionStore.GetSessionAsync(token));
     }
 
-    // --- Group Tests ---
+    // --- Password hashing ---
 
     [Fact]
-    public async Task Group_CreateAndList()
-    {
-        var group = await _groupStore.CreateGroupAsync("devs", "Developers");
-        Assert.Equal("devs", group.Name);
-
-        var groups = await _groupStore.GetGroupsAsync();
-        Assert.Single(groups);
-    }
-
-    [Fact]
-    public async Task Group_Duplicate_Throws()
-    {
-        await _groupStore.CreateGroupAsync("ops");
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _groupStore.CreateGroupAsync("ops"));
-    }
-
-    [Fact]
-    public async Task Group_AddRemoveMember()
-    {
-        await _groupStore.CreateGroupAsync("team");
-        var user = await _userStore.CreateUserAsync(new CreateUserDto
-        {
-            Name = "george",
-            Email = "g@test.com",
-            Groups = [],
-        });
-
-        // Add to group
-        await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto
-        {
-            Groups = [.. user.Groups, "team"],
-        });
-        var updated = await _userStore.GetUserAsync(user.Id);
-        Assert.Contains("team", updated!.Groups);
-
-        // Remove from group
-        await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto
-        {
-            Groups = updated.Groups.Where(g => g != "team").ToList(),
-        });
-        var removed = await _userStore.GetUserAsync(user.Id);
-        Assert.DoesNotContain("team", removed!.Groups);
-    }
-
-    // --- Audit Tests ---
-
-    [Fact]
-    public async Task Audit_LogAndQuery()
-    {
-        await _auditStore.LogAsync(new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Event = "login",
-            Username = "root",
-            Details = "Success",
-        });
-
-        await _auditStore.LogAsync(new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Event = "login_failed",
-            Username = "hacker",
-            Details = "Wrong password",
-        });
-
-        var all = await _auditStore.GetEntriesAsync();
-        Assert.Equal(2, all.Count);
-
-        var filtered = await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login" });
-        Assert.Single(filtered);
-        Assert.Equal("root", filtered[0].Username);
-
-        var limited = await _auditStore.GetEntriesAsync(new AuditQueryOptions { Limit = 1 });
-        Assert.Single(limited);
-    }
-
-    [Fact]
-    public async Task Audit_Clear()
-    {
-        await _auditStore.LogAsync(new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Event = "test",
-            Username = "test",
-        });
-
-        await _auditStore.ClearAsync();
-        var entries = await _auditStore.GetEntriesAsync();
-        Assert.Empty(entries);
-    }
-
-    // --- Password Change Tests ---
-
-    [Fact]
-    public async Task SetPassword_ThenVerify()
+    public async Task SetPassword_StoresPbkdf2Format_AndVerifies()
     {
         var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "helen", Email = "h@t.com" });
         await _authService.SetPasswordAsync(user.Id, "secret123");
+
+        var creds = await _credentialStore.GetCredentialsAsync(user.Id);
+        Assert.Matches(@"^pbkdf2\$100000\$[A-Za-z0-9+/=]{24}\$[A-Za-z0-9+/=]{44}$", creds!.PasswordHash);
 
         Assert.True(await _authService.VerifyPasswordAsync(user.Id, "secret123"));
         Assert.False(await _authService.VerifyPasswordAsync(user.Id, "wrongpass"));
     }
 
-    // --- Credential Cascade Tests ---
+    [Fact]
+    public void PasswordHasher_UsesRandomSalt_AndKnownVector()
+    {
+        var (a, _) = PasswordHasher.Hash("same");
+        var (b, _) = PasswordHasher.Hash("same");
+        Assert.NotEqual(a, b);
+
+        var salt = new byte[16];
+        var key = Rfc2898DeriveBytes.Pbkdf2("pw", salt, 100_000, HashAlgorithmName.SHA256, 32);
+        var encoded = $"pbkdf2$100000${Convert.ToBase64String(salt)}${Convert.ToBase64String(key)}";
+        Assert.True(PasswordHasher.Verify("pw", encoded));
+        Assert.False(PasswordHasher.Verify("pW", encoded));
+        Assert.False(PasswordHasher.Verify("pw", "pbkdf2$abc$###$###"));
+    }
 
     [Fact]
-    public async Task DeleteUser_CascadesCredentialsAndSessions()
+    public async Task LegacySha256Hash_IsVerifiedAndUpgraded()
     {
-        var user = await _userStore.CreateUserAsync(new CreateUserDto
-        {
-            Name = "ivan",
-            Email = "i@t.com",
-            Groups = ["admin"],
-        });
-        await _authService.SetPasswordAsync(user.Id, "pass");
-        var loginResult = await _authService.LoginAsync("ivan", "pass");
+        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "legacy", Email = "l@t.com" });
+        var salt = "abcd";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(salt + "oldpass"))).ToLowerInvariant();
+        await _credentialStore.SetPasswordAsync(user.Id, hash, salt);
 
-        // Verify creds and session exist
-        Assert.NotNull(await _credentialStore.GetCredentialsAsync(user.Id));
-        Assert.NotNull(await _sessionStore.GetSessionAsync(loginResult.Token));
+        Assert.False(await _authService.VerifyPasswordAsync(user.Id, "nope"));
+        Assert.True(await _authService.VerifyPasswordAsync(user.Id, "oldpass"));
+        Assert.StartsWith("pbkdf2$", (await _credentialStore.GetCredentialsAsync(user.Id))!.PasswordHash);
+        Assert.True(await _authService.VerifyPasswordAsync(user.Id, "oldpass"));
+    }
 
-        // Delete user + cascade
+    // --- Permissions ---
+
+    [Theory]
+    [InlineData("*", "users:read", true)]
+    [InlineData("users:*", "users:delete", true)]
+    [InlineData("USERS:READ", "users:read", true)]
+    [InlineData("users:read", "users:create", false)]
+    [InlineData("users:read", "users", false)]
+    [InlineData("users", "users:read", false)]
+    [InlineData("groups:*", "users:read", false)]
+    [InlineData("users:read:*", "users:read", true)] // same as cliPermissionMatches
+    public void PermissionMatcher_MatchesCliCoreSemantics(string granted, string required, bool expected)
+    {
+        Assert.Equal(expected, PermissionMatcher.Matches(granted, required));
+    }
+
+    [Fact]
+    public async Task EffectivePermissions_AreUnionOfGroups_CaseInsensitive()
+    {
+        await _groupStore.CreateGroupAsync(new Group { Name = "Readers", Permissions = ["users:read", "audit:read"] });
+        await _groupStore.CreateGroupAsync(new Group { Name = "auditors", Permissions = ["AUDIT:READ", "audit:clear"] });
+        var user = new User { Id = "u", Groups = ["readers", "AUDITORS", "missing"] };
+
+        var perms = await _authService.GetEffectivePermissionsAsync(user);
+        Assert.Equal(["users:read", "audit:read", "audit:clear"], perms);
+    }
+
+    // --- Stores ---
+
+    [Fact]
+    public async Task UserStore_CrudAndCopies()
+    {
+        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "alice", Email = "a@e.com", Groups = ["users"] });
+        Assert.NotEmpty(user.Id);
+        Assert.False(user.Disabled);
+
+        user.Groups.Add("admin");
+        user.Name = "mutated";
+        var reloaded = await _userStore.GetUserAsync("ALICE");
+        Assert.Equal(["users"], reloaded!.Groups);
+
+        var updated = await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Email = "x@y.z", Disabled = true });
+        Assert.Equal("x@y.z", updated.Email);
+        Assert.True(updated.Disabled);
+
         await _userStore.DeleteUserAsync(user.Id);
-        await _credentialStore.DeleteCredentialsAsync(user.Id);
-        await _sessionStore.DeleteUserSessionsAsync(user.Id);
-
         Assert.Null(await _userStore.GetUserAsync(user.Id));
-        Assert.Null(await _credentialStore.GetCredentialsAsync(user.Id));
-        Assert.Null(await _sessionStore.GetSessionAsync(loginResult.Token));
-    }
-
-    // --- Login Audit Logging Tests ---
-
-    [Fact]
-    public async Task Login_Success_CreatesAuditEntry()
-    {
-        await SeedAdminAndLogin();
-
-        var entries = await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login" });
-        Assert.Single(entries);
-        Assert.Equal("root", entries[0].Username);
-        Assert.Equal("Login successful", entries[0].Details);
     }
 
     [Fact]
-    public async Task Login_Failure_CreatesAuditEntry()
+    public async Task UserStore_DuplicateName_Throws()
     {
-        await SeedAdminAndLogin();
+        await _userStore.CreateUserAsync(new CreateUserDto { Name = "bob", Email = "bob@test.com" });
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _userStore.CreateUserAsync(new CreateUserDto { Name = "BOB", Email = "bob2@test.com" }));
+    }
 
-        try { await _authService.LoginAsync("root", "wrong"); } catch { }
+    [Fact]
+    public async Task GroupStore_CaseInsensitive_UpdateAndDuplicate()
+    {
+        var group = await _groupStore.CreateGroupAsync(new Group { Name = "Devs", Description = "Developers" });
+        Assert.NotEmpty(group.Id);
+        Assert.True(group.CreatedAt > 0);
+        Assert.Equal("Devs", (await _groupStore.GetGroupAsync("DEVS"))!.Name);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _groupStore.CreateGroupAsync(new Group { Name = "devs" }));
 
-        var entries = await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login_failed" });
-        Assert.Single(entries);
-        Assert.Equal("root", entries[0].Username);
+        var updated = await _groupStore.UpdateGroupAsync("devs", new UpdateGroupDto { Permissions = ["code:*"] });
+        Assert.Equal(["code:*"], updated.Permissions);
+        Assert.Equal("Developers", updated.Description);
+
+        await _groupStore.DeleteGroupAsync("DEVS");
+        Assert.Empty(await _groupStore.GetGroupsAsync());
+    }
+
+    [Fact]
+    public async Task AuditStore_FiltersLimitsAndAssignsIds()
+    {
+        await _auditStore.LogAsync(new AuditEntry { Timestamp = 1, Event = "login", Username = "root" });
+        await _auditStore.LogAsync(new AuditEntry { Timestamp = 2, Event = "login_failed", Username = "hacker" });
+
+        var all = await _auditStore.GetEntriesAsync();
+        Assert.Equal(["login_failed", "login"], all.Select(e => e.Event));
+        Assert.All(all, e => Assert.False(string.IsNullOrEmpty(e.Id)));
+
+        Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login" }));
+        Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Username = "HACKER" }));
+        Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Limit = 1 }));
+
+        await _auditStore.ClearAsync();
+        Assert.Empty(await _auditStore.GetEntriesAsync());
+    }
+
+    [Fact]
+    public async Task AuditStore_KeepsLast1000Entries()
+    {
+        var store = new InMemoryAuditStore();
+        for (var i = 0; i < 1100; i++)
+            await store.LogAsync(new AuditEntry { Timestamp = i, Event = "e", Username = $"u{i}" });
+
+        var entries = await store.GetEntriesAsync();
+        Assert.Equal(1000, entries.Count);
+        Assert.Equal("u1099", entries[0].Username);
+        Assert.Equal("u100", entries[^1].Username);
+    }
+
+    // --- Registration ---
+
+    [Fact]
+    public void AddUsers_SetStoreGeneric_ResolvesThroughDependencyInjection()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<StoreDependency>();
+        services.AddControllers().AddCli(cli => cli.AddUsers(o => o
+            .SetUserStore<DiUserStore>()
+            .SetAuditStore(_ => new InMemoryAuditStore(10))));
+
+        using var provider = services.BuildServiceProvider();
+        var store = Assert.IsType<DiUserStore>(provider.GetRequiredService<IUserStore>());
+        Assert.Same(provider.GetRequiredService<StoreDependency>(), store.Dependency);
+        Assert.Same(store, provider.GetRequiredService<IUserStore>());
+        Assert.Equal(10, Assert.IsType<InMemoryAuditStore>(provider.GetRequiredService<IAuditStore>()).MaxEntries);
+        Assert.IsType<InMemoryGroupStore>(provider.GetRequiredService<IGroupStore>());
+        Assert.NotNull(provider.GetRequiredService<UsersService>());
+    }
+
+    [Fact]
+    public void AddUsers_StoreInstanceProperty_IsUsed()
+    {
+        var sessions = new InMemorySessionStore();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddControllers().AddCli(cli => cli.AddUsers(o => o.SessionStore = sessions));
+
+        using var provider = services.BuildServiceProvider();
+        Assert.Same(sessions, provider.GetRequiredService<ISessionStore>());
+    }
+
+    public sealed class StoreDependency;
+
+    public sealed class DiUserStore(StoreDependency dependency) : InMemoryUserStore
+    {
+        public StoreDependency Dependency { get; } = dependency;
+    }
+
+    private sealed class SpyUserStore : InMemoryUserStore, IUserStore
+    {
+        public List<UpdateUserDto> Updates { get; } = [];
+
+        Task<User> IUserStore.UpdateUserAsync(string id, UpdateUserDto data)
+        {
+            Updates.Add(data);
+            return UpdateUserAsync(id, data);
+        }
     }
 }

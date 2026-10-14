@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Users.Controllers;
 using Qodalis.Cli.Plugin.Users.Middleware;
@@ -16,47 +17,62 @@ public static class CliBuilderUsersExtensions
 {
     /// <summary>
     /// Registers users plugin services, stores, and controllers.
+    /// Stores default to in-memory implementations; override them with the
+    /// <c>Set*Store&lt;T&gt;()</c> options (DI-constructed), the store properties (instances),
+    /// or by registering the store interface in the service collection before calling this.
     /// </summary>
     public static CliBuilder AddUsers(this CliBuilder builder, Action<UsersModuleOptions>? configure = null)
     {
         var options = new UsersModuleOptions();
         configure?.Invoke(options);
 
-        // Register options
-        builder.Services.AddSingleton(options);
+        var services = builder.Services;
+        services.AddSingleton(options);
+        services.TryAddSingleton(TimeProvider.System);
 
-        // Register stores (use custom overrides or in-memory defaults)
-        builder.Services.AddSingleton<IUserStore>(options.UserStore ?? new InMemoryUserStore());
-        builder.Services.AddSingleton<ISessionStore>(options.SessionStore ?? new InMemorySessionStore());
-        builder.Services.AddSingleton<ICredentialStore>(options.CredentialStore ?? new InMemoryCredentialStore());
-        builder.Services.AddSingleton<IAuditStore>(options.AuditStore ?? new InMemoryAuditStore());
-        builder.Services.AddSingleton<IGroupStore>(options.GroupStore ?? new InMemoryGroupStore());
+        RegisterStore<IUserStore, InMemoryUserStore>(services, options, options.UserStore);
+        RegisterStore<ISessionStore, InMemorySessionStore>(services, options, options.SessionStore);
+        RegisterStore<ICredentialStore, InMemoryCredentialStore>(services, options, options.CredentialStore);
+        RegisterStore<IAuditStore, InMemoryAuditStore>(services, options, options.AuditStore);
+        RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
 
-        // Register services
-        builder.Services.AddSingleton<AuthService>();
+        services.AddSingleton<AuthService>();
+        services.AddSingleton<UsersService>();
 
-        // Register external auth adapter when provided
         if (options.AuthAdapter != null)
-        {
-            builder.Services.AddSingleton<IExternalAuthAdapter>(options.AuthAdapter);
-        }
+            services.AddSingleton(options.AuthAdapter);
+        else if (options.AuthAdapterType != null)
+            services.AddSingleton(typeof(IExternalAuthAdapter), options.AuthAdapterType);
 
-        // Only register the bootstrap service (seed user, session cleanup) when
-        // there is no external auth adapter — the host app manages users externally.
-        if (options.AuthAdapter == null)
-        {
-            builder.Services.AddHostedService<UsersBootstrapService>();
-        }
+        // Seeds built-in groups always, and the root user unless external auth is used.
+        services.AddSingleton<UsersBootstrapService>();
+        services.AddHostedService(sp => sp.GetRequiredService<UsersBootstrapService>());
 
-        // Register controllers from this assembly
         builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
         return builder;
     }
 
+    private static void RegisterStore<TService, TDefault>(IServiceCollection services, UsersModuleOptions options, TService? instance)
+        where TService : class
+        where TDefault : class, TService
+    {
+        var factory = options.GetStoreFactory(typeof(TService), instance);
+        if (factory != null)
+        {
+            services.RemoveAll<TService>();
+            services.AddSingleton(sp => (TService)factory(sp));
+        }
+        else
+        {
+            services.TryAddSingleton<TService, TDefault>();
+        }
+    }
+
     /// <summary>
     /// Adds the users auth middleware to the pipeline.
-    /// Call after UseCors() and before UseAuthorization().
+    /// Call after UseCors() and before UseAuthorization(). Without it, every users endpoint
+    /// except login answers 401.
     /// </summary>
     public static IApplicationBuilder UseQodalisUsers(this IApplicationBuilder app)
     {

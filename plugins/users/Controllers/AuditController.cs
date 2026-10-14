@@ -1,57 +1,36 @@
 using Microsoft.AspNetCore.Mvc;
-using Qodalis.Cli.Plugin.Users.Extensions;
-using Qodalis.Cli.Plugin.Users.Models;
-using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Plugin.Users.Services;
 
 namespace Qodalis.Cli.Plugin.Users.Controllers;
 
 /// <summary>
-/// Audit log query and management endpoints (admin only).
+/// Audit log query and management endpoints.
 /// </summary>
-[ApiController]
 [Route("api/v1/qcli/audit")]
-public class AuditController : ControllerBase
+public class AuditController : UsersControllerBase
 {
-    private readonly IAuditStore _auditStore;
+    private readonly UsersService _users;
 
-    public AuditController(IAuditStore auditStore)
+    public AuditController(UsersService users)
     {
-        _auditStore = auditStore;
+        _users = users;
     }
 
-    /// <summary>
-    /// Query audit entries. Supports ?event=, ?username=, ?limit= query params.
-    /// Admin only.
-    /// </summary>
+    /// <summary>Query audit entries (<c>?event=&amp;username=&amp;limit=</c>). Requires <c>audit:read</c>.</summary>
     [HttpGet]
+    [UsersPermission(UsersPermissions.AuditRead)]
     public async Task<IActionResult> GetAll(
-        [FromQuery] string? @event,
+        [FromQuery(Name = "event")] string? @event,
         [FromQuery] string? username,
-        [FromQuery] int? limit)
-    {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
+        [FromQuery] int? limit) =>
+        JsonOk(await _users.GetAuditAsync(@event, username, limit));
 
-        var options = new AuditQueryOptions
-        {
-            Event = @event,
-            Username = username,
-            Limit = limit,
-        };
-
-        return Ok(await _auditStore.GetEntriesAsync(options));
-    }
-
-    /// <summary>
-    /// Clear all audit entries. Admin only.
-    /// </summary>
+    /// <summary>Clear the audit log (an <c>audit_cleared</c> entry is then recorded). Requires <c>audit:clear</c>.</summary>
     [HttpDelete]
+    [UsersPermission(UsersPermissions.AuditClear)]
     public async Task<IActionResult> Clear()
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        await _auditStore.ClearAsync();
+        await _users.ClearAuditAsync(Auth.User.Name);
         return NoContent();
     }
 }

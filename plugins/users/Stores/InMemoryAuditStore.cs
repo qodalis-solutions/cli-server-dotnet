@@ -3,18 +3,37 @@ using Qodalis.Cli.Plugin.Users.Models;
 namespace Qodalis.Cli.Plugin.Users.Stores;
 
 /// <summary>
-/// In-memory implementation of <see cref="IAuditStore"/>.
+/// In-memory implementation of <see cref="IAuditStore"/>. Keeps the most recent
+/// <see cref="MaxEntries"/> entries (default 1000).
 /// </summary>
 public class InMemoryAuditStore : IAuditStore
 {
-    private readonly List<AuditEntry> _entries = [];
+    /// <summary>Default number of retained entries.</summary>
+    public const int DefaultMaxEntries = 1000;
+
+    private readonly LinkedList<AuditEntry> _entries = new();
     private readonly object _lock = new();
+
+    public InMemoryAuditStore() : this(DefaultMaxEntries) { }
+
+    public InMemoryAuditStore(int maxEntries)
+    {
+        MaxEntries = maxEntries > 0 ? maxEntries : DefaultMaxEntries;
+    }
+
+    /// <summary>Maximum number of retained entries; the oldest are dropped first.</summary>
+    public int MaxEntries { get; }
 
     public Task LogAsync(AuditEntry entry)
     {
+        if (string.IsNullOrEmpty(entry.Id))
+            entry.Id = Guid.NewGuid().ToString();
+
         lock (_lock)
         {
-            _entries.Add(entry);
+            _entries.AddLast(entry);
+            while (_entries.Count > MaxEntries)
+                _entries.RemoveFirst();
         }
         return Task.CompletedTask;
     }
@@ -23,16 +42,18 @@ public class InMemoryAuditStore : IAuditStore
     {
         lock (_lock)
         {
-            IEnumerable<AuditEntry> query = _entries.OrderByDescending(e => e.Timestamp);
+            // Newest first; insertion order breaks timestamp ties.
+            IEnumerable<AuditEntry> query = _entries.Reverse()
+                .OrderByDescending(e => e.Timestamp);
 
-            if (options?.Event != null)
-                query = query.Where(e => e.Event == options.Event);
+            if (!string.IsNullOrEmpty(options?.Event))
+                query = query.Where(e => string.Equals(e.Event, options.Event, StringComparison.OrdinalIgnoreCase));
 
-            if (options?.Username != null)
-                query = query.Where(e => e.Username == options.Username);
+            if (!string.IsNullOrEmpty(options?.Username))
+                query = query.Where(e => string.Equals(e.Username, options.Username, StringComparison.OrdinalIgnoreCase));
 
-            if (options?.Limit.HasValue == true)
-                query = query.Take(options.Limit.Value);
+            if (options?.Limit is int limit)
+                query = query.Take(limit);
 
             return Task.FromResult(query.ToList());
         }

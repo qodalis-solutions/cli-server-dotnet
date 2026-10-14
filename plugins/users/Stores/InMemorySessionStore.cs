@@ -10,32 +10,24 @@ public class InMemorySessionStore : ISessionStore
 {
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    public Task<Session> CreateSessionAsync(string userId, string token, User user, SessionMetadata metadata)
+    public Task<Session> CreateSessionAsync(Session session)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var session = new Session
-        {
-            Id = Guid.NewGuid().ToString(),
-            Token = token,
-            UserId = userId,
-            User = user,
-            LoginTime = now,
-            LastActivity = now,
-            Metadata = metadata,
-        };
-
-        _sessions[token] = session;
-        return Task.FromResult(session);
+        _sessions[session.Token] = session.Clone();
+        return Task.FromResult(session.Clone());
     }
 
     public Task<Session?> GetSessionAsync(string token) =>
-        Task.FromResult(_sessions.TryGetValue(token, out var session) ? session : null);
+        Task.FromResult(_sessions.TryGetValue(token, out var session) ? session.Clone() : null);
 
     public Task<Session?> GetSessionByIdAsync(string id) =>
-        Task.FromResult(_sessions.Values.FirstOrDefault(s => s.Id == id));
+        Task.FromResult(_sessions.Values.FirstOrDefault(s => s.Id == id)?.Clone());
 
     public Task<List<Session>> GetActiveSessionsAsync() =>
-        Task.FromResult(_sessions.Values.ToList());
+        Task.FromResult(_sessions.Values.OrderBy(s => s.LoginTime).Select(s => s.Clone()).ToList());
+
+    public Task<List<Session>> GetUserSessionsAsync(string userId) =>
+        Task.FromResult(_sessions.Values.Where(s => s.UserId == userId)
+            .OrderBy(s => s.LoginTime).Select(s => s.Clone()).ToList());
 
     public Task DeleteSessionAsync(string token)
     {
@@ -45,35 +37,29 @@ public class InMemorySessionStore : ISessionStore
 
     public Task DeleteSessionByIdAsync(string id)
     {
-        var entry = _sessions.FirstOrDefault(kvp => kvp.Value.Id == id);
-        if (entry.Key != null)
-            _sessions.TryRemove(entry.Key, out _);
+        foreach (var kvp in _sessions.Where(kvp => kvp.Value.Id == id).ToList())
+            _sessions.TryRemove(kvp.Key, out _);
         return Task.CompletedTask;
     }
 
     public Task DeleteUserSessionsAsync(string userId)
     {
-        var tokens = _sessions.Where(kvp => kvp.Value.UserId == userId)
-            .Select(kvp => kvp.Key).ToList();
-        foreach (var token in tokens)
-            _sessions.TryRemove(token, out _);
+        foreach (var kvp in _sessions.Where(kvp => kvp.Value.UserId == userId).ToList())
+            _sessions.TryRemove(kvp.Key, out _);
         return Task.CompletedTask;
     }
 
-    public Task UpdateLastActivityAsync(string token)
+    public Task UpdateLastActivityAsync(string token, long timestamp)
     {
         if (_sessions.TryGetValue(token, out var session))
-            session.LastActivity = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            session.LastActivity = timestamp;
         return Task.CompletedTask;
     }
 
-    public Task CleanupAsync(long maxAgeMs)
+    public Task DeleteIdleSessionsAsync(long lastActivityBefore)
     {
-        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - maxAgeMs;
-        var expired = _sessions.Where(kvp => kvp.Value.LastActivity < cutoff)
-            .Select(kvp => kvp.Key).ToList();
-        foreach (var token in expired)
-            _sessions.TryRemove(token, out _);
+        foreach (var kvp in _sessions.Where(kvp => kvp.Value.LastActivity < lastActivityBefore).ToList())
+            _sessions.TryRemove(kvp.Key, out _);
         return Task.CompletedTask;
     }
 }

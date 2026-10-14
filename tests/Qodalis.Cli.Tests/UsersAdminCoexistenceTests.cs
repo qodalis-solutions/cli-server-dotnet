@@ -70,8 +70,6 @@ public class UsersAdminCoexistenceTests : IAsyncLifetime
         _host = await builder.StartAsync();
         _client = _host.GetTestClient();
 
-        // Give the hosted bootstrap service time to seed the root user
-        await Task.Delay(500);
     }
 
     public async Task DisposeAsync()

@@ -1,127 +1,78 @@
 using Microsoft.AspNetCore.Mvc;
-using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
-using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Plugin.Users.Services;
 
 namespace Qodalis.Cli.Plugin.Users.Controllers;
 
 /// <summary>
-/// Group CRUD and member management endpoints.
+/// Groups resource: CRUD (with permissions) and membership management.
 /// </summary>
-[ApiController]
 [Route("api/v1/qcli/groups")]
-public class GroupsController : ControllerBase
+public class GroupsController : UsersControllerBase
 {
-    private readonly IGroupStore _groupStore;
-    private readonly IUserStore _userStore;
+    private readonly UsersService _users;
 
-    public GroupsController(IGroupStore groupStore, IUserStore userStore)
+    public GroupsController(UsersService users)
     {
-        _groupStore = groupStore;
-        _userStore = userStore;
+        _users = users;
     }
 
-    /// <summary>
-    /// List all groups.
-    /// </summary>
+    /// <summary>List all groups. Any authenticated user.</summary>
     [HttpGet]
-    public async Task<IActionResult> GetAll() =>
-        Ok(await _groupStore.GetGroupsAsync());
+    public async Task<IActionResult> GetAll() => JsonOk(await _users.ListGroupsAsync());
 
-    /// <summary>
-    /// Get a group by name.
-    /// </summary>
+    /// <summary>Get a group by name (case-insensitive). Any authenticated user.</summary>
     [HttpGet("{name}")]
-    public async Task<IActionResult> Get(string name)
+    public async Task<IActionResult> Get([FromRoute] string name) =>
+        JsonOk(await _users.GetGroupOrThrowAsync(name));
+
+    /// <summary>List the members of a group. Requires <c>groups:read</c> or membership.</summary>
+    [HttpGet("{name}/members")]
+    public async Task<IActionResult> GetMembers([FromRoute] string name)
     {
-        var group = await _groupStore.GetGroupAsync(name);
-        if (group == null)
-            return NotFound(new { error = "Group not found" });
-        return Ok(group);
+        var group = await _users.GetGroupOrThrowAsync(name);
+        var caller = Auth;
+        if (!caller.Can(UsersPermissions.GroupsRead) && !caller.User.IsInGroup(group.Name))
+            throw Denied(UsersPermissions.GroupsRead);
+        return JsonOk(await _users.GetGroupMembersAsync(group));
     }
 
-    /// <summary>
-    /// Create a new group (admin only).
-    /// </summary>
+    /// <summary>Create a group. Requires <c>groups:create</c>.</summary>
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateGroupRequest request)
-    {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
+    [UsersPermission(UsersPermissions.GroupsCreate)]
+    public async Task<IActionResult> Create([FromBody] CreateGroupRequest request) =>
+        Json(201, await _users.CreateGroupAsync(request, Auth.User.Name));
 
-        if (string.IsNullOrEmpty(request.Name))
-            return BadRequest(new { error = "name is required" });
+    /// <summary>Update a group's description/permissions. Requires <c>groups:update</c>.</summary>
+    [HttpPut("{name}")]
+    [UsersPermission(UsersPermissions.GroupsUpdate)]
+    public async Task<IActionResult> Update([FromRoute] string name, [FromBody] UpdateGroupDto dto) =>
+        JsonOk(await _users.UpdateGroupAsync(name, dto, Auth.User.Name));
 
-        try
-        {
-            var group = await _groupStore.CreateGroupAsync(request.Name, request.Description);
-            return StatusCode(201, group);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Delete a group (admin only).
-    /// </summary>
+    /// <summary>Delete a group (removed from all users). Requires <c>groups:delete</c>.</summary>
     [HttpDelete("{name}")]
-    public async Task<IActionResult> Delete(string name)
+    [UsersPermission(UsersPermissions.GroupsDelete)]
+    public async Task<IActionResult> Delete([FromRoute] string name)
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        await _groupStore.DeleteGroupAsync(name);
+        await _users.DeleteGroupAsync(name, Auth.User.Name);
         return NoContent();
     }
 
-    /// <summary>
-    /// Add a user to a group (admin only).
-    /// </summary>
-    [HttpPut("{name}/members/{userId}")]
-    public async Task<IActionResult> AddMember(string name, string userId)
+    /// <summary>Add a user to a group. Requires <c>groups:update</c>.</summary>
+    [HttpPost("{name}/members/{idOrName}")]
+    [UsersPermission(UsersPermissions.GroupsUpdate)]
+    public async Task<IActionResult> AddMember([FromRoute] string name, [FromRoute] string idOrName)
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        var group = await _groupStore.GetGroupAsync(name);
-        if (group == null)
-            return NotFound(new { error = "Group not found" });
-
-        var user = await _userStore.GetUserAsync(userId);
-        if (user == null)
-            return NotFound(new { error = "User not found" });
-
-        if (!user.Groups.Contains(name))
-        {
-            await _userStore.UpdateUserAsync(userId, new UpdateUserDto
-            {
-                Groups = [.. user.Groups, name],
-            });
-        }
-
-        return Ok(new { message = $"User added to group '{name}'" });
+        await _users.AddMemberAsync(name, idOrName, Auth.User.Name);
+        return NoContent();
     }
 
-    /// <summary>
-    /// Remove a user from a group (admin only).
-    /// </summary>
-    [HttpDelete("{name}/members/{userId}")]
-    public async Task<IActionResult> RemoveMember(string name, string userId)
+    /// <summary>Remove a user from a group. Requires <c>groups:update</c>.</summary>
+    [HttpDelete("{name}/members/{idOrName}")]
+    [UsersPermission(UsersPermissions.GroupsUpdate)]
+    public async Task<IActionResult> RemoveMember([FromRoute] string name, [FromRoute] string idOrName)
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        var user = await _userStore.GetUserAsync(userId);
-        if (user == null)
-            return NotFound(new { error = "User not found" });
-
-        await _userStore.UpdateUserAsync(userId, new UpdateUserDto
-        {
-            Groups = user.Groups.Where(g => g != name).ToList(),
-        });
-
-        return Ok(new { message = $"User removed from group '{name}'" });
+        await _users.RemoveMemberAsync(name, idOrName, Auth.User.Name);
+        return NoContent();
     }
 }

@@ -1,168 +1,100 @@
 using Microsoft.AspNetCore.Mvc;
-using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
-using Qodalis.Cli.Plugin.Users.Stores;
 
 namespace Qodalis.Cli.Plugin.Users.Controllers;
 
 /// <summary>
-/// User CRUD and password management endpoints.
+/// Users resource: CRUD, effective permissions, password change and verification.
 /// </summary>
-[ApiController]
 [Route("api/v1/qcli/users")]
-public class UsersController : ControllerBase
+public class UsersController : UsersControllerBase
 {
-    private readonly IUserStore _userStore;
-    private readonly AuthService _authService;
-    private readonly ICredentialStore _credentialStore;
-    private readonly ISessionStore _sessionStore;
-    private readonly IExternalAuthAdapter? _authAdapter;
+    private readonly UsersService _users;
+    private readonly AuthService _auth;
 
-    public UsersController(
-        IUserStore userStore,
-        AuthService authService,
-        ICredentialStore credentialStore,
-        ISessionStore sessionStore,
-        IExternalAuthAdapter? authAdapter = null)
+    public UsersController(UsersService users, AuthService auth)
     {
-        _userStore = userStore;
-        _authService = authService;
-        _credentialStore = credentialStore;
-        _sessionStore = sessionStore;
-        _authAdapter = authAdapter;
+        _users = users;
+        _auth = auth;
     }
 
-    /// <summary>
-    /// List all users.
-    /// </summary>
+    /// <summary>List users (<c>?query=&amp;skip=&amp;take=</c>). Requires <c>users:read</c>.</summary>
     [HttpGet]
-    public async Task<IActionResult> GetAll() =>
-        Ok(await _userStore.GetUsersAsync());
+    [UsersPermission(UsersPermissions.UsersRead)]
+    public async Task<IActionResult> GetAll([FromQuery] string? query, [FromQuery] int? skip, [FromQuery] int? take) =>
+        JsonOk(await _users.ListUsersAsync(query, skip, take));
 
-    /// <summary>
-    /// Get a user by id or name.
-    /// </summary>
+    /// <summary>Get a user by id or name. Requires <c>users:read</c> or self.</summary>
     [HttpGet("{idOrName}")]
-    public async Task<IActionResult> Get(string idOrName)
-    {
-        var user = await _userStore.GetUserAsync(idOrName);
-        if (user == null)
-            return NotFound(new { error = "User not found" });
-        return Ok(user);
-    }
+    public async Task<IActionResult> Get([FromRoute] string idOrName) =>
+        JsonOk(await ResolveReadableUserAsync(idOrName));
 
-    /// <summary>
-    /// Create a new user (admin only).
-    /// </summary>
+    /// <summary>Effective permissions of a user. Requires <c>users:read</c> or self.</summary>
+    [HttpGet("{idOrName}/permissions")]
+    public async Task<IActionResult> GetPermissions([FromRoute] string idOrName) =>
+        JsonOk(await _users.GetUserPermissionsAsync(await ResolveReadableUserAsync(idOrName)));
+
+    /// <summary>Create a user. Requires <c>users:create</c>.</summary>
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateUserDto dto)
+    [UsersPermission(UsersPermissions.UsersCreate)]
+    public async Task<IActionResult> Create([FromBody] CreateUserDto dto) =>
+        Json(201, await _users.CreateUserAsync(dto, Auth.User.Name));
+
+    /// <summary>Update a user. Requires <c>users:update</c>; self may change only email and data.</summary>
+    [HttpPut("{idOrName}")]
+    public async Task<IActionResult> Update([FromRoute] string idOrName, [FromBody] UpdateUserDto dto) =>
+        JsonOk(await _users.UpdateUserAsync(idOrName, dto, Auth));
+
+    /// <summary>Delete a user (cascades credentials and sessions). Requires <c>users:delete</c>.</summary>
+    [HttpDelete("{idOrName}")]
+    [UsersPermission(UsersPermissions.UsersDelete)]
+    public async Task<IActionResult> Delete([FromRoute] string idOrName)
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        if (string.IsNullOrEmpty(dto.Name) || string.IsNullOrEmpty(dto.Email))
-            return BadRequest(new { error = "name and email are required" });
-
-        try
-        {
-            var user = await _userStore.CreateUserAsync(dto);
-            if (!string.IsNullOrEmpty(dto.Password))
-                await _authService.SetPasswordAsync(user.Id, dto.Password);
-            return StatusCode(201, user);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message });
-        }
+        await _users.DeleteUserAsync(idOrName, Auth);
+        return NoContent();
     }
 
-    /// <summary>
-    /// Update a user (admin only).
-    /// </summary>
-    [HttpPut("{id}")]
-    public async Task<IActionResult> Update(string id, [FromBody] UpdateUserDto dto)
+    /// <summary>Change a password. Self (with current password) or <c>users:update</c>.</summary>
+    [HttpPut("{idOrName}/password")]
+    [UsersCredentialEndpoint]
+    public async Task<IActionResult> ChangePassword([FromRoute] string idOrName, [FromBody] PasswordChangeRequest request)
     {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        try
-        {
-            var user = await _userStore.UpdateUserAsync(id, dto);
-            return Ok(user);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return NotFound(new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Delete a user (admin only). Cascades credentials and sessions.
-    /// </summary>
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(string id)
-    {
-        if (!HttpContext.IsUsersAdmin())
-            return StatusCode(403, new { error = "Forbidden: admin access required" });
-
-        await _userStore.DeleteUserAsync(id);
-        await _credentialStore.DeleteCredentialsAsync(id);
-        await _sessionStore.DeleteUserSessionsAsync(id);
+        await _users.ChangePasswordAsync(idOrName, request, Auth);
         return NoContent();
     }
 
     /// <summary>
-    /// Change a user's password (self or admin).
+    /// Verify a user's password → <c>{ valid }</c>. Self or <c>users:update</c>.
+    /// Failures count toward lockout and are audited.
     /// </summary>
-    [HttpPut("{id}/password")]
-    public async Task<IActionResult> ChangePassword(string id, [FromBody] PasswordChangeRequest request)
+    [HttpPost("{idOrName}/verify-password")]
+    [UsersCredentialEndpoint]
+    public async Task<IActionResult> VerifyPassword([FromRoute] string idOrName, [FromBody] VerifyPasswordRequest request)
     {
-        var session = HttpContext.GetUsersSession();
-        if (session == null)
-            return Unauthorized(new { error = "Unauthorized" });
+        var caller = Auth;
+        var target = await _users.FindUserAsync(idOrName);
+        var privileged = caller.Can(UsersPermissions.UsersUpdate);
+        if (target == null)
+            throw privileged ? UsersApiException.NotFound("user not found") : Denied(UsersPermissions.UsersUpdate);
+        if (!privileged && !caller.IsSelf(target))
+            throw Denied(UsersPermissions.UsersUpdate);
+        if (string.IsNullOrEmpty(request.Password))
+            throw UsersApiException.BadRequest("password is required");
 
-        var isSelf = session.User.Id == id;
-        var isAdmin = HttpContext.IsUsersAdmin();
-
-        if (!isSelf && !isAdmin)
-            return StatusCode(403, new { error = "Forbidden" });
-
-        if (string.IsNullOrEmpty(request.NewPassword))
-            return BadRequest(new { error = "newPassword is required" });
-
-        if (isSelf && !isAdmin)
-        {
-            if (string.IsNullOrEmpty(request.CurrentPassword))
-                return BadRequest(new { error = "currentPassword is required" });
-
-            var valid = await _authService.VerifyPasswordAsync(id, request.CurrentPassword);
-            // 403, not 401: the session is valid, the supplied password is not
-            if (!valid)
-                return StatusCode(403, new { error = "Current password is incorrect" });
-        }
-
-        await _authService.SetPasswordAsync(id, request.NewPassword);
-        return Ok(new { message = "Password updated" });
+        var valid = await _auth.VerifyPasswordWithLockoutAsync(target, request.Password, caller.User.Name);
+        return JsonOk(new VerifyResponse { Valid = valid });
     }
 
-    /// <summary>
-    /// Verify a user's password. Returns <c>{ valid: true/false }</c>.
-    /// Requires an authenticated session (used by <c>su</c> and <c>passwd</c> on the client).
-    /// </summary>
-    [HttpPost("{id}/verify-password")]
-    public async Task<IActionResult> VerifyPassword(string id, [FromBody] VerifyPasswordRequest request)
+    private async Task<User> ResolveReadableUserAsync(string idOrName)
     {
-        if (_authAdapter != null)
-            return StatusCode(501, new { error = "Authentication is managed by the host application" });
-
-        if (HttpContext.GetUsersSession() == null)
-            return Unauthorized(new { error = "Unauthorized" });
-
-        if (string.IsNullOrEmpty(request.Password))
-            return BadRequest(new { error = "password is required" });
-
-        var valid = await _authService.VerifyPasswordAsync(id, request.Password);
-        return Ok(new VerifyResponse { Valid = valid });
+        var caller = Auth;
+        var privileged = caller.Can(UsersPermissions.UsersRead);
+        var user = await _users.FindUserAsync(idOrName);
+        if (user == null)
+            throw privileged ? UsersApiException.NotFound("user not found") : Denied(UsersPermissions.UsersRead);
+        if (!privileged && !caller.IsSelf(user))
+            throw Denied(UsersPermissions.UsersRead);
+        return user;
     }
 }
