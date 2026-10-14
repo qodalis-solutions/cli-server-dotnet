@@ -22,23 +22,24 @@ public interface IUserStore
 }
 
 /// <summary>
-/// Storage interface for active sessions. Sessions are keyed by their bearer token.
+/// Storage interface for active sessions. Sessions are keyed by the SHA-256 hash (lower-case hex)
+/// of their bearer token; raw tokens are never passed to the store.
 /// </summary>
 public interface ISessionStore
 {
     /// <summary>Persists a fully populated session (id, token, user, timestamps).</summary>
     Task<Session> CreateSessionAsync(Session session);
 
-    Task<Session?> GetSessionAsync(string token);
+    Task<Session?> GetSessionAsync(string tokenHash);
     Task<Session?> GetSessionByIdAsync(string id);
     Task<List<Session>> GetActiveSessionsAsync();
     Task<List<Session>> GetUserSessionsAsync(string userId);
-    Task DeleteSessionAsync(string token);
+    Task DeleteSessionAsync(string tokenHash);
     Task DeleteSessionByIdAsync(string id);
     Task DeleteUserSessionsAsync(string userId);
 
     /// <summary>Sets the session's last activity to <paramref name="timestamp"/> (epoch ms).</summary>
-    Task UpdateLastActivityAsync(string token, long timestamp);
+    Task UpdateLastActivityAsync(string tokenHash, long timestamp);
 
     /// <summary>Deletes sessions whose last activity is before <paramref name="lastActivityBefore"/> (epoch ms).</summary>
     Task DeleteIdleSessionsAsync(long lastActivityBefore);

@@ -30,7 +30,7 @@ public class AuditController : UsersControllerBase
     [UsersPermission(UsersPermissions.AuditClear)]
     public async Task<IActionResult> Clear()
     {
-        await _users.ClearAuditAsync(Auth.User.Name);
+        await _users.ClearAuditAsync(Auth);
         return NoContent();
     }
 }

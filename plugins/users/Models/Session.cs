@@ -4,13 +4,14 @@ namespace Qodalis.Cli.Plugin.Users.Models;
 
 /// <summary>
 /// A stored session. References the user by id; the live user is resolved on every request.
-/// This type holds the bearer token and is never returned by the API directly —
+/// Only the SHA-256 hash of the bearer token is stored. Never returned by the API directly —
 /// see <see cref="SessionInfo"/> and <see cref="CurrentSession"/>.
 /// </summary>
 public class Session
 {
     public string Id { get; set; } = string.Empty;
-    public string Token { get; set; } = string.Empty;
+    /// <summary>Lower-case hex SHA-256 of the bearer token (the raw token is never stored).</summary>
+    public string TokenHash { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
 
     /// <summary>User name at login time (the API resolves the live name when available).</summary>
@@ -27,7 +28,7 @@ public class Session
     public Session Clone() => new()
     {
         Id = Id,
-        Token = Token,
+        TokenHash = TokenHash,
         UserId = UserId,
         UserName = UserName,
         LoginTime = LoginTime,

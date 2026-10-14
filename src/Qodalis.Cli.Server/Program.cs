@@ -9,20 +9,16 @@ using Qodalis.Cli.Plugin.Admin.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
-
 builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
+        // Only the local dev front-ends may call this server or open its sockets.
+        cli.SetAllowedOrigins(
+            "http://localhost:4200", "http://localhost:4300", "http://localhost:4301",
+            "http://localhost:4302", "http://localhost:4303", "http://127.0.0.1:*");
+        cli.EnableShell();
+
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();
         cli.AddProcessor<CliSystemCommandProcessor>();

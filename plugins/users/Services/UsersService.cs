@@ -4,12 +4,14 @@ using Qodalis.Cli.Plugin.Users.Stores;
 namespace Qodalis.Cli.Plugin.Users.Services;
 
 /// <summary>
-/// User and group management with the contract's validations, protections, cascades
-/// and audit events. Mutations are serialized so that protection checks (last admin,
-/// duplicates) are not raced. Errors are thrown as <see cref="UsersApiException"/>.
+/// User and group management with the contract's validations, protections, cascades,
+/// anti-escalation rules and audit events. Mutations are serialized so that protection checks
+/// (last admin, duplicates) are not raced. Errors are thrown as <see cref="UsersApiException"/>.
 /// </summary>
 public class UsersService
 {
+    public const string InsufficientPrivilegesMessage = "insufficient privileges for this user";
+
     private readonly IUserStore _userStore;
     private readonly IGroupStore _groupStore;
     private readonly ICredentialStore _credentialStore;
@@ -29,6 +31,47 @@ public class UsersService
         _credentialStore = credentialStore;
         _auditStore = auditStore;
         _auth = authService;
+    }
+
+    // =========================================================================
+    // Anti-escalation (B3)
+    // =========================================================================
+
+    /// <summary>403 unless the caller holds every permission in <paramref name="permissions"/>.</summary>
+    public static void EnsureCanGrant(UsersAuthContext caller, IEnumerable<string> permissions)
+    {
+        var missing = PermissionMatcher.Missing(caller.Permissions, permissions);
+        if (missing.Count > 0)
+            throw UsersApiException.Forbidden($"cannot grant permissions you do not hold: {string.Join(", ", missing)}");
+    }
+
+    /// <summary>403 unless the caller holds every permission of every named group.</summary>
+    private async Task EnsureCanAssignGroupsAsync(UsersAuthContext caller, IEnumerable<string> groupNames)
+    {
+        var permissions = new List<string>();
+        foreach (var name in groupNames)
+        {
+            var group = await _groupStore.GetGroupAsync(name);
+            if (group != null) permissions.AddRange(group.Permissions);
+        }
+        EnsureCanGrant(caller, permissions);
+    }
+
+    /// <summary>403 unless the caller's permissions cover all of the target user's permissions.</summary>
+    public async Task EnsureCoversTargetAsync(UsersAuthContext caller, User target)
+    {
+        if (caller.IsSelf(target)) return;
+        var targetPermissions = await _auth.GetEffectivePermissionsAsync(target);
+        if (!PermissionMatcher.Covers(caller.Permissions, targetPermissions))
+            throw UsersApiException.Forbidden(InsufficientPrivilegesMessage);
+    }
+
+    /// <summary><see cref="EnsureCoversTargetAsync(UsersAuthContext, User)"/> by user id (missing users pass).</summary>
+    public async Task EnsureCoversTargetAsync(UsersAuthContext caller, string userId)
+    {
+        var target = await _userStore.GetUserAsync(userId);
+        if (target != null && target.Id == userId)
+            await EnsureCoversTargetAsync(caller, target);
     }
 
     // =========================================================================
@@ -65,21 +108,29 @@ public class UsersService
         Permissions = await _auth.GetEffectivePermissionsAsync(user),
     };
 
-    public async Task<User> CreateUserAsync(CreateUserDto dto, string? actor)
+    public async Task<User> CreateUserAsync(CreateUserDto dto, UsersAuthContext caller)
     {
-        var name = dto.Name?.Trim();
-        var email = dto.Email?.Trim();
-        if (string.IsNullOrEmpty(name)) throw UsersApiException.BadRequest("name is required");
-        if (string.IsNullOrEmpty(email)) throw UsersApiException.BadRequest("email is required");
+        var name = UsersValidation.Name("name", dto.Name);
+        var email = UsersValidation.Email(dto.Email);
+        UsersValidation.HomeDir(dto.HomeDir);
+        UsersValidation.Data(dto.Data);
         if (dto.Password != null) _auth.ValidatePassword(dto.Password);
 
         await _gate.WaitAsync();
         try
         {
             await EnsureUniqueAsync(name, email, exceptUserId: null);
-            var groups = dto.Groups is { Count: > 0 }
-                ? await ResolveGroupNamesAsync(dto.Groups)
-                : [Group.UsersGroup];
+
+            List<string> groups;
+            if (dto.Groups is { Count: > 0 })
+            {
+                groups = await ResolveGroupNamesAsync(dto.Groups);
+                await EnsureCanAssignGroupsAsync(caller, groups);
+            }
+            else
+            {
+                groups = [Group.UsersGroup];
+            }
 
             User user;
             try
@@ -102,7 +153,8 @@ public class UsersService
             if (!string.IsNullOrEmpty(dto.Password))
                 await _auth.SetPasswordAsync(user.Id, dto.Password);
 
-            await _auth.AuditAsync(AuditEvents.UserCreated, user.Name, null, actor);
+            await _auth.AuditAsync(AuditEvents.UserCreated, user.Name, null, caller.User.Name,
+                userId: user.Id, actorId: caller.User.Id);
             return user;
         }
         finally
@@ -112,8 +164,9 @@ public class UsersService
     }
 
     /// <summary>
-    /// Updates a user. <paramref name="caller"/> without <c>users:update</c> may only change
-    /// their own <c>email</c> and <c>data</c>.
+    /// Updates a user. Callers without <c>users:update</c> may only change their own
+    /// <c>email</c> and <c>data</c>. Changing name, groups or disabled requires covering the
+    /// target's permissions, and added groups must be covered by the caller.
     /// </summary>
     public async Task<User> UpdateUserAsync(string idOrName, UpdateUserDto dto, UsersAuthContext caller)
     {
@@ -130,41 +183,45 @@ public class UsersService
                     : UsersApiException.Forbidden($"permission denied: {UsersPermissions.UsersUpdate}");
             }
 
+            var nameChanges = dto.Name != null && dto.Name.Trim() != target.Name;
+            var groupsChange = dto.Groups != null && !SameSet(dto.Groups, target.Groups);
+            var disabledChanges = dto.Disabled.HasValue && dto.Disabled.Value != target.Disabled;
+            var homeDirChanges = dto.HomeDir != null && dto.HomeDir != target.HomeDir;
+
             if (!privileged)
             {
                 if (!caller.IsSelf(target))
                     throw UsersApiException.Forbidden($"permission denied: {UsersPermissions.UsersUpdate}");
-
-                var changesRestricted =
-                    (dto.Name != null && dto.Name != target.Name) ||
-                    (dto.Groups != null && !SameGroups(dto.Groups, target.Groups)) ||
-                    (dto.Disabled.HasValue && dto.Disabled.Value != target.Disabled) ||
-                    (dto.HomeDir != null && dto.HomeDir != target.HomeDir);
-                if (changesRestricted)
+                if (nameChanges || groupsChange || disabledChanges || homeDirChanges)
                     throw UsersApiException.Forbidden("you may only change your own email and data");
             }
 
-            var update = new UpdateUserDto { Data = dto.Data };
+            if (nameChanges || groupsChange || disabledChanges)
+                await EnsureCoversTargetAsync(caller, target);
 
-            if (dto.Name != null)
+            var update = new UpdateUserDto();
+
+            if (nameChanges) update.Name = UsersValidation.Name("name", dto.Name);
+            if (dto.Email != null && dto.Email.Trim() != target.Email) update.Email = UsersValidation.Email(dto.Email);
+            if (homeDirChanges)
             {
-                var name = dto.Name.Trim();
-                if (name.Length == 0) throw UsersApiException.BadRequest("name must not be empty");
-                if (name != target.Name) update.Name = name;
+                UsersValidation.HomeDir(dto.HomeDir);
+                update.HomeDir = dto.HomeDir;
             }
-            if (dto.Email != null)
+            if (dto.Data != null)
             {
-                var email = dto.Email.Trim();
-                if (email.Length == 0) throw UsersApiException.BadRequest("email must not be empty");
-                if (email != target.Email) update.Email = email;
+                UsersValidation.Data(dto.Data);
+                update.Data = dto.Data;
             }
             await EnsureUniqueAsync(update.Name, update.Email, target.Id);
 
-            if (dto.Groups != null)
-                update.Groups = dto.Groups.Count == 0 ? [] : await ResolveGroupNamesAsync(dto.Groups);
-            if (dto.HomeDir != null) update.HomeDir = dto.HomeDir;
-            if (dto.Disabled.HasValue && dto.Disabled.Value != target.Disabled)
-                update.Disabled = dto.Disabled.Value;
+            if (groupsChange)
+            {
+                update.Groups = dto.Groups!.Count == 0 ? [] : await ResolveGroupNamesAsync(dto.Groups);
+                var added = update.Groups.Where(g => !target.IsInGroup(g)).ToList();
+                await EnsureCanAssignGroupsAsync(caller, added);
+            }
+            if (disabledChanges) update.Disabled = dto.Disabled!.Value;
 
             var losesAdmin = target.IsInGroup(Group.AdminGroup) && !target.Disabled &&
                 ((update.Disabled == true) ||
@@ -187,16 +244,17 @@ public class UsersService
             }
 
             var actor = caller.User.Name;
-            await _auth.AuditAsync(AuditEvents.UserUpdated, updated.Name, null, actor);
+            var actorId = caller.User.Id;
+            await _auth.AuditAsync(AuditEvents.UserUpdated, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
 
             if (update.Disabled == true)
             {
-                await _auth.AuditAsync(AuditEvents.UserDisabled, updated.Name, null, actor);
-                await _auth.RevokeUserSessionsAsync(updated.Id, AuthService.RevokeReasons.UserDisabled, actor);
+                await _auth.AuditAsync(AuditEvents.UserDisabled, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
+                await _auth.RevokeUserSessionsAsync(updated.Id, AuthService.RevokeReasons.UserDisabled, actor, actorId: actorId);
             }
             else if (update.Disabled == false)
             {
-                await _auth.AuditAsync(AuditEvents.UserEnabled, updated.Name, null, actor);
+                await _auth.AuditAsync(AuditEvents.UserEnabled, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
             }
 
             return updated;
@@ -215,15 +273,18 @@ public class UsersService
             var target = await GetUserOrThrowAsync(idOrName);
             if (caller.IsSelf(target))
                 throw UsersApiException.Conflict("cannot delete yourself");
+            await EnsureCoversTargetAsync(caller, target);
             if (target.IsInGroup(Group.AdminGroup) && !target.Disabled && await IsLastEnabledAdminAsync(target))
                 throw UsersApiException.Conflict("cannot delete the last admin");
 
-            await _auth.RevokeUserSessionsAsync(target.Id, AuthService.RevokeReasons.UserDeleted, caller.User.Name);
+            await _auth.RevokeUserSessionsAsync(target.Id, AuthService.RevokeReasons.UserDeleted, caller.User.Name,
+                actorId: caller.User.Id);
             await _userStore.DeleteUserAsync(target.Id);
             await _credentialStore.DeleteCredentialsAsync(target.Id);
             _auth.ClearLockout(target.Id);
 
-            await _auth.AuditAsync(AuditEvents.UserDeleted, target.Name, null, caller.User.Name);
+            await _auth.AuditAsync(AuditEvents.UserDeleted, target.Name, null, caller.User.Name,
+                userId: target.Id, actorId: caller.User.Id);
         }
         finally
         {
@@ -233,8 +294,11 @@ public class UsersService
 
     /// <summary>
     /// Changes a password. Callers with <c>users:update</c> need no current password; self-service
-    /// callers without it must supply the correct current password (missing → 400, wrong → 403).
-    /// A self change revokes the caller's other sessions; otherwise all of the target's sessions are revoked.
+    /// callers without it must supply the correct current password (missing → 400, wrong → 403;
+    /// counted toward lockout and audited). A self change clears <c>mustChangePassword</c> and
+    /// revokes the caller's other sessions; a reset of another user requires covering their
+    /// permissions, clears their lockout, sets <c>mustChangePassword</c> (unless
+    /// <c>temporary: false</c>) and revokes all their sessions.
     /// </summary>
     public async Task ChangePasswordAsync(string idOrName, PasswordChangeRequest request, UsersAuthContext caller)
     {
@@ -249,25 +313,35 @@ public class UsersService
         }
 
         var isSelf = caller.IsSelf(target);
+        if (!isSelf && caller.User.MustChangePassword)
+            throw UsersApiException.Forbidden(AuthService.PasswordChangeRequiredMessage);
         if (!isSelf && !privileged)
             throw UsersApiException.Forbidden($"permission denied: {UsersPermissions.UsersUpdate}");
+        if (!isSelf)
+            await EnsureCoversTargetAsync(caller, target);
 
         _auth.ValidatePassword(request.Password);
 
-        // Callers holding users:update may change their own password without the current one.
         if (isSelf && !privileged)
         {
             if (string.IsNullOrEmpty(request.CurrentPassword))
                 throw UsersApiException.BadRequest("currentPassword is required");
-            if (!await _auth.VerifyPasswordAsync(target.Id, request.CurrentPassword))
+            if (!await _auth.VerifyPasswordWithLockoutAsync(target, request.CurrentPassword, caller.User.Name, caller.User.Id))
                 throw UsersApiException.Forbidden("current password is incorrect");
         }
 
         await _auth.SetPasswordAsync(target.Id, request.Password!);
-        await _auth.AuditAsync(AuditEvents.PasswordChanged, target.Name, isSelf ? "changed by self" : null, caller.User.Name);
+        await _userStore.UpdateUserAsync(target.Id, new UpdateUserDto
+        {
+            MustChangePassword = !isSelf && (request.Temporary ?? true),
+        });
+        if (!isSelf) _auth.ClearLockout(target.Id);
+
+        await _auth.AuditAsync(AuditEvents.PasswordChanged, target.Name, isSelf ? "changed by self" : "reset",
+            caller.User.Name, userId: target.Id, actorId: caller.User.Id);
 
         await _auth.RevokeUserSessionsAsync(target.Id, AuthService.RevokeReasons.PasswordChanged, caller.User.Name,
-            exceptSessionId: isSelf ? caller.Session?.Id : null);
+            exceptSessionId: isSelf ? caller.Session?.Id : null, actorId: caller.User.Id);
     }
 
     // =========================================================================
@@ -285,11 +359,12 @@ public class UsersService
         return users.Where(u => u.IsInGroup(group.Name)).ToList();
     }
 
-    public async Task<Group> CreateGroupAsync(CreateGroupRequest request, string? actor)
+    public async Task<Group> CreateGroupAsync(CreateGroupRequest request, UsersAuthContext caller)
     {
-        var name = request.Name?.Trim();
-        if (string.IsNullOrEmpty(name)) throw UsersApiException.BadRequest("name is required");
-        var permissions = ValidatePermissions(request.Permissions) ?? [];
+        var name = UsersValidation.Name("name", request.Name);
+        UsersValidation.Description(request.Description);
+        var permissions = UsersValidation.Permissions(request.Permissions) ?? [];
+        EnsureCanGrant(caller, permissions);
 
         await _gate.WaitAsync();
         try
@@ -313,7 +388,8 @@ public class UsersService
                 throw UsersApiException.Conflict(ex.Message);
             }
 
-            await _auth.AuditAsync(AuditEvents.GroupCreated, actor ?? string.Empty, $"group '{group.Name}' created", actor);
+            await _auth.AuditAsync(AuditEvents.GroupCreated, caller.User.Name, $"group '{group.Name}' created",
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
             return group;
         }
         finally
@@ -322,20 +398,24 @@ public class UsersService
         }
     }
 
-    public async Task<Group> UpdateGroupAsync(string name, UpdateGroupDto dto, string? actor)
+    public async Task<Group> UpdateGroupAsync(string name, UpdateGroupDto dto, UsersAuthContext caller)
     {
-        var permissions = ValidatePermissions(dto.Permissions);
+        UsersValidation.Description(dto.Description);
+        var permissions = UsersValidation.Permissions(dto.Permissions);
 
         await _gate.WaitAsync();
         try
         {
             var group = await GetGroupOrThrowAsync(name);
 
-            if (permissions != null &&
-                string.Equals(group.Name, Group.AdminGroup, StringComparison.OrdinalIgnoreCase) &&
-                !SameGroups(permissions, group.Permissions))
+            if (permissions != null)
             {
-                throw UsersApiException.Conflict("the admin group's permissions cannot be changed");
+                if (string.Equals(group.Name, Group.AdminGroup, StringComparison.OrdinalIgnoreCase) &&
+                    !SameSet(permissions, group.Permissions))
+                {
+                    throw UsersApiException.Conflict("the admin group's permissions cannot be changed");
+                }
+                EnsureCanGrant(caller, permissions);
             }
 
             Group updated;
@@ -349,7 +429,8 @@ public class UsersService
                 throw UsersApiException.NotFound(ex.Message);
             }
 
-            await _auth.AuditAsync(AuditEvents.GroupUpdated, actor ?? string.Empty, $"group '{updated.Name}' updated", actor);
+            await _auth.AuditAsync(AuditEvents.GroupUpdated, caller.User.Name, $"group '{updated.Name}' updated",
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
             return updated;
         }
         finally
@@ -358,7 +439,7 @@ public class UsersService
         }
     }
 
-    public async Task DeleteGroupAsync(string name, string? actor)
+    public async Task DeleteGroupAsync(string name, UsersAuthContext caller)
     {
         await _gate.WaitAsync();
         try
@@ -376,7 +457,8 @@ public class UsersService
             }
 
             await _groupStore.DeleteGroupAsync(group.Name);
-            await _auth.AuditAsync(AuditEvents.GroupDeleted, actor ?? string.Empty, $"group '{group.Name}' deleted", actor);
+            await _auth.AuditAsync(AuditEvents.GroupDeleted, caller.User.Name, $"group '{group.Name}' deleted",
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
         }
         finally
         {
@@ -384,19 +466,23 @@ public class UsersService
         }
     }
 
-    public async Task AddMemberAsync(string groupName, string idOrName, string? actor)
+    public async Task AddMemberAsync(string groupName, string idOrName, UsersAuthContext caller)
     {
         await _gate.WaitAsync();
         try
         {
             var group = await _groupStore.GetGroupAsync(groupName)
-                ?? throw UsersApiException.BadRequest($"unknown group: {groupName}");
+                ?? throw UsersApiException.BadRequest($"unknown group: {UsersValidation.Sanitize(groupName, 64)}");
             var user = await GetUserOrThrowAsync(idOrName);
 
             if (user.IsInGroup(group.Name)) return;
 
+            EnsureCanGrant(caller, group.Permissions);
+            await EnsureCoversTargetAsync(caller, user);
+
             await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Groups = [.. user.Groups, group.Name] });
-            await _auth.AuditAsync(AuditEvents.GroupMemberAdded, user.Name, $"added to group '{group.Name}'", actor);
+            await _auth.AuditAsync(AuditEvents.GroupMemberAdded, user.Name, $"added to group '{group.Name}'",
+                caller.User.Name, userId: user.Id, actorId: caller.User.Id);
         }
         finally
         {
@@ -404,7 +490,7 @@ public class UsersService
         }
     }
 
-    public async Task RemoveMemberAsync(string groupName, string idOrName, string? actor)
+    public async Task RemoveMemberAsync(string groupName, string idOrName, UsersAuthContext caller)
     {
         await _gate.WaitAsync();
         try
@@ -413,6 +499,8 @@ public class UsersService
             var user = await GetUserOrThrowAsync(idOrName);
 
             if (!user.IsInGroup(group.Name)) return;
+
+            await EnsureCoversTargetAsync(caller, user);
 
             if (string.Equals(group.Name, Group.AdminGroup, StringComparison.OrdinalIgnoreCase) &&
                 !user.Disabled && await IsLastEnabledAdminAsync(user))
@@ -424,7 +512,8 @@ public class UsersService
             {
                 Groups = user.Groups.Where(g => !string.Equals(g, group.Name, StringComparison.OrdinalIgnoreCase)).ToList(),
             });
-            await _auth.AuditAsync(AuditEvents.GroupMemberRemoved, user.Name, $"removed from group '{group.Name}'", actor);
+            await _auth.AuditAsync(AuditEvents.GroupMemberRemoved, user.Name, $"removed from group '{group.Name}'",
+                caller.User.Name, userId: user.Id, actorId: caller.User.Id);
         }
         finally
         {
@@ -442,10 +531,11 @@ public class UsersService
         return await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = @event, Username = username, Limit = limit });
     }
 
-    public async Task ClearAuditAsync(string? actor)
+    public async Task ClearAuditAsync(UsersAuthContext caller)
     {
         await _auditStore.ClearAsync();
-        await _auth.AuditAsync(AuditEvents.AuditCleared, actor ?? string.Empty, "audit log cleared", actor);
+        await _auth.AuditAsync(AuditEvents.AuditCleared, caller.User.Name, "audit log cleared", caller.User.Name,
+            userId: caller.User.Id, actorId: caller.User.Id);
     }
 
     // =========================================================================
@@ -458,18 +548,24 @@ public class UsersService
         return !users.Any(u => u.Id != user.Id && !u.Disabled && u.IsInGroup(Group.AdminGroup));
     }
 
+    /// <summary>
+    /// Names and emails share one uniqueness namespace (case-insensitive): a name may not equal
+    /// another user's name or email, and an email may not equal another user's email or name.
+    /// </summary>
     private async Task EnsureUniqueAsync(string? name, string? email, string? exceptUserId)
     {
         if (name == null && email == null) return;
         var users = await _userStore.GetUsersAsync();
         foreach (var u in users.Where(u => u.Id != exceptUserId))
         {
-            if (name != null && string.Equals(u.Name, name, StringComparison.OrdinalIgnoreCase))
+            if (name != null && (Eq(u.Name, name) || Eq(u.Email, name)))
                 throw UsersApiException.Conflict($"user '{name}' already exists");
-            if (email != null && string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase))
+            if (email != null && (Eq(u.Email, email) || Eq(u.Name, email)))
                 throw UsersApiException.Conflict($"email '{email}' is already in use");
         }
     }
+
+    private static bool Eq(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Validates that every referenced group exists (400 <c>unknown group: x</c>) and returns
@@ -483,21 +579,13 @@ public class UsersService
             var name = raw?.Trim();
             if (string.IsNullOrEmpty(name)) throw UsersApiException.BadRequest("group names must not be empty");
             var group = await _groupStore.GetGroupAsync(name)
-                ?? throw UsersApiException.BadRequest($"unknown group: {name}");
+                ?? throw UsersApiException.BadRequest($"unknown group: {UsersValidation.Sanitize(name, 64)}");
             if (!result.Any(g => string.Equals(g, group.Name, StringComparison.OrdinalIgnoreCase)))
                 result.Add(group.Name);
         }
         return result;
     }
 
-    private static List<string>? ValidatePermissions(List<string>? permissions)
-    {
-        if (permissions == null) return null;
-        if (permissions.Any(string.IsNullOrWhiteSpace))
-            throw UsersApiException.BadRequest("permissions must be non-empty strings");
-        return PermissionMatcher.Merge([permissions]);
-    }
-
-    private static bool SameGroups(IEnumerable<string> a, IEnumerable<string> b) =>
+    private static bool SameSet(IEnumerable<string> a, IEnumerable<string> b) =>
         new HashSet<string>(a, StringComparer.OrdinalIgnoreCase).SetEquals(b);
 }

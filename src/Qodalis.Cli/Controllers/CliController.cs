@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Models;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Controllers;
@@ -24,6 +25,7 @@ public class CliController : ControllerBase
     private readonly ICliCommandExecutorService _executor;
     private readonly ICliServerInfoService _serverInfo;
     private readonly ILogger<CliController> _logger;
+    private readonly CliServerOptions _serverOptions;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliController"/>.
@@ -36,12 +38,39 @@ public class CliController : ControllerBase
         ICliCommandRegistry registry,
         ICliCommandExecutorService executor,
         ICliServerInfoService serverInfo,
-        ILogger<CliController> logger)
+        ILogger<CliController> logger,
+        CliServerOptions? serverOptions = null)
     {
+        _serverOptions = serverOptions ?? new CliServerOptions();
         _registry = registry;
         _executor = executor;
         _serverInfo = serverInfo;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// When the server is protected, enforces the processor's declared
+    /// <see cref="ICliCommandProcessor.RequiredPermissions"/> (root and resolved sub-command).
+    /// </summary>
+    private ObjectResult? CheckCommandPermissions(CliProcessCommand command)
+    {
+        if (!_serverOptions.RequireAuthentication) return null;
+
+        var principal = HttpContext.GetCliPrincipal();
+        if (principal == null)
+            return StatusCode(401, new { error = "unauthorized" });
+
+        var required = new List<string>();
+        var root = _registry.FindProcessor(command.Command);
+        if (root?.RequiredPermissions != null) required.AddRange(root.RequiredPermissions);
+        var resolved = _registry.FindProcessor(command.Command, command.ChainCommands);
+        if (resolved != null && !ReferenceEquals(resolved, root) && resolved.RequiredPermissions != null)
+            required.AddRange(resolved.RequiredPermissions);
+
+        var missing = CliPermissionMatcher.Missing(principal.Permissions, required.Distinct(StringComparer.OrdinalIgnoreCase));
+        return missing.Count == 0
+            ? null
+            : StatusCode(403, new { error = $"permission denied: {string.Join(", ", missing)}" });
     }
 
     /// <summary>
@@ -83,6 +112,8 @@ public class CliController : ControllerBase
         CancellationToken cancellationToken)
     {
         _logger.LogDebug("Executing command: {Command}", command.Command);
+        var denied = CheckCommandPermissions(command);
+        if (denied != null) return denied;
         var response = await _executor.ExecuteAsync(command, cancellationToken);
         return Ok(response);
     }
@@ -98,6 +129,14 @@ public class CliController : ControllerBase
         CancellationToken cancellationToken)
     {
         _logger.LogDebug("Stream executing command: {Command}", command.Command);
+
+        var denied = CheckCommandPermissions(command);
+        if (denied != null)
+        {
+            Response.StatusCode = denied.StatusCode ?? 403;
+            await Response.WriteAsJsonAsync(denied.Value);
+            return;
+        }
 
         Response.ContentType = "text/event-stream";
         Response.Headers["Cache-Control"] = "no-cache";

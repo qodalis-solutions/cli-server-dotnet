@@ -1,18 +1,22 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Users.Services;
 
 /// <summary>
-/// Authentication core: password hashing, login/logout, lockout, request authentication
-/// (idle timeout + live user resolution), effective permissions, session revocation
-/// (with <c>session-kicked</c> broadcast) and audit logging.
+/// Authentication core: password hashing (bounded concurrency), login/logout, atomic lockout,
+/// request authentication (hashed tokens, idle + absolute expiry, live user resolution),
+/// WebSocket tickets, effective permissions, session revocation (user-scoped
+/// <c>session-kicked</c>) and audit logging.
 /// </summary>
 public class AuthService
 {
@@ -26,12 +30,24 @@ public class AuthService
     private readonly TimeProvider _time;
     private readonly ILogger<AuthService> _logger;
     private readonly ConcurrentDictionary<string, LockoutState> _lockouts = new();
+    private readonly ConcurrentDictionary<string, WsTicket> _tickets = new();
+    private readonly SemaphoreSlim _hashGate;
+
+    private const int MaxTrackedLockouts = 10_000;
+    private const int MaxOutstandingTickets = 10_000;
+
+    /// <summary>WebSocket ticket lifetime in seconds.</summary>
+    public const int TicketLifetimeSeconds = 30;
 
     public const string AccountLockedMessage = "account locked, try again later";
     public const string InvalidCredentialsMessage = "invalid credentials";
     public const string AccountDisabledMessage = "account disabled";
+    public const string PasswordChangeRequiredMessage = "password change required";
 
-    /// <summary>Reasons sent in <c>session-kicked</c> broadcasts.</summary>
+    // Used to spend the same PBKDF2 time for unknown users.
+    private static readonly string DummyHash = PasswordHasher.Hash(Guid.NewGuid().ToString()).Encoded;
+
+    /// <summary>Reasons sent in <c>session-kicked</c> events.</summary>
     public static class RevokeReasons
     {
         public const string Revoked = "revoked";
@@ -45,6 +61,8 @@ public class AuthService
         public int Failures;
         public long LockedUntil;
     }
+
+    private sealed record WsTicket(string? SessionId, ExternalAuthResult? External, long ExpiresAt);
 
     public AuthService(
         IUserStore userStore,
@@ -66,6 +84,7 @@ public class AuthService
         _events = eventSocketManager;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<AuthService>.Instance;
+        _hashGate = new SemaphoreSlim(Math.Max(1, _options.PasswordHashConcurrency));
     }
 
     public UsersModuleOptions Options => _options;
@@ -75,13 +94,23 @@ public class AuthService
 
     public long SessionTimeoutMs => _options.EffectiveSessionTimeoutMs;
 
+    public long MaxSessionLifetimeMs => _options.EffectiveMaxSessionLifetimeMs;
+
+    /// <summary><c>min(lastActivity + idle timeout, loginTime + absolute lifetime)</c>.</summary>
+    public long ExpiresAt(long loginTime, long lastActivity) =>
+        Math.Min(lastActivity + SessionTimeoutMs, loginTime + MaxSessionLifetimeMs);
+
     // -------------------------------------------------------------------------
-    // Passwords
+    // Tokens & passwords
     // -------------------------------------------------------------------------
 
-    /// <summary>Generates a cryptographically secure opaque bearer token.</summary>
+    /// <summary>Generates a cryptographically secure opaque token (32 random bytes, hex).</summary>
     public string GenerateToken() =>
         Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+
+    /// <summary>Lower-case hex SHA-256 of a token; stores only ever see this.</summary>
+    public static string HashToken(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 
     /// <summary>Throws 400 when the password violates the policy.</summary>
     public void ValidatePassword(string? password)
@@ -90,59 +119,99 @@ public class AuthService
             throw UsersApiException.BadRequest("password is required");
         if (password.Length < _options.MinPasswordLength)
             throw UsersApiException.BadRequest($"password must be at least {_options.MinPasswordLength} characters");
+        if (password.Length > _options.MaxPasswordLength)
+            throw UsersApiException.BadRequest($"password must be at most {_options.MaxPasswordLength} characters");
+    }
+
+    private async Task<T> HashWorkAsync<T>(Func<T> work)
+    {
+        await _hashGate.WaitAsync();
+        try
+        {
+            return await Task.Run(work);
+        }
+        finally
+        {
+            _hashGate.Release();
+        }
     }
 
     /// <summary>Hashes and stores the password for a user (no policy check).</summary>
     public async Task SetPasswordAsync(string userId, string password)
     {
-        var (encoded, salt) = PasswordHasher.Hash(password);
+        var (encoded, salt) = await HashWorkAsync(() => PasswordHasher.Hash(password));
         await _credentialStore.SetPasswordAsync(userId, encoded, salt);
     }
 
-    /// <summary>Verifies a password against the stored credentials (constant-time).</summary>
+    /// <summary>Verifies a password against the stored credentials (constant-time, bounded concurrency).</summary>
     public async Task<bool> VerifyPasswordAsync(string userId, string password)
     {
         var creds = await _credentialStore.GetCredentialsAsync(userId);
-        if (creds == null) return false;
+        if (creds == null)
+        {
+            await HashWorkAsync(() => PasswordHasher.Verify(password, DummyHash));
+            return false;
+        }
 
-        var valid = PasswordHasher.Verify(password, creds.PasswordHash, creds.Salt);
+        var valid = await HashWorkAsync(() => PasswordHasher.Verify(password, creds.PasswordHash, creds.Salt));
         if (valid && PasswordHasher.NeedsRehash(creds.PasswordHash))
             await SetPasswordAsync(userId, password);
         return valid;
     }
 
     // -------------------------------------------------------------------------
-    // Lockout
+    // Lockout (atomic: an attempt is reserved before PBKDF2 runs)
     // -------------------------------------------------------------------------
 
-    public bool IsLocked(string userId) =>
-        _lockouts.TryGetValue(userId, out var state) && state.LockedUntil > Now();
+    private static string UserKey(string userId) => "u:" + userId;
 
-    private void RegisterFailure(string userId)
+    private static string NameKey(string attempted) => "n:" + attempted.Trim().ToLowerInvariant();
+
+    public bool IsLocked(string userId) => IsKeyLocked(UserKey(userId));
+
+    private bool IsKeyLocked(string key) =>
+        _lockouts.TryGetValue(key, out var state) && Volatile.Read(ref state.LockedUntil) > Now();
+
+    /// <summary>
+    /// Reserves an attempt for <paramref name="key"/>: false when locked. The attempt counts as a
+    /// failure until <see cref="AttemptSucceeded"/> resets it, so concurrent requests cannot exceed
+    /// <see cref="UsersModuleOptions.MaxLoginAttempts"/>.
+    /// </summary>
+    private bool TryReserveAttempt(string key)
     {
-        var state = _lockouts.GetOrAdd(userId, _ => new LockoutState());
+        if (_lockouts.Count > MaxTrackedLockouts) PruneLockouts();
+
+        var state = _lockouts.GetOrAdd(key, _ => new LockoutState());
         lock (state)
         {
             var now = Now();
-            if (state.LockedUntil != 0 && state.LockedUntil <= now)
+            if (state.LockedUntil > now) return false;
+            if (state.LockedUntil != 0)
             {
-                // Previous lockout expired: start counting again.
                 state.LockedUntil = 0;
                 state.Failures = 0;
             }
             state.Failures++;
             if (state.Failures >= Math.Max(1, _options.MaxLoginAttempts))
-            {
                 state.LockedUntil = now + _options.LockoutMs;
-                state.Failures = 0;
-            }
+            return true;
         }
     }
 
-    private void ResetFailures(string userId) => _lockouts.TryRemove(userId, out _);
+    private void AttemptSucceeded(string key) => _lockouts.TryRemove(key, out _);
 
-    /// <summary>Clears lockout state for a user (e.g. when the user is deleted).</summary>
-    public void ClearLockout(string userId) => ResetFailures(userId);
+    private void PruneLockouts()
+    {
+        var now = Now();
+        foreach (var (key, state) in _lockouts)
+        {
+            if (Volatile.Read(ref state.LockedUntil) <= now)
+                _lockouts.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>Clears lockout state for a user (admin password reset, user deletion).</summary>
+    public void ClearLockout(string userId) => _lockouts.TryRemove(UserKey(userId), out _);
 
     // -------------------------------------------------------------------------
     // Permissions
@@ -175,6 +244,7 @@ public class AuthService
     /// <summary>
     /// Authenticates by name or email and creates a session.
     /// Throws <see cref="UsersApiException"/>: 401 invalid credentials, 403 disabled, 429 locked.
+    /// Unknown names are locked like known users and spend the same PBKDF2 time.
     /// </summary>
     public async Task<LoginResponse> LoginAsync(string username, string password, SessionMetadata? metadata = null)
     {
@@ -182,40 +252,49 @@ public class AuthService
         var auditMeta = new AuditMetadata { RemoteAddress = metadata.RemoteAddress };
 
         var user = await FindByNameOrEmailAsync(username);
-        if (user == null)
-        {
-            await AuditAsync(AuditEvents.LoginFailed, username, "user not found", metadata: auditMeta);
-            throw UsersApiException.Unauthorized(InvalidCredentialsMessage);
-        }
+        var auditName = user?.Name ?? UsersValidation.Sanitize(username, UsersValidation.MaxNameLength);
+        var key = user != null ? UserKey(user.Id) : NameKey(username);
 
-        if (IsLocked(user.Id))
+        if (!TryReserveAttempt(key))
         {
-            await AuditAsync(AuditEvents.LoginFailed, user.Name, "account locked", metadata: auditMeta);
+            await AuditAsync(AuditEvents.LoginFailed, auditName, "account locked", metadata: auditMeta, userId: user?.Id);
             throw new UsersApiException(429, AccountLockedMessage);
         }
 
-        if (!await VerifyPasswordAsync(user.Id, password))
+        bool valid;
+        if (user != null)
         {
-            RegisterFailure(user.Id);
-            await AuditAsync(AuditEvents.LoginFailed, user.Name, "wrong password", metadata: auditMeta);
+            valid = await VerifyPasswordAsync(user.Id, password);
+        }
+        else
+        {
+            await HashWorkAsync(() => PasswordHasher.Verify(password, DummyHash));
+            valid = false;
+        }
+
+        if (!valid || user == null)
+        {
+            await AuditAsync(AuditEvents.LoginFailed, auditName, user == null ? "unknown user" : "wrong password",
+                metadata: auditMeta, userId: user?.Id);
             throw UsersApiException.Unauthorized(InvalidCredentialsMessage);
         }
 
+        AttemptSucceeded(key);
+
         if (user.Disabled)
         {
-            await AuditAsync(AuditEvents.LoginFailed, user.Name, "account disabled", metadata: auditMeta);
+            await AuditAsync(AuditEvents.LoginFailed, user.Name, "account disabled", metadata: auditMeta, userId: user.Id);
             throw UsersApiException.Forbidden(AccountDisabledMessage);
         }
-
-        ResetFailures(user.Id);
 
         var now = Now();
         user = await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { LastLoginAt = now });
 
+        var token = GenerateToken();
         var session = await _sessionStore.CreateSessionAsync(new Session
         {
             Id = Guid.NewGuid().ToString(),
-            Token = GenerateToken(),
+            TokenHash = HashToken(token),
             UserId = user.Id,
             UserName = user.Name,
             LoginTime = now,
@@ -224,53 +303,59 @@ public class AuthService
         });
 
         await AuditAsync(AuditEvents.Login, user.Name, "login successful",
-            metadata: new AuditMetadata { RemoteAddress = metadata.RemoteAddress, SessionId = session.Id });
+            metadata: new AuditMetadata { RemoteAddress = metadata.RemoteAddress, SessionId = session.Id },
+            userId: user.Id);
 
-        var permissions = await GetEffectivePermissionsAsync(user);
         return new LoginResponse
         {
-            Token = session.Token,
+            Token = token,
             Session = new CurrentSession
             {
                 Id = session.Id,
                 User = user,
-                Permissions = permissions,
+                Permissions = await GetEffectivePermissionsAsync(user),
                 LoginTime = session.LoginTime,
                 LastActivity = session.LastActivity,
-                ExpiresAt = session.LastActivity + SessionTimeoutMs,
+                ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
             },
         };
     }
 
-    /// <summary>Ends the session associated with the given token.</summary>
+    /// <summary>Ends a session (logout).</summary>
+    public async Task LogoutAsync(Session session)
+    {
+        await _sessionStore.DeleteSessionByIdAsync(session.Id);
+        await AuditAsync(AuditEvents.Logout, session.UserName, "user logged out",
+            actor: session.UserName, metadata: new AuditMetadata { SessionId = session.Id },
+            userId: session.UserId, actorId: session.UserId);
+    }
+
+    /// <summary>Ends the session associated with a raw bearer token.</summary>
     public async Task LogoutAsync(string token)
     {
-        var session = await _sessionStore.GetSessionAsync(token);
-        if (session == null) return;
-
-        await _sessionStore.DeleteSessionAsync(token);
-        await AuditAsync(AuditEvents.Logout, session.UserName, "user logged out",
-            actor: session.UserName, metadata: new AuditMetadata { SessionId = session.Id });
+        var session = await _sessionStore.GetSessionAsync(HashToken(token));
+        if (session != null) await LogoutAsync(session);
     }
 
     /// <summary>
-    /// Verifies a user's password for <c>verify-password</c>: honours lockout (429),
-    /// counts failures toward it and audits failures.
+    /// Verifies a user's password through the lockout (429 when locked; failures counted and
+    /// audited as <c>login_failed</c>). Used by verify-password and self password change.
     /// </summary>
-    public async Task<bool> VerifyPasswordWithLockoutAsync(User user, string password, string? actor)
+    public async Task<bool> VerifyPasswordWithLockoutAsync(User user, string password, string? actor, string? actorId = null)
     {
-        if (IsLocked(user.Id))
+        var key = UserKey(user.Id);
+        if (!TryReserveAttempt(key))
             throw new UsersApiException(429, AccountLockedMessage);
 
         var valid = await VerifyPasswordAsync(user.Id, password);
         if (valid)
         {
-            ResetFailures(user.Id);
+            AttemptSucceeded(key);
         }
         else
         {
-            RegisterFailure(user.Id);
-            await AuditAsync(AuditEvents.LoginFailed, user.Name, "password verification failed", actor);
+            await AuditAsync(AuditEvents.LoginFailed, user.Name, "password verification failed", actor,
+                userId: user.Id, actorId: actorId);
         }
         return valid;
     }
@@ -280,33 +365,39 @@ public class AuthService
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Authenticates a bearer token: checks idle expiry (expired sessions are deleted),
-    /// resolves the live user (missing or disabled → 401), slides <c>lastActivity</c>.
-    /// Throws <see cref="UsersApiException"/> (401) on failure.
+    /// Authenticates a raw bearer token (looked up by its hash). Throws 401 on failure.
     /// </summary>
     public async Task<UsersAuthContext> AuthenticateTokenAsync(string token)
     {
-        var session = await _sessionStore.GetSessionAsync(token)
+        var session = await _sessionStore.GetSessionAsync(HashToken(token))
             ?? throw UsersApiException.Unauthorized("invalid or expired token");
+        return await AuthenticateSessionAsync(session);
+    }
 
+    /// <summary>
+    /// Validates a stored session: idle and absolute expiry (expired sessions are deleted), live
+    /// user (missing or disabled → 401); slides <c>lastActivity</c>.
+    /// </summary>
+    public async Task<UsersAuthContext> AuthenticateSessionAsync(Session session)
+    {
         var now = Now();
-        if (now - session.LastActivity > SessionTimeoutMs)
+        if (now - session.LastActivity > SessionTimeoutMs || now - session.LoginTime > MaxSessionLifetimeMs)
         {
-            await _sessionStore.DeleteSessionAsync(token);
+            await _sessionStore.DeleteSessionByIdAsync(session.Id);
             throw UsersApiException.Unauthorized("session expired");
         }
 
         var user = await _userStore.GetUserAsync(session.UserId);
         if (user == null || user.Id != session.UserId)
         {
-            await _sessionStore.DeleteSessionAsync(token);
+            await _sessionStore.DeleteSessionByIdAsync(session.Id);
             throw UsersApiException.Unauthorized("invalid or expired token");
         }
 
         if (user.Disabled)
             throw UsersApiException.Unauthorized(AccountDisabledMessage);
 
-        await _sessionStore.UpdateLastActivityAsync(token, now);
+        await _sessionStore.UpdateLastActivityAsync(session.TokenHash, now);
         session.LastActivity = now;
 
         return new UsersAuthContext
@@ -317,7 +408,7 @@ public class AuthService
             SessionId = session.Id,
             LoginTime = session.LoginTime,
             LastActivity = now,
-            ExpiresAt = now + SessionTimeoutMs,
+            ExpiresAt = ExpiresAt(session.LoginTime, now),
         };
     }
 
@@ -343,14 +434,88 @@ public class AuthService
             LastActivity = now,
             ExpiresAt = now + SessionTimeoutMs,
             IsExternal = true,
+            ExternalResult = result,
         };
+    }
+
+    /// <summary>
+    /// Authenticates an HTTP request with the external adapter (when configured) or the
+    /// <c>Authorization: Bearer</c> token. Returns null when no credentials were presented;
+    /// throws 401 for invalid credentials.
+    /// </summary>
+    public async Task<UsersAuthContext?> AuthenticateRequestAsync(HttpContext context, IExternalAuthAdapter? adapter)
+    {
+        if (adapter != null)
+        {
+            var result = adapter.Authenticate(context);
+            return result?.User == null ? null : await AuthenticateExternalAsync(result);
+        }
+
+        var token = BearerToken(context);
+        return token == null ? null : await AuthenticateTokenAsync(token);
+    }
+
+    /// <summary>The bearer token from the Authorization header, or null.</summary>
+    public static string? BearerToken(HttpContext context)
+    {
+        var header = context.Request.Headers.Authorization.FirstOrDefault();
+        if (string.IsNullOrEmpty(header) || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var token = header["Bearer ".Length..].Trim();
+        return token.Length == 0 ? null : token;
+    }
+
+    // -------------------------------------------------------------------------
+    // WebSocket tickets
+    // -------------------------------------------------------------------------
+
+    /// <summary>Issues a single-use WebSocket ticket bound to the caller's session (30 s).</summary>
+    public WsTicketResponse IssueTicket(UsersAuthContext auth)
+    {
+        var now = Now();
+        if (_tickets.Count > MaxOutstandingTickets)
+        {
+            foreach (var (k, t) in _tickets)
+                if (t.ExpiresAt <= now) _tickets.TryRemove(k, out _);
+        }
+
+        var ticket = GenerateToken();
+        _tickets[HashToken(ticket)] = new WsTicket(auth.Session?.Id, auth.ExternalResult,
+            now + TicketLifetimeSeconds * 1000L);
+        return new WsTicketResponse { Ticket = ticket, ExpiresIn = TicketLifetimeSeconds };
+    }
+
+    /// <summary>
+    /// Consumes a ticket (single use) and authenticates its session. Null when the ticket is
+    /// unknown, used, expired, or its session is no longer valid.
+    /// </summary>
+    public async Task<UsersAuthContext?> ConsumeTicketAsync(string? ticket)
+    {
+        if (string.IsNullOrEmpty(ticket)) return null;
+        if (!_tickets.TryRemove(HashToken(ticket), out var entry)) return null;
+        if (entry.ExpiresAt <= Now()) return null;
+
+        if (entry.External != null)
+            return await AuthenticateExternalAsync(entry.External);
+
+        if (entry.SessionId == null) return null;
+        var session = await _sessionStore.GetSessionByIdAsync(entry.SessionId);
+        if (session == null) return null;
+        try
+        {
+            return await AuthenticateSessionAsync(session);
+        }
+        catch (UsersApiException)
+        {
+            return null;
+        }
     }
 
     // -------------------------------------------------------------------------
     // Sessions
     // -------------------------------------------------------------------------
 
-    /// <summary>Listing view of a stored session (never includes the token).</summary>
+    /// <summary>Listing view of a stored session (never includes the token or its hash).</summary>
     public SessionInfo ToSessionInfo(Session session, string? userName, string? currentSessionId) => new()
     {
         Id = session.Id,
@@ -358,7 +523,7 @@ public class AuthService
         UserName = userName ?? session.UserName,
         CreatedAt = session.LoginTime,
         LastActivity = session.LastActivity,
-        ExpiresAt = session.LastActivity + SessionTimeoutMs,
+        ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
         Metadata = new SessionMetadata
         {
             UserAgent = session.Metadata?.UserAgent,
@@ -368,26 +533,27 @@ public class AuthService
     };
 
     /// <summary>
-    /// Revokes a session: deletes it, audits <c>session_revoked</c> and broadcasts
-    /// <c>session-kicked</c> with the given reason.
+    /// Revokes a session: deletes it, audits <c>session_revoked</c> and sends <c>session-kicked</c>
+    /// to the event sockets of that user only.
     /// </summary>
-    public async Task RevokeSessionAsync(Session session, string reason, string? actor)
+    public async Task RevokeSessionAsync(Session session, string reason, string? actor, string? actorId = null)
     {
         await _sessionStore.DeleteSessionByIdAsync(session.Id);
         await AuditAsync(AuditEvents.SessionRevoked, session.UserName, reason, actor,
-            new AuditMetadata { SessionId = session.Id });
-        await BroadcastSessionKickedAsync(session, reason);
+            new AuditMetadata { SessionId = session.Id }, session.UserId, actorId);
+        await SendSessionKickedAsync(session, reason);
     }
 
     /// <summary>Revokes all sessions of a user, optionally keeping one.</summary>
-    public async Task RevokeUserSessionsAsync(string userId, string reason, string? actor, string? exceptSessionId = null)
+    public async Task RevokeUserSessionsAsync(string userId, string reason, string? actor,
+        string? exceptSessionId = null, string? actorId = null)
     {
         var sessions = await _sessionStore.GetUserSessionsAsync(userId);
         foreach (var session in sessions.Where(s => s.Id != exceptSessionId))
-            await RevokeSessionAsync(session, reason, actor);
+            await RevokeSessionAsync(session, reason, actor, actorId);
     }
 
-    private async Task BroadcastSessionKickedAsync(Session session, string reason)
+    private async Task SendSessionKickedAsync(Session session, string reason)
     {
         if (_events == null) return;
         try
@@ -397,11 +563,11 @@ public class AuthService
                 type = "session-kicked",
                 data = new { sessionId = session.Id, userId = session.UserId, reason },
             });
-            await _events.BroadcastMessageAsync(message);
+            await _events.SendToUserAsync(session.UserId, message);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast session-kicked for session {SessionId}", session.Id);
+            _logger.LogWarning(ex, "Failed to send session-kicked for session {SessionId}", session.Id);
         }
     }
 
@@ -413,16 +579,19 @@ public class AuthService
     // Audit
     // -------------------------------------------------------------------------
 
+    /// <summary>Logs an audit entry; username and details are sanitized (no control characters).</summary>
     public Task AuditAsync(string @event, string username, string? details = null, string? actor = null,
-        AuditMetadata? metadata = null) =>
+        AuditMetadata? metadata = null, string? userId = null, string? actorId = null) =>
         _auditStore.LogAsync(new AuditEntry
         {
             Id = Guid.NewGuid().ToString(),
             Timestamp = Now(),
             Event = @event,
-            Username = username,
-            Details = details,
-            Actor = actor,
+            Username = UsersValidation.Sanitize(username, 256),
+            UserId = userId,
+            Details = details == null ? null : UsersValidation.Sanitize(details),
+            Actor = actor == null ? null : UsersValidation.Sanitize(actor, 256),
+            ActorId = actorId,
             Metadata = metadata,
         });
 }

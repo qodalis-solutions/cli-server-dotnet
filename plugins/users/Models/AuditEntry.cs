@@ -21,6 +21,11 @@ public class AuditEntry
     [JsonPropertyName("username")]
     public string Username { get; set; } = string.Empty;
 
+    /// <summary>Id of the user the event is about, when known.</summary>
+    [JsonPropertyName("userId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserId { get; set; }
+
     [JsonPropertyName("details")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Details { get; set; }
@@ -29,6 +34,11 @@ public class AuditEntry
     [JsonPropertyName("actor")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Actor { get; set; }
+
+    /// <summary>Id of the acting user, when known.</summary>
+    [JsonPropertyName("actorId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActorId { get; set; }
 
     [JsonPropertyName("metadata")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

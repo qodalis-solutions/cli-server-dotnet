@@ -14,10 +14,9 @@ using Qodalis.Cli.Plugin.Users.Extensions;
 namespace Qodalis.Cli.Tests;
 
 /// <summary>
-/// Regression: the users and admin plugins are registered together in the demo
-/// host. Their auth endpoints must not collide — the admin dashboard keeps
-/// /api/v1/qcli/auth/login, the users plugin logs in via POST /api/v1/qcli/sessions.
-/// Before the fix every login returned 500 (AmbiguousMatchException).
+/// The users and admin plugins are registered together in the demo host. Their auth endpoints
+/// must not collide (admin: /api/v1/qcli/auth/login, users: POST /api/v1/qcli/sessions), and with
+/// the users plugin installed the dashboard authenticates through it (B10, admin:access).
 /// </summary>
 public class UsersAdminCoexistenceTests : IAsyncLifetime
 {
@@ -92,14 +91,65 @@ public class UsersAdminCoexistenceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AdminLogin_StillAtAuth_Returns200()
+    public async Task AdminLogin_GoesThroughUsersPlugin()
     {
-        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+        // B10: with the users plugin installed, the dashboard's static credentials are not used.
+        var staticCreds = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
             new { username = AdminUser, password = AdminPass });
+        Assert.Equal(HttpStatusCode.Unauthorized, staticCreds.StatusCode);
 
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+            new { username = "root", password = RootPass });
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("token").GetString()));
+        var token = body.GetProperty("token").GetString();
+        Assert.False(string.IsNullOrEmpty(token));
+        Assert.Equal("root", body.GetProperty("username").GetString());
+
+        // The token is a users session token: it works for the dashboard API and users routes.
+        var status = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/status");
+        status.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(status)).StatusCode);
+
+        var me = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/auth/me");
+        me.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var meRes = await _client.SendAsync(me);
+        Assert.Equal(HttpStatusCode.OK, meRes.StatusCode);
+        Assert.Equal("root", (await meRes.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("username").GetString());
+
+        var current = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/sessions/current");
+        current.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(current)).StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminLogin_RequiresAdminAccessPermission()
+    {
+        var rootToken = (await (await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
+            new { username = "root", password = RootPass })).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("token").GetString();
+        var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/qcli/users")
+        {
+            Content = JsonContent.Create(new { name = "plain", email = "plain@test.com", password = "plainpass" }),
+        };
+        create.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rootToken);
+        Assert.Equal(HttpStatusCode.Created, (await _client.SendAsync(create)).StatusCode);
+
+        var res = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+            new { username = "plain", password = "plainpass" });
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+
+        // A users token without admin:access cannot use the dashboard API either.
+        var plainToken = (await (await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
+            new { username = "plain", password = "plainpass" })).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("token").GetString();
+        var status = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/status");
+        status.Headers.Authorization = new AuthenticationHeaderValue("Bearer", plainToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(status)).StatusCode);
+
+        // Only the exact login path is anonymous.
+        var lookalike = await _client.PostAsJsonAsync("/api/v1/qcli/status/auth/login", new { });
+        Assert.Equal(HttpStatusCode.Unauthorized, lookalike.StatusCode);
     }
 
     [Fact]

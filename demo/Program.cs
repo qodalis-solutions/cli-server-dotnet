@@ -25,20 +25,27 @@ using Qodalis.Cli.Plugin.Users.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCors(options =>
+// CORS and WebSocket origins are restricted to the local dev front-ends
+// (configured below with cli.SetAllowedOrigins; extra origins via QCLI_ALLOWED_ORIGINS, comma-separated).
+var allowedOrigins = new List<string>
 {
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
+    "http://localhost:4200", "http://localhost:4300", "http://localhost:4301",
+    "http://localhost:4302", "http://localhost:4303",
+    "http://127.0.0.1:4200", "http://127.0.0.1:4300", "http://127.0.0.1:4301",
+    "http://127.0.0.1:4302", "http://127.0.0.1:4303",
+};
+allowedOrigins.AddRange((Environment.GetEnvironmentVariable("QCLI_ALLOWED_ORIGINS") ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
 builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
+        cli.SetAllowedOrigins(allowedOrigins.ToArray());
+        // The demo exposes the interactive shell explicitly (library default: disabled).
+        // With the users plugin it requires the shell:execute permission.
+        cli.EnableShell();
+
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();
         cli.AddProcessor<CliTimeCommandProcessor>();
@@ -86,10 +93,15 @@ builder.Services
         //   Reads/writes to the host file system. AllowedPaths restricts
         //   which directories can be accessed (prevents path traversal).
         //
-        cli.AddFileSystem(o => o.UseOsFileSystem(os =>
-        {
-            os.AllowedPaths = new List<string> { "/tmp", "/app", "/home" };
-        }));
+        // The demo uses a sandboxed in-memory file system — it never exposes the host's real files.
+        cli.AddFileSystem(o => o.UseInMemory());
+        //
+        // To expose host directories instead (only behind authentication, never the real /home or /app):
+        //
+        // cli.AddFileSystem(o => o.UseOsFileSystem(os =>
+        // {
+        //     os.AllowedPaths = new List<string> { "/srv/qcli-sandbox" };
+        // }));
         //
         // Option 3: JSON file storage
         //   Persists all files into a single JSON file on disk.
@@ -248,7 +260,9 @@ builder.Services
             });
         }
 
-        cli.AddUsers();
+        // Demo credentials root/root (a warning is logged). Without DefaultAdminPassword a random
+        // password is generated, logged once, and must be changed on first login.
+        cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
     })
     .AddJsonOptions(options =>

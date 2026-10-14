@@ -38,11 +38,40 @@ public class UsersModuleOptions
     /// <summary>Idle session timeout in milliseconds. Defaults to 30 minutes.</summary>
     public long? SessionTimeoutMs { get; set; }
 
-    /// <summary>Password for the seeded <c>root</c> user. Defaults to <c>"root"</c>.</summary>
+    /// <summary>
+    /// Password for the seeded <c>root</c> user. When not set, a random password is generated,
+    /// logged once with a warning, and root must change it on first login.
+    /// </summary>
     public string? DefaultAdminPassword { get; set; }
 
-    /// <summary>Minimum password length. Defaults to 4.</summary>
-    public int MinPasswordLength { get; set; } = 4;
+    /// <summary>Default absolute session lifetime (12 hours).</summary>
+    public const long DefaultMaxSessionLifetimeMs = 12 * 60 * 60 * 1000;
+
+    /// <summary>
+    /// Protect the whole CLI server (commands, files, data explorer, jobs, sockets), not only the
+    /// users routes. Defaults to <c>true</c>.
+    /// </summary>
+    public bool ProtectServer { get; set; } = true;
+
+    /// <summary>Absolute session lifetime in milliseconds (in addition to the idle timeout). Defaults to 12 hours.</summary>
+    public long MaxSessionLifetimeMs { get; set; } = DefaultMaxSessionLifetimeMs;
+
+    /// <summary>Minimum password length. Defaults to 8.</summary>
+    public int MinPasswordLength { get; set; } = 8;
+
+    /// <summary>Maximum password length. Defaults to 1024.</summary>
+    public int MaxPasswordLength { get; set; } = 1024;
+
+    /// <summary>
+    /// Attempts per minute per client IP on login, verify-password and self password change. Defaults to 20.
+    /// </summary>
+    public int MaxAttemptsPerIpPerMinute { get; set; } = 20;
+
+    /// <summary>Trust <c>X-Forwarded-For</c> for the client IP (only behind a trusted reverse proxy). Defaults to false.</summary>
+    public bool TrustProxy { get; set; }
+
+    /// <summary>Maximum concurrent PBKDF2 computations. Defaults to 4.</summary>
+    public int PasswordHashConcurrency { get; set; } = 4;
 
     /// <summary>Consecutive failed logins before an account is locked. Defaults to 5.</summary>
     public int MaxLoginAttempts { get; set; } = 5;
@@ -60,6 +89,9 @@ public class UsersModuleOptions
 
     /// <summary>Effective idle session timeout.</summary>
     public long EffectiveSessionTimeoutMs => SessionTimeoutMs is > 0 ? SessionTimeoutMs.Value : DefaultSessionTimeoutMs;
+
+    /// <summary>Effective absolute session lifetime.</summary>
+    public long EffectiveMaxSessionLifetimeMs => MaxSessionLifetimeMs > 0 ? MaxSessionLifetimeMs : DefaultMaxSessionLifetimeMs;
 
     /// <summary>True when an external auth adapter (instance or type) is configured.</summary>
     public bool UsesExternalAuth => AuthAdapter != null || AuthAdapterType != null;

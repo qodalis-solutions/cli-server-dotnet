@@ -203,10 +203,15 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UnrelatedPathSharingPrefix_IsNotProtected()
+    public async Task UnrelatedPathSharingPrefix_IsNotAUsersRoute()
     {
-        var res = await _h.GetAsync("/api/v1/qcli/users-x");
-        Assert.NotEqual(401, (int)res.StatusCode);
+        // With ProtectServer off only the users routes are protected (segment-aware match).
+        await using var host = await UsersTestHost.StartAsync(o => o.ProtectServer = false);
+        Assert.NotEqual(401, (int)(await host.GetAsync("/api/v1/qcli/users-x")).StatusCode);
+        Assert.Equal(401, (int)(await host.GetAsync("/api/v1/qcli/users")).StatusCode);
+
+        // With ProtectServer on (default) every CLI route requires authentication.
+        Assert.Equal(401, (int)(await _h.GetAsync("/api/v1/qcli/users-x")).StatusCode);
     }
 
     // =========================================================================
@@ -342,7 +347,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         await _h.CreateGroupAsync(_root, "readers", "users:read");
         await _h.CreateUserAsync(_root, "live-user");
         var (token, session) = await _h.LoginAsync("live-user", "pass1234");
-        Assert.Equal(0, session.GetProperty("permissions").GetArrayLength());
+        Assert.Equal(["commands:execute"], Strings(session.GetProperty("permissions")));
 
         await AssertErrorAsync(await _h.GetAsync("users", token), 403);
 
@@ -405,7 +410,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
             name = "full",
             email = "full@test.com",
             groups = new[] { "ADMIN" },
-            password = "secret",
+            password = "secret12",
             disabled = true,
             homeDir = "/home/full",
             data = new { theme = "dark" },
@@ -433,7 +438,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [InlineData("{\"name\":\"\",\"email\":\"a@b.c\"}")]
     [InlineData("{\"name\":\"x\",\"email\":\"\"}")]
     [InlineData("{\"email\":\"a@b.c\"}")]
-    [InlineData("{\"name\":\"x\",\"email\":\"a@b.c\",\"password\":\"abc\"}")]
+    [InlineData("{\"name\":\"x\",\"email\":\"a@b.c\",\"password\":\"abcdefg\"}")]
     [InlineData("{\"name\":\"x\",\"email\":\"a@b.c\",\"disabled\":\"yes\"}")]
     [InlineData("{\"name\":\"x\",\"email\":\"a@b.c\",\"groups\":\"admin\"}")]
     [InlineData("not json")]
@@ -452,10 +457,10 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task CreateUser_PasswordPolicyIsConfigurable()
     {
-        await using var host = await UsersTestHost.StartAsync(o => o.MinPasswordLength = 8);
+        await using var host = await UsersTestHost.StartAsync(o => o.MinPasswordLength = 10);
         var token = await host.RootTokenAsync();
-        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "1234567" }), 400);
-        Assert.Equal(201, (int)(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "12345678" })).StatusCode);
+        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "123456789" }), 400);
+        Assert.Equal(201, (int)(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "1234567890" })).StatusCode);
     }
 
     [Fact]
@@ -579,7 +584,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task LastAdmin_CannotBeDeletedDisabledOrRemovedFromAdmin()
     {
-        var ops = await _h.UserWithPermissionsAsync(_root, "ops", "users:*", "groups:*");
+        // Holds "*" (covers root) without being an admin member.
+        var ops = await _h.UserWithPermissionsAsync(_root, "ops", "*");
 
         await AssertErrorAsync(await _h.DeleteAsync("users/root", ops), 409);
         await AssertErrorAsync(await _h.PutAsync("users/root", ops, new { disabled = true }), 409);
@@ -594,7 +600,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     public async Task LastAdmin_DisabledAdminsDoNotCount()
     {
         await _h.CreateUserAsync(_root, "admin2", groups: ["admin"]);
-        var ops = await _h.UserWithPermissionsAsync(_root, "ops2", "users:*");
+        var ops = await _h.UserWithPermissionsAsync(_root, "ops2", "*");
         Assert.Equal(200, (int)(await _h.PutAsync("users/admin2", ops, new { disabled = true })).StatusCode);
 
         await AssertErrorAsync(await _h.PutAsync("users/root", ops, new { disabled = true }), 409);
@@ -653,7 +659,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         var perms = await ReadJsonAsync(await _h.GetAsync("users/plain-user/permissions", token));
         Assert.Equal(me.GetProperty("id").GetString(), perms.GetProperty("userId").GetString());
         Assert.Equal(["users"], Strings(perms.GetProperty("groups")));
-        Assert.Equal(0, perms.GetProperty("permissions").GetArrayLength());
+        Assert.Equal(["commands:execute"], Strings(perms.GetProperty("permissions")));
         await AssertErrorAsync(await _h.GetAsync("users/other-user/permissions", token), 403);
 
         await AssertErrorAsync(await _h.PostAsync("users", token, new { name = "x", email = "x@x.x" }), 403);
@@ -718,7 +724,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task WildcardGroup_GrantsResourceActions()
     {
-        var helpdesk = await _h.UserWithPermissionsAsync(_root, "helpdesk", "users:*", "sessions:read");
+        var helpdesk = await _h.UserWithPermissionsAsync(_root, "helpdesk", "users:*", "sessions:read", "commands:execute");
 
         var created = await _h.PostAsync("users", helpdesk, new { name = "made-by-helpdesk", email = "m@h.d", password = "pass1234" });
         Assert.Equal(201, (int)created.StatusCode);
@@ -750,10 +756,10 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task ChangePassword_ByAdmin_RevokesAllTargetSessions()
     {
-        var created = await _h.CreateUserAsync(_root, "pw-target", "oldpass");
-        var (token, _) = await _h.LoginAsync("pw-target", "oldpass");
+        var created = await _h.CreateUserAsync(_root, "pw-target", "oldpass1");
+        var (token, _) = await _h.LoginAsync("pw-target", "oldpass1");
 
-        var res = await _h.PutAsync("users/pw-target/password", _root, new { password = "newpass" });
+        var res = await _h.PutAsync("users/pw-target/password", _root, new { password = "newpass1" });
         Assert.Equal(204, (int)res.StatusCode);
 
         await AssertErrorAsync(await _h.GetAsync("sessions/current", token), 401);
@@ -761,8 +767,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         Assert.Equal("password_changed", kicked.GetProperty("reason").GetString());
         Assert.Equal(created.GetProperty("id").GetString(), kicked.GetProperty("userId").GetString());
 
-        await AssertErrorAsync(await _h.PostAsync("sessions", null, new { username = "pw-target", password = "oldpass" }), 401);
-        await _h.LoginAsync("pw-target", "newpass");
+        await AssertErrorAsync(await _h.PostAsync("sessions", null, new { username = "pw-target", password = "oldpass1" }), 401);
+        await _h.LoginAsync("pw-target", "newpass1");
 
         var audit = (await AuditAsync("event=password_changed")).Single();
         Assert.Equal("pw-target", audit.GetProperty("username").GetString());
@@ -792,8 +798,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         await _h.CreateUserAsync(_root, "pw-wrong", "rightpass");
         var (token, _) = await _h.LoginAsync("pw-wrong", "rightpass");
 
-        await AssertErrorAsync(await _h.PutAsync("users/pw-wrong/password", token, new { currentPassword = "nope", password = "newpass" }), 403);
-        await AssertErrorAsync(await _h.PutAsync("users/pw-wrong/password", token, new { password = "newpass" }), 400);
+        await AssertErrorAsync(await _h.PutAsync("users/pw-wrong/password", token, new { currentPassword = "nope", password = "newpass1" }), 403);
+        await AssertErrorAsync(await _h.PutAsync("users/pw-wrong/password", token, new { password = "newpass1" }), 400);
     }
 
     [Fact]
@@ -801,7 +807,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     {
         var (other, _) = await _h.LoginAsync("root", "root");
 
-        var res = await _h.PutAsync("users/root/password", _root, new { password = "newroot" });
+        var res = await _h.PutAsync("users/root/password", _root, new { password = "newroot1" });
         Assert.Equal(204, (int)res.StatusCode);
 
         // A wrong currentPassword is ignored for privileged callers too.
@@ -826,8 +832,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     {
         await _h.CreateUserAsync(_root, "pw-policy");
         await AssertErrorAsync(await _h.PutAsync("users/pw-policy/password", _root, new { password = "" }), 400);
-        await AssertErrorAsync(await _h.PutAsync("users/pw-policy/password", _root, new { password = "abc" }), 400);
-        await AssertErrorAsync(await _h.PutAsync("users/nobody/password", _root, new { password = "abcd" }), 404);
+        await AssertErrorAsync(await _h.PutAsync("users/pw-policy/password", _root, new { password = "abcdefg" }), 400);
+        await AssertErrorAsync(await _h.PutAsync("users/nobody/password", _root, new { password = "abcdefgh" }), 404);
     }
 
     [Fact]
@@ -879,7 +885,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         Assert.Equal(["*"], Strings(admin.GetProperty("permissions")));
         Assert.True(admin.GetProperty("builtIn").GetBoolean());
         var users = groups.Single(g => g.GetProperty("name").GetString() == "users");
-        Assert.Equal(0, users.GetProperty("permissions").GetArrayLength());
+        Assert.Equal(["commands:execute"], Strings(users.GetProperty("permissions")));
         Assert.True(users.GetProperty("builtIn").GetBoolean());
         foreach (var key in new[] { "id", "createdAt", "updatedAt" })
             Assert.True(admin.TryGetProperty(key, out _));
@@ -994,11 +1000,11 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         await _h.DeleteAsync("groups/evt-group/members/evt-user", _root);
         await _h.PutAsync("users/evt-user", _root, new { disabled = true });
         await _h.PutAsync("users/evt-user", _root, new { disabled = false });
-        await _h.PutAsync("users/evt-user/password", _root, new { password = "newpass" });
-        var (t, s) = await _h.LoginAsync("evt-user", "newpass");
+        await _h.PutAsync("users/evt-user/password", _root, new { password = "newpass1" });
+        var (t, s) = await _h.LoginAsync("evt-user", "newpass1");
         await _h.DeleteAsync($"sessions/{s.GetProperty("id").GetString()}", _root);
         await _h.PostAsync("sessions", null, new { username = "evt-user", password = "bad" });
-        var (t2, _) = await _h.LoginAsync("evt-user", "newpass");
+        var (t2, _) = await _h.LoginAsync("evt-user", "newpass1");
         await _h.DeleteAsync("sessions/current", t2);
         await _h.DeleteAsync("users/evt-user", _root);
         await _h.DeleteAsync("groups/evt-group", _root);
@@ -1083,7 +1089,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
 
         var group = await ReadJsonAsync(await host.GetAsync("groups/users", token));
         Assert.True(group.GetProperty("builtIn").GetBoolean());
-        Assert.Equal(0, group.GetProperty("permissions").GetArrayLength());
+        Assert.Equal(1, group.GetProperty("permissions").GetArrayLength());
     }
 
     [Fact]

@@ -18,6 +18,10 @@ public sealed class UsersAnonymousAttribute : Attribute;
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class UsersCredentialEndpointAttribute : Attribute;
 
+/// <summary>Marks an action as allowed while the user must change their password.</summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class UsersAllowPasswordChangeRequiredAttribute : Attribute;
+
 /// <summary>Requires a permission for an action (403 when missing).</summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class UsersPermissionAttribute(string permission) : Attribute
@@ -71,6 +75,13 @@ public sealed class UsersApiFilterAttribute : Attribute, IAsyncActionFilter, IOr
             if (auth == null)
             {
                 context.Result = UsersJson.Error(401, "unauthorized");
+                return;
+            }
+
+            if (auth.User.MustChangePassword &&
+                method?.IsDefined(typeof(UsersAllowPasswordChangeRequiredAttribute), false) != true)
+            {
+                context.Result = UsersJson.Error(403, AuthService.PasswordChangeRequiredMessage);
                 return;
             }
 

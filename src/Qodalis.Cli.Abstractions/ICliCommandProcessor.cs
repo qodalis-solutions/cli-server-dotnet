@@ -47,6 +47,12 @@ public interface ICliCommandProcessor
     IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; }
 
     /// <summary>
+    /// Permissions the caller must hold to execute this command when the server is protected
+    /// (e.g. by the users plugin). Enforced server-side in addition to <c>commands:execute</c>.
+    /// </summary>
+    IEnumerable<string>? RequiredPermissions => null;
+
+    /// <summary>
     /// Handles the command execution and returns a plain-text result.
     /// </summary>
     /// <param name="command">The parsed command containing the command name, value, and arguments.</param>

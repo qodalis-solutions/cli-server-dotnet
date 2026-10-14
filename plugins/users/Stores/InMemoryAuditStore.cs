@@ -4,25 +4,32 @@ namespace Qodalis.Cli.Plugin.Users.Stores;
 
 /// <summary>
 /// In-memory implementation of <see cref="IAuditStore"/>. Keeps the most recent
-/// <see cref="MaxEntries"/> entries (default 1000).
+/// <see cref="MaxEntries"/> entries (default 1000); <c>login_failed</c> entries are capped
+/// separately (<see cref="MaxFailedLoginEntries"/>, default 200) so they cannot evict other history.
 /// </summary>
 public class InMemoryAuditStore : IAuditStore
 {
-    /// <summary>Default number of retained entries.</summary>
     public const int DefaultMaxEntries = 1000;
+    public const int DefaultMaxFailedLoginEntries = 200;
 
-    private readonly LinkedList<AuditEntry> _entries = new();
+    private readonly LinkedList<(long Seq, AuditEntry Entry)> _entries = new();
+    private readonly LinkedList<(long Seq, AuditEntry Entry)> _failedLogins = new();
     private readonly object _lock = new();
+    private long _seq;
 
     public InMemoryAuditStore() : this(DefaultMaxEntries) { }
 
-    public InMemoryAuditStore(int maxEntries)
+    public InMemoryAuditStore(int maxEntries, int maxFailedLoginEntries = DefaultMaxFailedLoginEntries)
     {
         MaxEntries = maxEntries > 0 ? maxEntries : DefaultMaxEntries;
+        MaxFailedLoginEntries = maxFailedLoginEntries > 0 ? maxFailedLoginEntries : DefaultMaxFailedLoginEntries;
     }
 
-    /// <summary>Maximum number of retained entries; the oldest are dropped first.</summary>
+    /// <summary>Maximum number of retained entries other than <c>login_failed</c>.</summary>
     public int MaxEntries { get; }
+
+    /// <summary>Maximum number of retained <c>login_failed</c> entries.</summary>
+    public int MaxFailedLoginEntries { get; }
 
     public Task LogAsync(AuditEntry entry)
     {
@@ -31,9 +38,12 @@ public class InMemoryAuditStore : IAuditStore
 
         lock (_lock)
         {
-            _entries.AddLast(entry);
-            while (_entries.Count > MaxEntries)
-                _entries.RemoveFirst();
+            var failed = entry.Event == AuditEvents.LoginFailed;
+            var list = failed ? _failedLogins : _entries;
+            var cap = failed ? MaxFailedLoginEntries : MaxEntries;
+            list.AddLast((++_seq, entry));
+            while (list.Count > cap)
+                list.RemoveFirst();
         }
         return Task.CompletedTask;
     }
@@ -43,8 +53,10 @@ public class InMemoryAuditStore : IAuditStore
         lock (_lock)
         {
             // Newest first; insertion order breaks timestamp ties.
-            IEnumerable<AuditEntry> query = _entries.Reverse()
-                .OrderByDescending(e => e.Timestamp);
+            IEnumerable<AuditEntry> query = _entries.Concat(_failedLogins)
+                .OrderByDescending(e => e.Entry.Timestamp)
+                .ThenByDescending(e => e.Seq)
+                .Select(e => e.Entry);
 
             if (!string.IsNullOrEmpty(options?.Event))
                 query = query.Where(e => string.Equals(e.Event, options.Event, StringComparison.OrdinalIgnoreCase));
@@ -64,6 +76,7 @@ public class InMemoryAuditStore : IAuditStore
         lock (_lock)
         {
             _entries.Clear();
+            _failedLogins.Clear();
         }
         return Task.CompletedTask;
     }

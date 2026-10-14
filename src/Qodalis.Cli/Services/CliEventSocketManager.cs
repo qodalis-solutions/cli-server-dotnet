@@ -22,6 +22,10 @@ public class CliWebSocketClientInfo
 
     /// <summary>Gets or sets the connection type (e.g., "events").</summary>
     public string Type { get; set; } = "events";
+
+    /// <summary>Gets or sets the authenticated user id, when the server is protected.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserId { get; set; }
 }
 
 /// <summary>
@@ -43,7 +47,8 @@ public class CliEventSocketManager : ICliEventSocketManager
     }
 
     /// <inheritdoc />
-    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
+    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null,
+        Qodalis.Cli.Security.CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
         _clients.TryAdd(id, socket);
@@ -52,7 +57,8 @@ public class CliEventSocketManager : ICliEventSocketManager
             Id = id,
             ConnectedAt = DateTime.UtcNow.ToString("o"),
             RemoteAddress = remoteAddress ?? "unknown",
-            Type = "events"
+            Type = "events",
+            UserId = principal?.UserId,
         });
 
         _logger.LogInformation("Event WebSocket client connected (id={ClientId})", id);
@@ -100,6 +106,24 @@ public class CliEventSocketManager : ICliEventSocketManager
         foreach (var (_, socket) in _clients)
         {
             if (socket.State == WebSocketState.Open)
+            {
+                tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
+            }
+        }
+
+        await Task.WhenAll(tasks);
+    }
+
+    /// <inheritdoc />
+    public async Task SendToUserAsync(string userId, string message)
+    {
+        var segment = new ArraySegment<byte>(Encoding.UTF8.GetBytes(message));
+        var tasks = new List<Task>();
+
+        foreach (var (id, socket) in _clients)
+        {
+            if (socket.State == WebSocketState.Open &&
+                _clientInfo.TryGetValue(id, out var info) && info.UserId == userId)
             {
                 tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
             }

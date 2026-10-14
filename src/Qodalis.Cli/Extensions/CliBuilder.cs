@@ -4,6 +4,7 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
@@ -28,6 +29,32 @@ public class CliBuilder
     /// Returns all registered modules.
     /// </summary>
     public IReadOnlyList<ICliModule> Modules => _modules;
+
+    /// <summary>
+    /// Server-wide security options (shell, allowed origins, authentication requirement).
+    /// </summary>
+    public CliServerOptions ServerOptions { get; } = new();
+
+    /// <summary>
+    /// Enables (or disables) the interactive shell WebSockets. Disabled by default.
+    /// </summary>
+    public CliBuilder EnableShell(bool enabled = true)
+    {
+        ServerOptions.EnableShell = enabled;
+        return this;
+    }
+
+    /// <summary>
+    /// Restricts CORS and WebSocket upgrades to the given origins (e.g. <c>http://localhost:4300</c>,
+    /// <c>http://127.0.0.1:*</c>). Registers the default CORS policy for <c>app.UseCors()</c>.
+    /// Without it the library configures no CORS.
+    /// </summary>
+    public CliBuilder SetAllowedOrigins(params string[] origins)
+    {
+        ServerOptions.AllowedOrigins.Clear();
+        ServerOptions.AllowedOrigins.AddRange(origins.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()));
+        return this;
+    }
 
     internal CliBuilder(IServiceCollection services)
     {

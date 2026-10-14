@@ -53,7 +53,7 @@ public class UsersApiTests
     {
         var (admin, token) = await SeedAdminAndLogin();
 
-        var session = await _sessionStore.GetSessionAsync(token);
+        var session = await _sessionStore.GetSessionAsync(AuthService.HashToken(token));
         Assert.NotNull(session);
         Assert.Equal(admin.Id, session.UserId);
         Assert.Equal("root", session.UserName);
@@ -126,7 +126,7 @@ public class UsersApiTests
     {
         var (_, token) = await SeedAdminAndLogin();
         await _authService.LogoutAsync(token);
-        Assert.Null(await _sessionStore.GetSessionAsync(token));
+        Assert.Null(await _sessionStore.GetSessionAsync(AuthService.HashToken(token)));
     }
 
     [Fact]
@@ -137,14 +137,14 @@ public class UsersApiTests
 
         var ex = await Assert.ThrowsAsync<UsersApiException>(() => _authService.AuthenticateTokenAsync(token));
         Assert.Equal(401, ex.StatusCode);
-        Assert.Null(await _sessionStore.GetSessionAsync(token));
+        Assert.Null(await _sessionStore.GetSessionAsync(AuthService.HashToken(token)));
     }
 
     [Fact]
     public async Task RevokeUserSessions_BroadcastsSessionKickedWithReason()
     {
         var (admin, token) = await SeedAdminAndLogin();
-        var session = await _sessionStore.GetSessionAsync(token);
+        var session = await _sessionStore.GetSessionAsync(AuthService.HashToken(token));
 
         await _authService.RevokeUserSessionsAsync(admin.Id, AuthService.RevokeReasons.UserDisabled, "someone");
 
@@ -152,7 +152,7 @@ public class UsersApiTests
         Assert.Equal(session!.Id, kicked.GetProperty("sessionId").GetString());
         Assert.Equal(admin.Id, kicked.GetProperty("userId").GetString());
         Assert.Equal("user_disabled", kicked.GetProperty("reason").GetString());
-        Assert.Null(await _sessionStore.GetSessionAsync(token));
+        Assert.Null(await _sessionStore.GetSessionAsync(AuthService.HashToken(token)));
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class UsersApiTests
         var (_, token) = await SeedAdminAndLogin();
         _time.Advance(TimeSpan.FromMinutes(31));
         await _authService.SweepIdleSessionsAsync();
-        Assert.Null(await _sessionStore.GetSessionAsync(token));
+        Assert.Null(await _sessionStore.GetSessionAsync(AuthService.HashToken(token)));
     }
 
     // --- Password hashing ---

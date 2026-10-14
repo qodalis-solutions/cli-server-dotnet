@@ -7,6 +7,7 @@ using Qodalis.Cli.Plugin.Users.Middleware;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
 using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Users.Extensions;
 
@@ -36,8 +37,13 @@ public static class CliBuilderUsersExtensions
         RegisterStore<IAuditStore, InMemoryAuditStore>(services, options, options.AuditStore);
         RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
 
+        // B1: protect the whole CLI server (fail closed in core even without the middleware).
+        builder.ServerOptions.RequireAuthentication = options.ProtectServer;
+
         services.AddSingleton<AuthService>();
         services.AddSingleton<UsersService>();
+        services.AddSingleton<IpRateLimiter>();
+        services.AddSingleton<ICliAuthBridge, UsersAuthBridge>();
 
         if (options.AuthAdapter != null)
             services.AddSingleton(options.AuthAdapter);
@@ -70,9 +76,9 @@ public static class CliBuilderUsersExtensions
     }
 
     /// <summary>
-    /// Adds the users auth middleware to the pipeline.
-    /// Call after UseCors() and before UseAuthorization(). Without it, every users endpoint
-    /// except login answers 401.
+    /// Adds the users auth middleware to the pipeline. Call after UseCors(), before
+    /// UseAuthorization() and before UseCli(). Without it, every users endpoint except login —
+    /// and, with ProtectServer, every CLI route and socket — answers 401.
     /// </summary>
     public static IApplicationBuilder UseQodalisUsers(this IApplicationBuilder app)
     {

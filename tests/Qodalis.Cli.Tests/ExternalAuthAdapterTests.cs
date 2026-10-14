@@ -12,6 +12,7 @@ namespace Qodalis.Cli.Tests;
 public class ExternalAuthAdapterTests : IAsyncLifetime
 {
     private const string ExternalMessage = "Authentication is managed by the host application";
+    private const string AppOrigin = "http://app.test";
     private UsersTestHost _h = null!;
 
     public async Task InitializeAsync()
@@ -40,15 +41,16 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
                     IsAdmin = isAdmin,
                 };
             });
-        });
+        }, configureCli: cli => cli.SetAllowedOrigins(AppOrigin));
     }
 
     public async Task DisposeAsync() => await _h.DisposeAsync();
 
     private Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, string? user = null,
-        bool admin = false, string? groups = null, object? body = null)
+        bool admin = false, string? groups = null, object? body = null, string? origin = AppOrigin)
     {
         var req = new HttpRequestMessage(method, $"{Base}/{path}");
+        if (origin != null && method != HttpMethod.Get) req.Headers.Add("Origin", origin);
         if (user != null)
         {
             req.Headers.Add("X-Test-User", user);
@@ -167,6 +169,31 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
         var res = await SendAsync(HttpMethod.Get, "sessions", "admin-user", admin: true);
         Assert.Equal(200, (int)res.StatusCode);
         Assert.Equal(0, (await ReadJsonAsync(res)).GetArrayLength());
+    }
+
+    // =========================================================================
+    // CSRF (B9): cookie/adapter-authenticated state changes need an allowed Origin
+    // =========================================================================
+
+    [Fact]
+    public async Task StateChange_WithoutAllowedOrigin_Returns403()
+    {
+        var body = new { name = "csrf-user", email = "csrf@test.com" };
+        await AssertErrorAsync(await SendAsync(HttpMethod.Post, "users", "alice", admin: true, body: body, origin: null), 403);
+        await AssertErrorAsync(await SendAsync(HttpMethod.Post, "users", "alice", admin: true, body: body, origin: "http://evil.test"), 403);
+        await AssertErrorAsync(await SendAsync(HttpMethod.Delete, "audit", "alice", admin: true, origin: null), 403);
+
+        Assert.Equal(201, (int)(await SendAsync(HttpMethod.Post, "users", "alice", admin: true, body: body)).StatusCode);
+        // Reads are not subject to the Origin requirement.
+        Assert.Equal(200, (int)(await SendAsync(HttpMethod.Get, "users", "alice", admin: true, origin: null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task AdapterMode_ProtectsServerRoutes()
+    {
+        await AssertErrorAsync(await SendAsync(HttpMethod.Get, "commands"), 401);
+        Assert.Equal(200, (int)(await SendAsync(HttpMethod.Get, "commands", "bob")).StatusCode);
+        await AssertErrorAsync(await SendAsync(HttpMethod.Post, "execute", "bob", body: new { command = "x" }), 403);
     }
 
     [Fact]

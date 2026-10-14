@@ -7,20 +7,19 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// </summary>
 public static class PermissionMatcher
 {
-    public static bool Matches(string granted, string required)
-    {
-        var g = granted.Trim().ToLowerInvariant().Split(':');
-        var r = required.Trim().ToLowerInvariant().Split(':');
-        for (var i = 0; i < g.Length; i++)
-        {
-            if (g[i] == "*") return true;
-            if (i >= r.Length || g[i] != r[i]) return false;
-        }
-        return g.Length == r.Length;
-    }
+    public static bool Matches(string granted, string required) =>
+        Qodalis.Cli.Security.CliPermissionMatcher.Matches(granted, required);
 
     public static bool HasPermission(IEnumerable<string>? granted, string required) =>
-        granted?.Any(p => Matches(p, required)) == true;
+        Qodalis.Cli.Security.CliPermissionMatcher.HasPermission(granted, required);
+
+    /// <summary>Entries of <paramref name="target"/> not covered by <paramref name="granted"/>.</summary>
+    public static List<string> Missing(IEnumerable<string>? granted, IEnumerable<string> target) =>
+        Qodalis.Cli.Security.CliPermissionMatcher.Missing(granted, target);
+
+    /// <summary>True when every permission of <paramref name="target"/> is matched by <paramref name="granted"/>.</summary>
+    public static bool Covers(IEnumerable<string>? granted, IEnumerable<string> target) =>
+        Qodalis.Cli.Security.CliPermissionMatcher.Covers(granted, target);
 
     /// <summary>Union of permission lists, de-duplicated case-insensitively, first-seen order.</summary>
     public static List<string> Merge(IEnumerable<IEnumerable<string>?> lists)

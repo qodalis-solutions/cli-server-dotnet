@@ -34,6 +34,10 @@ public class UpdateUserDto
     /// </summary>
     [JsonIgnore]
     public long? LastLoginAt { get; set; }
+
+    /// <summary>Set by the plugin (password changes, seeding). Not bindable from request bodies.</summary>
+    [JsonIgnore]
+    public bool? MustChangePassword { get; set; }
 }
 
 /// <summary>
@@ -82,6 +86,26 @@ public class PasswordChangeRequest
 {
     public string? Password { get; set; }
     public string? CurrentPassword { get; set; }
+
+    /// <summary>
+    /// Admin reset only: when <c>false</c>, the target is not forced to change the password
+    /// on next login. Defaults to <c>true</c>.
+    /// </summary>
+    public bool? Temporary { get; set; }
+}
+
+/// <summary>
+/// Response body for <c>POST /sessions/ws-ticket</c>.
+/// </summary>
+public class WsTicketResponse
+{
+    [JsonPropertyName("ticket")]
+    public string Ticket { get; set; } = string.Empty;
+
+    /// <summary>Seconds until the ticket expires.</summary>
+    [JsonPropertyName("expiresIn")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int ExpiresIn { get; set; }
 }
 
 /// <summary>

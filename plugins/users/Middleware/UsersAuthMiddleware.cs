@@ -1,17 +1,26 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Users.Middleware;
 
 /// <summary>
-/// Authenticates users-plugin routes and stores a <see cref="UsersAuthContext"/> in
-/// <see cref="HttpContext.Items"/>. Built-in mode validates the Bearer token (idle timeout,
-/// live user resolution); external mode delegates to the registered
-/// <see cref="IExternalAuthAdapter"/>. Controllers fail closed when no context is set.
+/// Authenticates users-plugin routes and — with <see cref="UsersModuleOptions.ProtectServer"/> —
+/// every CLI server route and WebSocket (see <see cref="CliRoutePolicy"/>). Sets a
+/// <see cref="UsersAuthContext"/> and a core <see cref="CliPrincipal"/> on success.
+/// <list type="bullet">
+/// <item>HTTP: <c>Authorization: Bearer</c> token, or the external adapter.</item>
+/// <item>WebSocket: single-use <c>?ticket=</c> from <c>POST /sessions/ws-ticket</c> (bearer tokens are never
+/// accepted in query strings); in adapter mode the adapter may authenticate the upgrade directly.</item>
+/// <item>CSRF: state-changing requests without a bearer token must not carry a disallowed
+/// <c>Origin</c>; in adapter mode they must carry an allowed one.</item>
+/// <item>Sessions with <c>mustChangePassword</c> may only read/end the current session and change their own password.</item>
+/// </list>
 /// </summary>
 public class UsersAuthMiddleware
 {
@@ -21,7 +30,7 @@ public class UsersAuthMiddleware
     private const string Base = "/api/v1/qcli";
     private const string SessionsPath = Base + "/sessions";
 
-    private static readonly string[] ProtectedPrefixes =
+    private static readonly string[] UsersPrefixes =
     [
         Base + "/users",
         Base + "/sessions",
@@ -38,7 +47,13 @@ public class UsersAuthMiddleware
     public async Task Invoke(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
-        if (!IsProtectedRoute(path))
+        var method = context.Request.Method;
+        var options = context.RequestServices.GetRequiredService<UsersModuleOptions>();
+        var serverOptions = context.RequestServices.GetService<CliServerOptions>() ?? new CliServerOptions();
+
+        var isUsersRoute = IsUsersRoute(path);
+        var rule = CliRoutePolicy.Resolve(method, path);
+        if (!isUsersRoute && !(options.ProtectServer && rule.IsCliRoute))
         {
             await _next(context);
             return;
@@ -48,49 +63,59 @@ public class UsersAuthMiddleware
         if (bootstrap != null)
             await bootstrap.EnsureSeededAsync();
 
-        // Login is the only anonymous endpoint.
-        if (IsLogin(context, path))
+        if (isUsersRoute && !LimitBody(context))
         {
-            await _next(context);
+            await WriteErrorAsync(context, 400, "request body too large");
             return;
         }
 
         var authService = context.RequestServices.GetRequiredService<AuthService>();
         var adapter = context.RequestServices.GetService<IExternalAuthAdapter>();
+        var hasBearer = AuthService.BearerToken(context) != null;
 
-        if (adapter != null)
+        // B9: CSRF protection for state-changing requests that are not bearer-authenticated.
+        if (IsStateChanging(method) && !hasBearer && !rule.IsWebSocket)
         {
-            // Credential endpoints answer 501 in external mode (handled by the controllers).
-            if (IsCredentialEndpoint(context, path))
+            var origin = context.Request.Headers.Origin.FirstOrDefault();
+            var originAllowed = serverOptions.IsOriginAllowed(origin);
+            if (!string.IsNullOrEmpty(origin) && serverOptions.AllowedOrigins.Count > 0 && !originAllowed)
             {
-                await _next(context);
+                await WriteErrorAsync(context, 403, "origin not allowed");
                 return;
             }
-
-            var result = adapter.Authenticate(context);
-            if (result?.User == null)
+            if (adapter != null && !rule.IsPublic && !IsCredentialEndpoint(method, path) && !originAllowed)
             {
-                _logger.LogDebug("External auth adapter rejected {Path}", path);
-                await WriteErrorAsync(context, 401, "unauthorized");
+                await WriteErrorAsync(context, 403, "origin not allowed");
                 return;
             }
+        }
 
-            context.SetUsersAuth(await authService.AuthenticateExternalAsync(result));
+        if (rule.IsPublic)
+        {
             await _next(context);
             return;
         }
 
-        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
-        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        // Credential endpoints answer 501 in external mode (handled by the controllers).
+        if (adapter != null && IsCredentialEndpoint(method, path))
         {
-            await WriteErrorAsync(context, 401, "unauthorized");
+            await _next(context);
             return;
         }
 
-        var token = authHeader["Bearer ".Length..].Trim();
+        UsersAuthContext? auth;
         try
         {
-            context.SetUsersAuth(await authService.AuthenticateTokenAsync(token));
+            if (rule.IsWebSocket)
+            {
+                auth = await authService.ConsumeTicketAsync(context.Request.Query["ticket"].FirstOrDefault());
+                if (auth == null && adapter != null)
+                    auth = await authService.AuthenticateRequestAsync(context, adapter);
+            }
+            else
+            {
+                auth = await authService.AuthenticateRequestAsync(context, adapter);
+            }
         }
         catch (UsersApiException ex)
         {
@@ -99,7 +124,36 @@ public class UsersAuthMiddleware
             return;
         }
 
+        if (auth == null)
+        {
+            await WriteErrorAsync(context, 401, "unauthorized");
+            return;
+        }
+
+        if (auth.User.MustChangePassword && !IsAllowedWhilePasswordChangeRequired(method, path, auth.User))
+        {
+            await WriteErrorAsync(context, 403, AuthService.PasswordChangeRequiredMessage);
+            return;
+        }
+
+        if (!isUsersRoute && rule.Permission != null && !auth.Can(rule.Permission))
+        {
+            await WriteErrorAsync(context, 403, $"permission denied: {rule.Permission}");
+            return;
+        }
+
+        context.SetUsersAuth(auth);
+        context.SetCliPrincipal(auth.ToCliPrincipal());
         await _next(context);
+    }
+
+    private static bool LimitBody(HttpContext context)
+    {
+        if (context.Request.ContentLength > UsersValidation.MaxBodyBytes) return false;
+        var feature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (feature is { IsReadOnly: false })
+            feature.MaxRequestBodySize = UsersValidation.MaxBodyBytes;
+        return true;
     }
 
     private static Task WriteErrorAsync(HttpContext context, int status, string message)
@@ -110,39 +164,53 @@ public class UsersAuthMiddleware
             System.Text.Json.JsonSerializer.Serialize(new ErrorResponse(message)));
     }
 
-    /// <summary>POST /sessions — login.</summary>
-    private static bool IsLogin(HttpContext context, string path) =>
-        HttpMethods.IsPost(context.Request.Method) && IsExactly(path, SessionsPath);
+    private static bool IsStateChanging(string method) =>
+        HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsDelete(method) || HttpMethods.IsPatch(method);
 
-    /// <summary>Logout, verify-password and password change: 501 in external mode.</summary>
-    private static bool IsCredentialEndpoint(HttpContext context, string path)
+    /// <summary>GET/DELETE /sessions/current and PUT /users/{self}/password.</summary>
+    internal static bool IsAllowedWhilePasswordChangeRequired(string method, string path, User user)
     {
         var trimmed = path.TrimEnd('/');
-        if (HttpMethods.IsDelete(context.Request.Method) && IsExactly(trimmed, SessionsPath + "/current"))
+        if ((HttpMethods.IsGet(method) || HttpMethods.IsDelete(method)) &&
+            string.Equals(trimmed, SessionsPath + "/current", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (!trimmed.StartsWith(Base + "/users/", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var segments = trimmed[(Base.Length + "/users/".Length)..].Split('/');
-        if (segments.Length != 2) return false;
-
-        return (HttpMethods.IsPost(context.Request.Method) &&
-                segments[1].Equals("verify-password", StringComparison.OrdinalIgnoreCase)) ||
-               (HttpMethods.IsPut(context.Request.Method) &&
-                segments[1].Equals("password", StringComparison.OrdinalIgnoreCase));
+        if (!HttpMethods.IsPut(method)) return false;
+        var target = PasswordTarget(trimmed);
+        return target != null &&
+               (target == user.Id || string.Equals(target, user.Name, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsExactly(string path, string expected) =>
-        string.Equals(path.TrimEnd('/'), expected, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Logout, verify-password and password change: 501 in external mode.</summary>
+    private static bool IsCredentialEndpoint(string method, string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        if (HttpMethods.IsDelete(method) && string.Equals(trimmed, SessionsPath + "/current", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsPut(method) && PasswordTarget(trimmed) != null) return true;
+        return HttpMethods.IsPost(method) && UserSubresource(trimmed, "verify-password") != null;
+    }
+
+    private static string? PasswordTarget(string trimmedPath) => UserSubresource(trimmedPath, "password");
+
+    /// <summary>For <c>/users/{x}/{sub}</c> returns the unescaped <c>x</c>.</summary>
+    private static string? UserSubresource(string trimmedPath, string sub)
+    {
+        const string prefix = Base + "/users/";
+        if (!trimmedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var segments = trimmedPath[prefix.Length..].Split('/');
+        return segments.Length == 2 && segments[1].Equals(sub, StringComparison.OrdinalIgnoreCase)
+            ? Uri.UnescapeDataString(segments[0])
+            : null;
+    }
 
     /// <summary>
     /// Segment-aware prefix match: "/api/v1/qcli/users" matches "/api/v1/qcli/users"
     /// and "/api/v1/qcli/users/..." but not "/api/v1/qcli/users-something".
     /// </summary>
-    private static bool IsProtectedRoute(string path)
+    private static bool IsUsersRoute(string path)
     {
-        foreach (var prefix in ProtectedPrefixes)
+        foreach (var prefix in UsersPrefixes)
         {
             if (path.Equals(prefix, StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase))

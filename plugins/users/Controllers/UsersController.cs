@@ -12,11 +12,13 @@ public class UsersController : UsersControllerBase
 {
     private readonly UsersService _users;
     private readonly AuthService _auth;
+    private readonly IpRateLimiter _limiter;
 
-    public UsersController(UsersService users, AuthService auth)
+    public UsersController(UsersService users, AuthService auth, IpRateLimiter limiter)
     {
         _users = users;
         _auth = auth;
+        _limiter = limiter;
     }
 
     /// <summary>List users (<c>?query=&amp;skip=&amp;take=</c>). Requires <c>users:read</c>.</summary>
@@ -39,7 +41,7 @@ public class UsersController : UsersControllerBase
     [HttpPost]
     [UsersPermission(UsersPermissions.UsersCreate)]
     public async Task<IActionResult> Create([FromBody] CreateUserDto dto) =>
-        Json(201, await _users.CreateUserAsync(dto, Auth.User.Name));
+        Json(201, await _users.CreateUserAsync(dto, Auth));
 
     /// <summary>Update a user. Requires <c>users:update</c>; self may change only email and data.</summary>
     [HttpPut("{idOrName}")]
@@ -58,9 +60,14 @@ public class UsersController : UsersControllerBase
     /// <summary>Change a password. Self (with current password) or <c>users:update</c>.</summary>
     [HttpPut("{idOrName}/password")]
     [UsersCredentialEndpoint]
+    [UsersAllowPasswordChangeRequired]
     public async Task<IActionResult> ChangePassword([FromRoute] string idOrName, [FromBody] PasswordChangeRequest request)
     {
-        await _users.ChangePasswordAsync(idOrName, request, Auth);
+        var caller = Auth;
+        var target = await _users.FindUserAsync(idOrName);
+        if (target != null && caller.IsSelf(target))
+            _limiter.Acquire(HttpContext);
+        await _users.ChangePasswordAsync(idOrName, request, caller);
         return NoContent();
     }
 
@@ -81,8 +88,11 @@ public class UsersController : UsersControllerBase
             throw Denied(UsersPermissions.UsersUpdate);
         if (string.IsNullOrEmpty(request.Password))
             throw UsersApiException.BadRequest("password is required");
+        if (request.Password.Length > _auth.Options.MaxPasswordLength)
+            throw UsersApiException.BadRequest("password is too long");
 
-        var valid = await _auth.VerifyPasswordWithLockoutAsync(target, request.Password, caller.User.Name);
+        _limiter.Acquire(HttpContext);
+        var valid = await _auth.VerifyPasswordWithLockoutAsync(target, request.Password, caller.User.Name, caller.User.Id);
         return JsonOk(new VerifyResponse { Valid = valid });
     }
 

@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +13,7 @@ using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Users;
 using Qodalis.Cli.Plugin.Users.Extensions;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Tests.Helpers;
@@ -26,13 +28,34 @@ public sealed class ManualTimeProvider : TimeProvider
     public void Advance(TimeSpan by) => _now = _now.Add(by);
 }
 
-/// <summary>Records broadcast messages instead of sending them to WebSocket clients.</summary>
+/// <summary>Captures log messages (to read the generated root password in tests).</summary>
+public sealed class CapturingLoggerProvider : ILoggerProvider
+{
+    public ConcurrentQueue<string> Messages { get; } = new();
+
+    public ILogger CreateLogger(string categoryName) => new CapturingLogger(Messages);
+
+    public void Dispose() { }
+
+    private sealed class CapturingLogger(ConcurrentQueue<string> messages) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => messages.Enqueue(formatter(state, exception));
+    }
+}
+
+/// <summary>Records broadcast and user-scoped messages instead of sending them to WebSocket clients.</summary>
 public sealed class FakeEventSocketManager : ICliEventSocketManager
 {
     public ConcurrentQueue<string> Messages { get; } = new();
 
-    public Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null) =>
-        Task.CompletedTask;
+    /// <summary>User-scoped messages as (userId, message).</summary>
+    public ConcurrentQueue<(string UserId, string Message)> UserMessages { get; } = new();
+
+    public Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null,
+        CliPrincipal? principal = null) => Task.CompletedTask;
 
     public Task BroadcastMessageAsync(string message)
     {
@@ -40,12 +63,18 @@ public sealed class FakeEventSocketManager : ICliEventSocketManager
         return Task.CompletedTask;
     }
 
+    public Task SendToUserAsync(string userId, string message)
+    {
+        UserMessages.Enqueue((userId, message));
+        return Task.CompletedTask;
+    }
+
     public Task BroadcastDisconnectAsync() => Task.CompletedTask;
 
     public IReadOnlyList<CliWebSocketClientInfo> GetClients() => [];
 
-    /// <summary>Parsed <c>session-kicked</c> payloads (<c>data</c> objects).</summary>
-    public List<JsonElement> SessionKicked() => Messages
+    /// <summary>Parsed <c>session-kicked</c> payloads (<c>data</c> objects), from any channel.</summary>
+    public List<JsonElement> SessionKicked() => Messages.Concat(UserMessages.Select(m => m.Message))
         .Select(m => JsonSerializer.Deserialize<JsonElement>(m))
         .Where(m => m.GetProperty("type").GetString() == "session-kicked")
         .Select(m => m.GetProperty("data"))
@@ -79,7 +108,11 @@ public sealed class UsersTestHost : IAsyncDisposable
         Action<UsersModuleOptions>? configure = null,
         bool useMiddleware = true,
         Action<IServiceCollection>? configureServices = null,
-        Action<Microsoft.AspNetCore.Mvc.JsonOptions>? jsonOptions = null)
+        Action<Microsoft.AspNetCore.Mvc.JsonOptions>? jsonOptions = null,
+        Action<CliBuilder>? configureCli = null,
+        bool realEventSockets = false,
+        Action<IApplicationBuilder>? configureApp = null,
+        Action<IMvcBuilder>? configureMvc = null)
     {
         var events = new FakeEventSocketManager();
         var time = new ManualTimeProvider();
@@ -95,17 +128,31 @@ public sealed class UsersTestHost : IAsyncDisposable
                     services.AddCors();
                     var mvc = services
                         .AddControllers()
-                        .AddCli(cli => cli.AddUsers(configure));
+                        .AddCli(cli =>
+                        {
+                            configureCli?.Invoke(cli);
+                            cli.AddUsers(o =>
+                            {
+                                o.DefaultAdminPassword = "root";
+                                configure?.Invoke(o);
+                            });
+                        });
                     if (jsonOptions != null) mvc.AddJsonOptions(jsonOptions);
-                    services.RemoveAll<ICliEventSocketManager>();
-                    services.AddSingleton<ICliEventSocketManager>(events);
+                    configureMvc?.Invoke(mvc);
+                    if (!realEventSockets)
+                    {
+                        services.RemoveAll<ICliEventSocketManager>();
+                        services.AddSingleton<ICliEventSocketManager>(events);
+                    }
                 });
                 webHost.Configure(app =>
                 {
+                    app.UseWebSockets();
                     app.UseRouting();
                     app.UseCors();
                     if (useMiddleware) app.UseQodalisUsers();
                     app.UseAuthorization();
+                    configureApp?.Invoke(app);
                     app.UseEndpoints(endpoints => endpoints.MapControllers());
                     app.UseCli();
                 });
@@ -123,6 +170,61 @@ public sealed class UsersTestHost : IAsyncDisposable
     }
 
     public T Service<T>() where T : notnull => Host.Services.GetRequiredService<T>();
+
+    /// <summary>Requests a single-use WebSocket ticket for <paramref name="token"/>.</summary>
+    public async Task<string> TicketAsync(string token)
+    {
+        var res = await PostAsync("sessions/ws-ticket", token);
+        Assert.Equal(201, (int)res.StatusCode);
+        return (await ReadJsonAsync(res)).GetProperty("ticket").GetString()!;
+    }
+
+    /// <summary>Opens a WebSocket on the test server; throws when the upgrade is rejected.</summary>
+    public async Task<WebSocket> ConnectWebSocketAsync(string pathAndQuery, string? origin = null)
+    {
+        var client = Host.GetTestServer().CreateWebSocketClient();
+        if (origin != null)
+            client.ConfigureRequest = r => r.Headers["Origin"] = origin;
+        return await client.ConnectAsync(new Uri("ws://localhost" + pathAndQuery), CancellationToken.None);
+    }
+
+    /// <summary>Status code of a rejected WebSocket upgrade (0 when it was accepted).</summary>
+    public async Task<int> RejectedUpgradeStatusAsync(string pathAndQuery, string? origin = null)
+    {
+        try
+        {
+            var socket = await ConnectWebSocketAsync(pathAndQuery, origin);
+            await CloseAsync(socket);
+            return 0;
+        }
+        catch (InvalidOperationException ex)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(ex.Message, @"status code: (\d+)");
+            return match.Success ? int.Parse(match.Groups[1].Value) : -1;
+        }
+    }
+
+    public static async Task<string> ReceiveTextAsync(WebSocket socket, int timeoutMs = 5000)
+    {
+        using var cts = new CancellationTokenSource(timeoutMs);
+        var buffer = new byte[8192];
+        var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+        return Encoding.UTF8.GetString(buffer, 0, result.Count);
+    }
+
+    public static async Task CloseAsync(WebSocket socket)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(2000);
+            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+        }
+        catch
+        {
+            // best effort
+        }
+        socket.Dispose();
+    }
 
     // ---------------------------------------------------------------------
     // HTTP helpers

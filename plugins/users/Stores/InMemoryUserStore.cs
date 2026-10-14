@@ -71,6 +71,7 @@ public class InMemoryUserStore : IUserStore
             if (data.HomeDir != null) user.HomeDir = data.HomeDir;
             if (data.Data != null) user.Data = data.Data;
             if (data.LastLoginAt.HasValue) user.LastLoginAt = data.LastLoginAt;
+            if (data.MustChangePassword.HasValue) user.MustChangePassword = data.MustChangePassword.Value;
             user.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             return Task.FromResult(user.Clone());

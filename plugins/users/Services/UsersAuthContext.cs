@@ -27,9 +27,16 @@ public sealed class UsersAuthContext
     /// <summary>True when authenticated by an <see cref="IExternalAuthAdapter"/>.</summary>
     public bool IsExternal { get; init; }
 
+    /// <summary>The adapter result (external mode), used to bind WebSocket tickets.</summary>
+    public ExternalAuthResult? ExternalResult { get; init; }
+
     public bool Can(string permission) => PermissionMatcher.HasPermission(Permissions, permission);
 
     public bool IsSelf(User other) => other.Id == User.Id;
+
+    /// <summary>The server-wide principal shared with core and other plugins.</summary>
+    public Qodalis.Cli.Security.CliPrincipal ToCliPrincipal() =>
+        new(User.Id, User.Name, Permissions, Session?.Id ?? SessionId);
 
     public CurrentSession ToCurrentSession() => new()
     {

@@ -6,8 +6,9 @@ using Qodalis.Cli.Plugin.Users.Stores;
 namespace Qodalis.Cli.Plugin.Users.Services;
 
 /// <summary>
-/// Seeds the built-in groups (<c>admin</c>, <c>users</c>) and — unless external auth is
-/// configured — the <c>root</c> user, and periodically sweeps idle sessions.
+/// Seeds the built-in groups (<c>admin</c> = <c>*</c>, <c>users</c> = <c>commands:execute</c>) and —
+/// unless external auth is configured — the <c>root</c> user (random password with
+/// <c>mustChangePassword</c> when none is configured), and periodically sweeps idle sessions.
 /// Seeding is idempotent and also awaited by the auth middleware, so requests that arrive
 /// before the hosted service has started still see the seeded state.
 /// </summary>
@@ -49,25 +50,57 @@ public class UsersBootstrapService : IHostedService, IDisposable
         }
     }
 
+    /// <summary>Passwords that trigger a startup warning when configured explicitly.</summary>
+    private static readonly string[] WeakPasswords = ["root", "admin", "password"];
+
     private async Task SeedAsync()
     {
         await EnsureGroupAsync(Group.AdminGroup, "Administrators", ["*"]);
-        await EnsureGroupAsync(Group.UsersGroup, "Default group for new accounts", []);
+        await EnsureGroupAsync(Group.UsersGroup, "Default group for new accounts", ["commands:execute"]);
 
         if (_options.UsesExternalAuth) return;
 
         var users = await _userStore.GetUsersAsync();
-        if (users.Count == 0)
+        if (users.Count > 0) return;
+
+        var configured = _options.DefaultAdminPassword;
+        var password = string.IsNullOrEmpty(configured) ? GeneratePassword(16) : configured;
+
+        var adminUser = await _userStore.CreateUserAsync(new CreateUserDto
         {
-            var adminUser = await _userStore.CreateUserAsync(new CreateUserDto
-            {
-                Name = "root",
-                Email = "root@localhost",
-                Groups = [Group.AdminGroup],
-            });
-            await _authService.SetPasswordAsync(adminUser.Id, _options.DefaultAdminPassword ?? "root");
-            _logger.LogInformation("Seeded default admin user 'root'");
+            Name = "root",
+            Email = "root@localhost",
+            Groups = [Group.AdminGroup],
+        });
+        await _authService.SetPasswordAsync(adminUser.Id, password);
+
+        if (string.IsNullOrEmpty(configured))
+        {
+            await _userStore.UpdateUserAsync(adminUser.Id, new UpdateUserDto { MustChangePassword = true });
+            _logger.LogWarning(
+                "Seeded admin user 'root' with generated password: {Password} — it must be changed on first login. " +
+                "This is the only time it is shown.", password);
         }
+        else
+        {
+            _logger.LogInformation("Seeded default admin user 'root'");
+            if (WeakPasswords.Contains(configured, StringComparer.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "The seeded 'root' user uses a well-known default password. Change it before exposing this server.");
+            }
+        }
+    }
+
+    /// <summary>Random password from an unambiguous alphabet.</summary>
+    internal static string GeneratePassword(int length)
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+        return string.Create(length, 0, (span, _) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = alphabet[System.Security.Cryptography.RandomNumberGenerator.GetInt32(alphabet.Length)];
+        });
     }
 
     private async Task EnsureGroupAsync(string name, string description, List<string> permissions)

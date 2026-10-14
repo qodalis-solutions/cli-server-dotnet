@@ -25,6 +25,11 @@ public class User
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool Disabled { get; set; }
 
+    /// <summary>When true, the user's sessions may only change their own password.</summary>
+    [JsonPropertyName("mustChangePassword")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool MustChangePassword { get; set; }
+
     [JsonPropertyName("homeDir")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? HomeDir { get; set; }
@@ -53,6 +58,7 @@ public class User
         Email = Email,
         Groups = [.. Groups],
         Disabled = Disabled,
+        MustChangePassword = MustChangePassword,
         HomeDir = HomeDir,
         CreatedAt = CreatedAt,
         UpdatedAt = UpdatedAt,
