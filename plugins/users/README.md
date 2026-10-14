@@ -27,7 +27,7 @@ var app = builder.Build();
 app.UseQodalisUsers();
 ```
 
-On first start a hosted bootstrap service seeds a `root` admin user (email `root@localhost`, password from `DefaultAdminPassword`, default `root`) and an `admin` group, unless an external auth adapter is configured. Session-kick events are broadcast through the server's events WebSocket automatically.
+On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and `users` (no permissions) when missing, and — unless an external auth adapter is configured — a `root` admin user (email `root@localhost`, password from `DefaultAdminPassword`, default `root`) when the user store is empty. Without `UseQodalisUsers()` every endpoint except login answers `401` (fail closed).
 
 ## Options
 
@@ -35,72 +35,78 @@ On first start a hosted bootstrap service seeds a `root` admin user (email `root
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `UserStore` | `IUserStore` | `InMemoryUserStore` | User storage |
-| `SessionStore` | `ISessionStore` | `InMemorySessionStore` | Session/token storage |
-| `CredentialStore` | `ICredentialStore` | `InMemoryCredentialStore` | Password hash storage |
-| `AuditStore` | `IAuditStore` | `InMemoryAuditStore` | Audit log storage |
-| `GroupStore` | `IGroupStore` | `InMemoryGroupStore` | Group storage |
-| `SessionTimeoutMs` | `long?` | `1800000` (30 min) | Idle timeout for sessions |
+| `SetUserStore<T>()` / `SetUserStore(sp => ...)` | method | `InMemoryUserStore` | User storage (DI-constructed singleton) |
+| `SetSessionStore<T>()` / factory | method | `InMemorySessionStore` | Session/token storage |
+| `SetCredentialStore<T>()` / factory | method | `InMemoryCredentialStore` | Password hash storage |
+| `SetAuditStore<T>()` / factory | method | `InMemoryAuditStore` (last 1000 entries) | Audit log storage |
+| `SetGroupStore<T>()` / factory | method | `InMemoryGroupStore` | Group storage |
+| `UserStore`, `SessionStore`, ... | instance | `null` | Store instances (alternative to the `Set*Store` methods) |
+| `SessionTimeoutMs` | `long?` | `1800000` (30 min) | Idle timeout, checked on every request |
 | `DefaultAdminPassword` | `string?` | `"root"` | Password for the seeded `root` user |
-| `AuthAdapter` | `IExternalAuthAdapter?` | `null` | Delegate authentication to the host app (see below) |
-| `UseExternalAuth(Func<HttpContext, ExternalAuthResult?>)` | method | — | Delegate-based shortcut for `AuthAdapter` |
+| `MinPasswordLength` | `int` | `4` | Password policy |
+| `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures (429) |
+| `AuthAdapter` / `UseExternalAuth(...)` / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
+
+## Permissions
+
+Permissions are `resource:action` strings with `*` wildcards (`*`, `users:*`), matched case-insensitively. A user's effective permissions are the union of their groups' `permissions`. Built-in permissions: `users:read|create|update|delete`, `groups:read|create|update|delete`, `sessions:read|revoke`, `audit:read|clear`.
 
 ## API Endpoints
 
-All routes live under `/api/v1/qcli`. Protected routes expect `Authorization: Bearer <token>`.
+All routes live under `/api/v1/qcli` and accept a trailing slash. Protected routes expect `Authorization: Bearer <token>`. Every error body is `{ "error": "..." }`.
 
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/sessions` | POST | None | Login: `{ username, password }` → `201 { token, session }` |
-| `/sessions/current` | DELETE | Required | Logout: end the current session (204) |
-| `/users` | GET | Required | List users (`?query=&skip=&take=`) |
-| `/users/{idOrName}` | GET | Required | Get a user |
-| `/users` | POST | Admin | Create a user `{ name, email, password?, groups?, data? }` |
-| `/users/{id}` | PUT | Admin | Update a user |
-| `/users/{id}` | DELETE | Admin | Delete a user and its sessions/credentials (204) |
-| `/users/{id}/password` | PUT | Self or admin | `{ currentPassword?, newPassword }`; a wrong current password returns 403 |
-| `/users/{id}/verify-password` | POST | Required | `{ password }` → `{ valid }` |
-| `/sessions` | GET | Admin | List active sessions |
-| `/sessions/current` | GET | Required | Current session |
-| `/sessions/{id}` | DELETE | Admin | Kick a session (204) and broadcast `session-kicked` |
-| `/groups` | GET | Required | List groups |
-| `/groups/{name}` | GET | Required | Get a group |
-| `/groups` | POST | Admin | Create a group `{ name, description? }` |
-| `/groups/{name}` | DELETE | Admin | Delete a group (204) |
-| `/groups/{name}/members/{userId}` | PUT | Admin | Add a user to a group (204) |
-| `/groups/{name}/members/{userId}` | DELETE | Admin | Remove a user from a group (204) |
-| `/audit` | GET | Admin | Audit entries (`?event=&username=&limit=`) |
-| `/audit` | DELETE | Admin | Clear the audit log (204) |
+| Endpoint | Method | Requirement | Description |
+|----------|--------|-------------|-------------|
+| `/sessions` | POST | public | Login by name or email: `{ username, password }` → `201 { token, session }` |
+| `/sessions/current` | GET | authenticated | `{ id, user, permissions, loginTime, lastActivity, expiresAt }` |
+| `/sessions/current` | DELETE | authenticated | Logout (204) |
+| `/sessions` | GET | `sessions:read` | Active sessions (never includes tokens) |
+| `/sessions/{id}` | DELETE | `sessions:revoke` or own session | Revoke (204) and broadcast `session-kicked` |
+| `/users` | GET | `users:read` | List users (`?query=&skip=&take=`) |
+| `/users/{idOrName}` | GET | `users:read` or self | Get a user |
+| `/users/{idOrName}/permissions` | GET | `users:read` or self | `{ userId, groups, permissions }` |
+| `/users` | POST | `users:create` | `{ name, email, groups?, password?, disabled?, homeDir?, data? }` → 201 |
+| `/users/{idOrName}` | PUT | `users:update` (self: `email`, `data` only) | Update a user |
+| `/users/{idOrName}` | DELETE | `users:delete` | Delete (204); credentials and sessions are removed |
+| `/users/{idOrName}/password` | PUT | self (with `currentPassword`) or `users:update` | `{ password, currentPassword? }` → 204 |
+| `/users/{idOrName}/verify-password` | POST | self or `users:update` | `{ password }` → `{ valid }`; failures count toward lockout |
+| `/groups` | GET | authenticated | List groups |
+| `/groups/{name}` | GET | authenticated | Get a group |
+| `/groups/{name}/members` | GET | `groups:read` or member | Members |
+| `/groups` | POST | `groups:create` | `{ name, description?, permissions? }` → 201 |
+| `/groups/{name}` | PUT | `groups:update` | `{ description?, permissions? }` (`admin` permissions are fixed) |
+| `/groups/{name}` | DELETE | `groups:delete` | Delete (204); removed from every user; built-ins are protected |
+| `/groups/{name}/members/{idOrName}` | POST / DELETE | `groups:update` | Add / remove a member (204) |
+| `/audit` | GET | `audit:read` | Audit entries (`?event=&username=&limit=`) |
+| `/audit` | DELETE | `audit:clear` | Clear the audit log (204) |
+
+Protections (409): deleting yourself; deleting, disabling or removing `admin` from the last enabled admin; deleting a built-in group; duplicate user name/email or group name. Disabling a user or changing a password revokes sessions. Passwords are stored as PBKDF2-HMAC-SHA256 (`pbkdf2$100000$<salt>$<hash>`).
 
 The admin dashboard plugin keeps its own login at `/auth/login`; both plugins can be mounted at the same prefix.
 
-Tokens are opaque random strings validated against the session store on every request; `LastActivity` is refreshed on each authenticated call.
-
 ## Session kick event
 
-`DELETE /sessions/{id}` broadcasts the following message on the events WebSocket (`/ws/v1/qcli/events`):
+Every revoked session (explicit revoke, user deleted/disabled, password changed) broadcasts on the events WebSocket:
 
 ```json
-{ "type": "session-kicked", "data": { "sessionId": "...", "userId": "..." } }
+{ "type": "session-kicked", "data": { "sessionId": "...", "userId": "...", "reason": "revoked" } }
 ```
 
-A `@qodalis/cli-users` client in server mode logs itself out when its own session id is kicked.
+`reason` is one of `revoked`, `user_deleted`, `user_disabled`, `password_changed`. A `@qodalis/cli-users` client in server mode logs itself out when its own session id is kicked.
 
 ## Custom storage
 
-Implement any of `IUserStore`, `ISessionStore`, `ICredentialStore`, `IAuditStore` or `IGroupStore` (namespace `Qodalis.Cli.Plugin.Users.Stores`) and assign the instance in the options:
+Implement any of `IUserStore`, `ISessionStore`, `ICredentialStore`, `IAuditStore` or `IGroupStore` (namespace `Qodalis.Cli.Plugin.Users.Stores`) and register it:
 
 ```csharp
-cli.AddUsers(options =>
-{
-    options.UserStore = new PostgresUserStore(connectionString);
-    options.SessionStore = new RedisSessionStore(redis);
-});
+cli.AddUsers(options => options
+    .SetUserStore<PostgresUserStore>()          // constructed via DI
+    .SetSessionStore(sp => new RedisSessionStore(sp.GetRequiredService<IConnectionMultiplexer>())));
 ```
 
 ## External auth adapter
 
-If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`) and `verify-password` then answer `501`, and no `root` user is seeded.
+If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`), `verify-password` and password changes then answer `501`, no `root` user is seeded (the built-in groups still are), and permissions come from the groups the adapter returns (`IsAdmin` adds `admin`).
 
 ```csharp
 cli.AddUsers(options =>
