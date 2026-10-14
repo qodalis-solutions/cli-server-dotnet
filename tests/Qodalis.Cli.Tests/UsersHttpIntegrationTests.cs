@@ -797,6 +797,31 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ChangePassword_SelfWithUsersUpdate_DoesNotNeedCurrentPassword()
+    {
+        var (other, _) = await _h.LoginAsync("root", "root");
+
+        var res = await _h.PutAsync("users/root/password", _root, new { password = "newroot" });
+        Assert.Equal(204, (int)res.StatusCode);
+
+        // A wrong currentPassword is ignored for privileged callers too.
+        Assert.Equal(204, (int)(await _h.PutAsync("users/root/password", _root,
+            new { currentPassword = "wrong", password = "newroot2" })).StatusCode);
+
+        Assert.Equal(200, (int)(await _h.GetAsync("sessions/current", _root)).StatusCode);
+        await AssertErrorAsync(await _h.GetAsync("sessions/current", other), 401);
+        await _h.LoginAsync("root", "newroot2");
+    }
+
+    [Fact]
+    public async Task ChangePassword_SelfWithCustomUsersUpdateGroup_DoesNotNeedCurrentPassword()
+    {
+        var token = await _h.UserWithPermissionsAsync(_root, "pw-manager", "users:update");
+        Assert.Equal(204, (int)(await _h.PutAsync("users/pw-manager/password", token, new { password = "changed1" })).StatusCode);
+        await _h.LoginAsync("pw-manager", "changed1");
+    }
+
+    [Fact]
     public async Task ChangePassword_PolicyAndMissingField_Return400()
     {
         await _h.CreateUserAsync(_root, "pw-policy");

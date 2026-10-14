@@ -232,9 +232,9 @@ public class UsersService
     }
 
     /// <summary>
-    /// Changes a password. Self requires the correct current password (wrong → 403) and revokes
-    /// the caller's other sessions; otherwise <c>users:update</c> is required and all of the
-    /// target's sessions are revoked.
+    /// Changes a password. Callers with <c>users:update</c> need no current password; self-service
+    /// callers without it must supply the correct current password (missing → 400, wrong → 403).
+    /// A self change revokes the caller's other sessions; otherwise all of the target's sessions are revoked.
     /// </summary>
     public async Task ChangePasswordAsync(string idOrName, PasswordChangeRequest request, UsersAuthContext caller)
     {
@@ -254,7 +254,8 @@ public class UsersService
 
         _auth.ValidatePassword(request.Password);
 
-        if (isSelf)
+        // Callers holding users:update may change their own password without the current one.
+        if (isSelf && !privileged)
         {
             if (string.IsNullOrEmpty(request.CurrentPassword))
                 throw UsersApiException.BadRequest("currentPassword is required");

@@ -68,7 +68,7 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | `/users` | POST | `users:create` | `{ name, email, groups?, password?, disabled?, homeDir?, data? }` → 201 |
 | `/users/{idOrName}` | PUT | `users:update` (self: `email`, `data` only) | Update a user |
 | `/users/{idOrName}` | DELETE | `users:delete` | Delete (204); credentials and sessions are removed |
-| `/users/{idOrName}/password` | PUT | self (with `currentPassword`) or `users:update` | `{ password, currentPassword? }` → 204 |
+| `/users/{idOrName}/password` | PUT | `users:update`, or self with `currentPassword` | `{ password, currentPassword? }` → 204 |
 | `/users/{idOrName}/verify-password` | POST | self or `users:update` | `{ password }` → `{ valid }`; failures count toward lockout |
 | `/groups` | GET | authenticated | List groups |
 | `/groups/{name}` | GET | authenticated | Get a group |
