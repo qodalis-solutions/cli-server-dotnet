@@ -10,6 +10,7 @@ COPY plugins/filesystem-efcore/Qodalis.Cli.Plugin.FileSystem.EfCore.csproj plugi
 COPY plugins/filesystem-s3/Qodalis.Cli.Plugin.FileSystem.S3.csproj plugins/filesystem-s3/
 COPY plugins/weather/Qodalis.Cli.Plugin.Weather.csproj plugins/weather/
 COPY plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj plugins/jobs/
+COPY plugins/users/Qodalis.Cli.Plugin.Users.csproj plugins/users/
 COPY plugins/admin/Qodalis.Cli.Plugin.Admin.csproj plugins/admin/
 COPY plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj plugins/data-explorer-sql/
 COPY plugins/data-explorer-mongo/Qodalis.Cli.Plugin.DataExplorer.Mongo.csproj plugins/data-explorer-mongo/

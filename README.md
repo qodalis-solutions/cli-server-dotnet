@@ -22,6 +22,12 @@ A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-sol
 | `Qodalis.Cli.Plugin.FileSystem.EfCore` | Entity Framework Core (any DB) | Microsoft.EntityFrameworkCore |
 | `Qodalis.Cli.Plugin.FileSystem.S3` | Amazon S3 | AWSSDK.S3 |
 
+### Users Plugin
+
+| Package | Description | Dependencies |
+|---|---|---|
+| `Qodalis.Cli.Plugin.Users` | Authentication, users, sessions, groups and audit log API (server side of `@qodalis/cli-users` server mode) | — |
+
 ### Cloud Plugins
 
 | Package | Description | Dependencies |
@@ -727,6 +733,23 @@ All commands support `--region` (`-r`) for region override and `--output` (`-o`)
 
 See [`plugins/aws/README.md`](plugins/aws/README.md) for the full command reference.
 
+### Users Plugin
+
+The users plugin adds endpoints under `/api/v1/qcli` for authentication, users, sessions, groups and an audit log, with swappable storage (in-memory by default). It is the server side of the `@qodalis/cli-users` browser plugin's *server mode*.
+
+```csharp
+using Qodalis.Cli.Plugin.Users.Extensions;
+
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.AddUsers(options => options.DefaultAdminPassword = "admin");
+});
+
+app.UseQodalisUsers();
+```
+
+See [`plugins/users/README.md`](plugins/users/README.md) for options, endpoints, custom storage and external auth adapters.
+
 ## Docker
 
 ```bash
@@ -788,6 +811,7 @@ plugins/
   data-explorer-mssql/         # MS SQL Server data explorer provider
   data-explorer-redis/         # Redis data explorer provider
   data-explorer-elasticsearch/ # Elasticsearch data explorer provider
+  users/                       # Users plugin (auth, sessions, groups, audit)
   weather/                     # Weather module (example plugin)
   admin/                       # Admin dashboard and monitoring
   jobs/                        # Job scheduling and management
