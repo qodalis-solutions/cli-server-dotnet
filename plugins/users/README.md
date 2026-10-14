@@ -27,7 +27,9 @@ var app = builder.Build();
 app.UseQodalisUsers();
 ```
 
-On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and `users` (no permissions) when missing, and — unless an external auth adapter is configured — a `root` admin user (email `root@localhost`, password from `DefaultAdminPassword`, default `root`) when the user store is empty. Without `UseQodalisUsers()` every endpoint except login answers `401` (fail closed).
+On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and `users` (`["commands:execute"]`) when missing, and — unless an external auth adapter is configured — a `root` admin user (email `root@localhost`) when the user store is empty. Without `DefaultAdminPassword` a random 16-character password is generated, logged **once** with a warning, and root must change it on first login (`mustChangePassword`); an explicit well-known password (`root`, `admin`, `password`) logs a warning.
+
+`UseQodalisUsers()` must run before `UseCli()`. With `ProtectServer` (default `true`) it protects the **whole CLI server**, not only the users routes; without the middleware every protected route answers `401` (fail closed).
 
 ## Options
 
@@ -41,15 +43,47 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `SetAuditStore<T>()` / factory | method | `InMemoryAuditStore` (last 1000 entries) | Audit log storage |
 | `SetGroupStore<T>()` / factory | method | `InMemoryGroupStore` | Group storage |
 | `UserStore`, `SessionStore`, ... | instance | `null` | Store instances (alternative to the `Set*Store` methods) |
+| `ProtectServer` | `bool` | `true` | Require a session (and the permissions below) on every CLI route and socket |
 | `SessionTimeoutMs` | `long?` | `1800000` (30 min) | Idle timeout, checked on every request |
-| `DefaultAdminPassword` | `string?` | `"root"` | Password for the seeded `root` user |
-| `MinPasswordLength` | `int` | `4` | Password policy |
-| `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures (429) |
+| `MaxSessionLifetimeMs` | `long` | `43200000` (12 h) | Absolute session lifetime; `expiresAt` = min(idle, absolute) |
+| `DefaultAdminPassword` | `string?` | random (logged once, must change) | Password for the seeded `root` user |
+| `MinPasswordLength` / `MaxPasswordLength` | `int` | `8` / `1024` | Password policy |
+| `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures (429), also for unknown names |
+| `MaxAttemptsPerIpPerMinute` | `int` | `20` | Per-IP limit on login, verify-password and self password change (429) |
+| `TrustProxy` | `bool` | `false` | Use `X-Forwarded-For` for the client IP (only behind a trusted proxy) |
+| `PasswordHashConcurrency` | `int` | `4` | Concurrent PBKDF2 computations |
 | `AuthAdapter` / `UseExternalAuth(...)` / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
 
 ## Permissions
 
-Permissions are `resource:action` strings with `*` wildcards (`*`, `users:*`), matched case-insensitively. A user's effective permissions are the union of their groups' `permissions`. Built-in permissions: `users:read|create|update|delete`, `groups:read|create|update|delete`, `sessions:read|revoke`, `audit:read|clear`.
+Permissions are `resource:action` strings with `*` wildcards (`*`, `users:*`), matched case-insensitively. A user's effective permissions are the union of their groups' `permissions`. Built-in permissions: `users:read|create|update|delete`, `groups:read|create|update|delete`, `sessions:read|revoke`, `audit:read|clear`, plus the server permissions below.
+
+### Server protection (`ProtectServer`)
+
+| Surface | Permission |
+|---------|------------|
+| `GET /commands` | authenticated |
+| `POST /execute`, `/execute/stream` | `commands:execute` + the processor's `RequiredPermissions` |
+| fs read (`/api/qcli/fs/ls`, `cat`, `stat`, `download`) | `files:read` |
+| fs write (`upload`, `mkdir`, `rm`, …) | `files:write` |
+| data explorer (`/api/qcli/data-explorer/*`) | `data:query` |
+| jobs read / manage (`/api/v1/qcli/jobs`) | `jobs:read` / `jobs:manage` |
+| admin dashboard API | `admin:access` |
+| events WebSocket | authenticated |
+| logs WebSocket | `logs:read` |
+| shell WebSocket (opt-in `cli.EnableShell()`) | `shell:execute` |
+
+Public: `POST /sessions`, `POST /auth/login` (admin dashboard), `/api/qcli/versions`, `/api/cli/versions`, `/api/v1/qcli/version`, `/api/v1/qcli/capabilities`.
+
+**WebSockets** authenticate with a single-use ticket: `POST /sessions/ws-ticket` → `201 { ticket, expiresIn: 30 }`, then connect with `?ticket=<ticket>`. Bearer tokens are never accepted in query strings. Upgrades are checked against `cli.SetAllowedOrigins(...)`.
+
+**Anti-escalation:** callers can only grant permissions they hold (group permissions, group membership, user `groups`), and can only act on users whose permissions they cover (403 `insufficient privileges for this user`).
+
+**CSRF:** state-changing requests without a bearer token are refused (403) when they carry a disallowed `Origin`; in external-adapter (cookie) mode they must carry an allowed one.
+
+**Host routes:** protect your own endpoints with `[QcliAuthorize("perm")]` (MVC) or `.RequireQcliAuthorization("perm")` (minimal APIs).
+
+The admin dashboard plugin authenticates through the users plugin when both are installed (login requires `admin:access`).
 
 ## API Endpoints
 
@@ -58,6 +92,7 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | Endpoint | Method | Requirement | Description |
 |----------|--------|-------------|-------------|
 | `/sessions` | POST | public | Login by name or email: `{ username, password }` → `201 { token, session }` |
+| `/sessions/ws-ticket` | POST | authenticated | Single-use WebSocket ticket → `201 { ticket, expiresIn }` |
 | `/sessions/current` | GET | authenticated | `{ id, user, permissions, loginTime, lastActivity, expiresAt }` |
 | `/sessions/current` | DELETE | authenticated | Logout (204) |
 | `/sessions` | GET | `sessions:read` | Active sessions (never includes tokens) |
@@ -68,7 +103,7 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | `/users` | POST | `users:create` | `{ name, email, groups?, password?, disabled?, homeDir?, data? }` → 201 |
 | `/users/{idOrName}` | PUT | `users:update` (self: `email`, `data` only) | Update a user |
 | `/users/{idOrName}` | DELETE | `users:delete` | Delete (204); credentials and sessions are removed |
-| `/users/{idOrName}/password` | PUT | `users:update`, or self with `currentPassword` | `{ password, currentPassword? }` → 204 |
+| `/users/{idOrName}/password` | PUT | `users:update`, or self with `currentPassword` | `{ password, currentPassword?, temporary? }` → 204; a reset of another user sets `mustChangePassword` unless `temporary: false` |
 | `/users/{idOrName}/verify-password` | POST | self or `users:update` | `{ password }` → `{ valid }`; failures count toward lockout |
 | `/groups` | GET | authenticated | List groups |
 | `/groups/{name}` | GET | authenticated | Get a group |
@@ -80,13 +115,15 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | `/audit` | GET | `audit:read` | Audit entries (`?event=&username=&limit=`) |
 | `/audit` | DELETE | `audit:clear` | Clear the audit log (204) |
 
+While `mustChangePassword` is true a session may only call `GET/DELETE /sessions/current` and `PUT /users/{self}/password` (others → 403 `password change required`). Session stores keep only `SHA-256(token)`. Names: 1–64 chars `^[A-Za-z0-9][A-Za-z0-9._@-]*$`; names and emails share one uniqueness namespace; control characters are rejected.
+
 Protections (409): deleting yourself; deleting, disabling or removing `admin` from the last enabled admin; deleting a built-in group; duplicate user name/email or group name. Disabling a user or changing a password revokes sessions. Passwords are stored as PBKDF2-HMAC-SHA256 (`pbkdf2$100000$<salt>$<hash>`).
 
 The admin dashboard plugin keeps its own login at `/auth/login`; both plugins can be mounted at the same prefix.
 
 ## Session kick event
 
-Every revoked session (explicit revoke, user deleted/disabled, password changed) broadcasts on the events WebSocket:
+Every revoked session (explicit revoke, user deleted/disabled, password changed) is sent on the events WebSocket — only to sockets authenticated as that user:
 
 ```json
 { "type": "session-kicked", "data": { "sessionId": "...", "userId": "...", "reason": "revoked" } }

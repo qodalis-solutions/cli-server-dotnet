@@ -52,14 +52,12 @@ using Qodalis.Cli.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCors(options =>
-    options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
-
 builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
+        // CORS + WebSocket Origin allow-list (the library configures no CORS otherwise).
+        cli.SetAllowedOrigins("http://localhost:4300");
         cli.AddProcessor<GreetCommandProcessor>();
         cli.AddProcessor<MathCommandProcessor>();
     })
@@ -453,7 +451,13 @@ The server exposes versioned endpoints:
 | GET | `/api/v1/qcli/capabilities` | Server capabilities (OS, shell, features) |
 | WS | `/ws/v1/qcli/events` | WebSocket server-push event broadcast |
 | WS | `/ws/v1/qcli/logs` | WebSocket log streaming (supports `?level=` filter) |
-| WS | `/ws/v1/qcli/shell` | Interactive PTY shell session |
+| WS | `/ws/v1/qcli/shell` | Interactive PTY shell session (opt-in: `cli.EnableShell()`) |
+
+The interactive shell sockets (`/ws/v1/qcli/shell`, `/ws/qcli/shell`, `/ws/v1/qcli`, `/ws/qcli`) are **disabled by default**; enable them with `cli.EnableShell()` and only on authenticated servers. `cli.SetAllowedOrigins(...)` restricts CORS and every WebSocket upgrade to the listed origins (`http://127.0.0.1:*` matches any port).
+
+### Security
+
+Without an authentication plugin the server is open — protect it with the users plugin (`cli.AddUsers()` + `app.UseQodalisUsers()` before `app.UseCli()`), which by default (`ProtectServer = true`) requires a session on every CLI route and socket except login and version discovery. Processors can declare `RequiredPermissions`, enforced on `/execute` in addition to `commands:execute`. See [plugins/users/README.md](plugins/users/README.md) for the permission table and WebSocket tickets.
 
 The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/qcli/versions` discovery endpoint.
 
