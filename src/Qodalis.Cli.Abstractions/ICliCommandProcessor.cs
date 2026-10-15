@@ -32,6 +32,12 @@ public interface ICliCommandProcessor
     bool? ValueRequired { get; }
 
     /// <summary>
+    /// Gets whether the command reads the positional value when one is given (optional input, as opposed to
+    /// <see cref="ValueRequired"/>). Used to expose a <c>value</c> argument, e.g. on MCP tools.
+    /// </summary>
+    bool? AcceptsRawInput => null;
+
+    /// <summary>
     /// Gets the version of this command processor.
     /// </summary>
     string Version { get; }

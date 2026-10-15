@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Jobs;
@@ -121,6 +122,9 @@ public static class CliBuilderJobExtensions
         });
 
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<CliJobScheduler>());
+
+        // MCP tools (jobs_*), listed when the MCP endpoint is enabled
+        builder.Services.AddMcpToolProvider<JobsMcpToolProvider>();
     }
 
     private static List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> GetRegistrations(CliBuilder builder)

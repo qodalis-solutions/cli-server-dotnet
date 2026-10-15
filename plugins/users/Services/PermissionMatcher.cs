@@ -57,4 +57,6 @@ public static class UsersPermissions
     public const string SessionsRevoke = "sessions:revoke";
     public const string AuditRead = "audit:read";
     public const string AuditClear = "audit:clear";
+    public const string TokensRead = "tokens:read";
+    public const string TokensRevoke = "tokens:revoke";
 }

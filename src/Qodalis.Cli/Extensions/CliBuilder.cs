@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.FileSystem;
+using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -76,6 +77,29 @@ public class CliBuilder
     {
         ServerOptions.AllowedOrigins.Clear();
         ServerOptions.AllowedOrigins.AddRange(origins.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()));
+        return this;
+    }
+
+    /// <summary>
+    /// Enables the MCP endpoint (<c>POST /api/qcli/mcp</c>, MCP Streamable HTTP, stateless, JSON responses):
+    /// AI clients call the registered commands as tools with the caller's permissions. Off by default.
+    /// With the users plugin the endpoint takes session or API tokens (<c>commands:execute</c>); without an
+    /// authentication provider set <see cref="McpOptions.Token"/> to require a static bearer token.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.AddMcp(o =&gt;
+    /// {
+    ///     o.Exclude = ["aws_*"];
+    ///     o.Instructions = "Tools run commands on the Qodalis CLI server.";
+    /// });
+    /// </code>
+    /// </example>
+    public CliBuilder AddMcp(Action<McpOptions>? configure = null)
+    {
+        var options = new McpOptions();
+        configure?.Invoke(options);
+        ServerOptions.Mcp = options;
         return this;
     }
 

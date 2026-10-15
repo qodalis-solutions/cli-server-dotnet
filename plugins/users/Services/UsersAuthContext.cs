@@ -16,10 +16,20 @@ public sealed class UsersAuthContext
     /// <summary>Effective permissions (union of the user's groups' permissions).</summary>
     public required List<string> Permissions { get; init; }
 
-    /// <summary>The stored session; <c>null</c> for external-auth requests.</summary>
+    /// <summary>The stored session; <c>null</c> for external-auth and API-token requests.</summary>
     public Session? Session { get; init; }
 
+    /// <summary>
+    /// The session id; <c>external-{userId}</c> in external mode and <c>api-token-{tokenId}</c> for
+    /// requests authenticated by an API token (which have no session).
+    /// </summary>
     public required string SessionId { get; init; }
+
+    /// <summary>The API token that authenticated the request (no session), when applicable.</summary>
+    public ApiToken? ApiToken { get; init; }
+
+    /// <summary>Id of the API token that authenticated the request, when applicable.</summary>
+    public string? ApiTokenId => ApiToken?.Id;
     public long LoginTime { get; init; }
     public long LastActivity { get; init; }
     public long ExpiresAt { get; init; }
@@ -41,8 +51,9 @@ public sealed class UsersAuthContext
     public bool IsSelf(User other) => other.Id == User.Id;
 
     /// <summary>The server-wide principal shared with core and other plugins.</summary>
-    public Qodalis.Cli.Security.CliPrincipal ToCliPrincipal() =>
-        new(User.Id, User.Name, Permissions, Session?.Id ?? SessionId);
+    public Qodalis.Cli.Security.CliPrincipal ToCliPrincipal() => ApiToken != null
+        ? new(User.Id, User.Name, Permissions, null, ApiToken.Id)
+        : new(User.Id, User.Name, Permissions, Session?.Id ?? SessionId);
 
     public CurrentSession ToCurrentSession() => new()
     {

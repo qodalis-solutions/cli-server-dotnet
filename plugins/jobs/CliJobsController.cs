@@ -269,7 +269,7 @@ public class CliJobsController : ControllerBase
         });
     }
 
-    private static object MapJobDto(JobRegistration r) => new
+    internal static object MapJobDto(JobRegistration r) => new
     {
         id = r.Id,
         name = r.Options.Name,
