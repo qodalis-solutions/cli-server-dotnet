@@ -164,6 +164,12 @@ public class ShellSessionManager : IShellSessionManager
 
         try
         {
+            // The session may have ended between ticket consumption and registration: a logout or
+            // revoke in that window did not reach this shell, so re-validate once before starting it.
+            if (bound && await RevalidateAsync(request, request.Principal!, touch: false, Terminate) is { } fresh)
+                handle.Principal = fresh;
+            if (state.Terminated) return;
+
             // script -c takes one command line: quote every argument so a one-shot
             // command ("echo hi") reaches the shell as a single -c argument
             var shellCommand = shellArgs.Length > 0
@@ -213,6 +219,8 @@ public class ShellSessionManager : IShellSessionManager
 
             process.Start();
             opened = true;
+            // Ended while starting (Terminate ran before the process existed).
+            if (state.Terminated) ShellProcessTree.Terminate(process, _logger);
 
             // Never log or audit the command text.
             _logger.LogInformation(
@@ -392,7 +400,7 @@ public class ShellSessionManager : IShellSessionManager
         if (bound) tick = Min(tick, checkInterval);
         if (tick < TimeSpan.FromMilliseconds(25)) tick = TimeSpan.FromMilliseconds(25);
 
-        var principal = request.Principal;
+        var principal = handle.Principal ?? request.Principal;
         var lastCheck = Stopwatch.StartNew();
         Stopwatch? lastTouch = null; // stdin touches the session at most once per TouchInterval
 
@@ -417,29 +425,10 @@ public class ShellSessionManager : IShellSessionManager
                 if (bound && (handle.TakeRecheck() || lastCheck.Elapsed >= checkInterval))
                 {
                     lastCheck.Restart();
-                    CliPrincipal? current;
-                    try
-                    {
-                        var touch = (lastTouch == null || lastTouch.Elapsed >= TouchInterval) && state.TakeStdinSinceCheck();
-                        if (touch) lastTouch = Stopwatch.StartNew();
-                        current = await request.AuthBridge!.RevalidateAsync(principal!, touch);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Shell session re-validation failed; closing the shell");
-                        current = null;
-                    }
-
-                    if (current == null)
-                    {
-                        terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, null);
-                        return;
-                    }
-                    if (!current.Can(CliRoutePolicy.ShellExecute))
-                    {
-                        terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, ShellEndReasons.PermissionRemoved);
-                        return;
-                    }
+                    var touch = (lastTouch == null || lastTouch.Elapsed >= TouchInterval) && state.TakeStdinSinceCheck();
+                    if (touch) lastTouch = Stopwatch.StartNew();
+                    var current = await RevalidateAsync(request, principal!, touch, terminate);
+                    if (current == null) return;
 
                     principal = current;
                     handle.Principal = current;
@@ -447,6 +436,38 @@ public class ShellSessionManager : IShellSessionManager
             }
         }
         catch (OperationCanceledException) { }
+    }
+
+    /// <summary>
+    /// Re-validates the bound session. On failure terminates the shell with <c>4401 session ended</c>
+    /// (audit reason <c>session ended</c>, or <c>permission removed</c> without <c>shell:execute</c>,
+    /// spec C7) and returns null; otherwise returns the current principal.
+    /// </summary>
+    private async Task<CliPrincipal?> RevalidateAsync(ShellSessionRequest request, CliPrincipal principal, bool touch,
+        Action<int, string, string?> terminate)
+    {
+        CliPrincipal? current;
+        try
+        {
+            current = await request.AuthBridge!.RevalidateAsync(principal, touch);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Shell session re-validation failed; closing the shell");
+            current = null;
+        }
+
+        if (current == null)
+        {
+            terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, null);
+            return null;
+        }
+        if (!current.Can(CliRoutePolicy.ShellExecute))
+        {
+            terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, ShellEndReasons.PermissionRemoved);
+            return null;
+        }
+        return current;
     }
 
     /// <summary>Minimum time between two session touches caused by shell input.</summary>

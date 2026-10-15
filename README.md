@@ -487,8 +487,8 @@ cli.AddUsers(o => { /* ... */ });
 ```
 
 An open shell belongs to the session that opened it: logout, idle/absolute expiry, admin revoke (kick), the user
-being disabled or deleted, or losing `shell:execute` (re-checked every `SessionCheckInterval`, ≤ 60 s, and
-immediately on user/group changes) closes it with `4401 session ended` and kills the process tree. Shell input
+being disabled or deleted, or losing `shell:execute` (re-checked once when the shell registers, before the process
+starts, then every `SessionCheckInterval`, ≤ 60 s, and immediately on user/group changes) closes it with `4401 session ended` and kills the process tree. Shell input
 counts as session activity (at most one touch per 30 s); re-checks alone never extend the session. The audit log records `shell_opened` / `shell_closed` with `userId`, `actorId` and
 `metadata: { mode: interactive|command, sessionId, durationMs, exitCode, reason }` — never the command or stdin.
 `reason` is `exited` (only then `exitCode`), `closed` (client), `session ended`, `permission removed`,

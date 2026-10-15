@@ -867,6 +867,113 @@ public class ShellSessionCleanupTests
         }
     }
 
+    /// <summary>An open socket that records what the server sends and how it closes.</summary>
+    private sealed class RecordingWebSocket : WebSocket
+    {
+        private WebSocketState _state = WebSocketState.Open;
+        public List<string> Sent { get; } = [];
+        public WebSocketCloseStatus? ClosedWith { get; private set; }
+        public string? ClosedReason { get; private set; }
+
+        public override WebSocketCloseStatus? CloseStatus => ClosedWith;
+        public override string? CloseStatusDescription => ClosedReason;
+        public override WebSocketState State => _state;
+        public override string? SubProtocol => null;
+
+        public override void Abort() => _state = WebSocketState.Aborted;
+
+        public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) =>
+            CloseOutputAsync(closeStatus, statusDescription, cancellationToken);
+
+        public override Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken)
+        {
+            if (_state == WebSocketState.Open)
+            {
+                ClosedWith = closeStatus;
+                ClosedReason = statusDescription;
+            }
+            _state = WebSocketState.Closed;
+            return Task.CompletedTask;
+        }
+
+        public override void Dispose() { }
+
+        public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new InvalidOperationException("unreachable");
+        }
+
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage,
+            CancellationToken cancellationToken)
+        {
+            lock (Sent) Sent.Add(System.Text.Encoding.UTF8.GetString(buffer));
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>A bridge whose session already ended (or lost <c>shell:execute</c>) when the shell registers.</summary>
+    private sealed class EndedSessionBridge(CliPrincipal? current) : ICliAuthBridge
+    {
+        public List<CliShellAuditEvent> Audits { get; } = [];
+        public Task<CliAuthLogin> LoginAsync(HttpContext context, string username, string password) => throw new NotSupportedException();
+        public Task<CliPrincipal?> AuthenticateAsync(HttpContext context) => throw new NotSupportedException();
+        public Task LogoutAsync(HttpContext context, string token) => throw new NotSupportedException();
+        public Task<CliPrincipal?> RevalidateAsync(CliPrincipal principal, bool touch) => Task.FromResult(current);
+
+        public Task AuditShellAsync(CliShellAuditEvent auditEvent)
+        {
+            lock (Audits) Audits.Add(auditEvent);
+            return Task.CompletedTask;
+        }
+    }
+
+    private static ShellSessionManager LongCheckManager()
+    {
+        var options = new CliServerOptions { EnableShell = true };
+        options.Shell.Shell = "/bin/sh";
+        options.Shell.IdleTimeout = null;
+        options.Shell.SessionCheckInterval = TimeSpan.FromSeconds(60); // no periodic check during the test
+        return new ShellSessionManager(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ShellSessionManager>.Instance, options);
+    }
+
+    [Fact]
+    public async Task SessionEndedBeforeRegistration_ClosesWith4401_WithoutStartingTheShell()
+    {
+        var socket = new RecordingWebSocket();
+        var bridge = new EndedSessionBridge(null);
+        await LongCheckManager().HandleShellSessionAsync(socket, new ShellSessionRequest
+        {
+            Command = "echo should-not-run",
+            AuthMode = CliShellAuthModes.Users,
+            Principal = new CliPrincipal("u1", "alice", [CliRoutePolicy.ShellExecute], "s1"),
+            AuthBridge = bridge,
+        }, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(4401, (int?)socket.ClosedWith);
+        Assert.Equal("session ended", socket.ClosedReason);
+        Assert.DoesNotContain(socket.Sent, m => m.Contains("\"ready\"") || m.Contains("should-not-run"));
+        Assert.Empty(bridge.Audits);
+    }
+
+    [Fact]
+    public async Task PermissionRemovedBeforeRegistration_ClosesWithSessionEnded()
+    {
+        var socket = new RecordingWebSocket();
+        var bridge = new EndedSessionBridge(new CliPrincipal("u1", "alice", ["commands:execute"], "s1"));
+        await LongCheckManager().HandleShellSessionAsync(socket, new ShellSessionRequest
+        {
+            AuthMode = CliShellAuthModes.Users,
+            Principal = new CliPrincipal("u1", "alice", [CliRoutePolicy.ShellExecute], "s1"),
+            AuthBridge = bridge,
+        }, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(4401, (int?)socket.ClosedWith);
+        Assert.Equal("session ended", socket.ClosedReason);
+        Assert.DoesNotContain(socket.Sent, m => m.Contains("\"ready\""));
+    }
+
     [Fact]
     public async Task FailedSession_StopsItsWatchdog()
     {
