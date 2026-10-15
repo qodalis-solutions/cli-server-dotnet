@@ -453,11 +453,78 @@ The server exposes versioned endpoints:
 | WS | `/ws/v1/qcli/logs` | WebSocket log streaming (supports `?level=` filter) |
 | WS | `/ws/v1/qcli/shell` | Interactive PTY shell session (opt-in: `cli.EnableShell()`) |
 
-The interactive shell sockets (`/ws/v1/qcli/shell`, `/ws/qcli/shell`, `/ws/v1/qcli`, `/ws/qcli`) are **disabled by default**; enable them with `cli.EnableShell()` and only on authenticated servers. `cli.SetAllowedOrigins(...)` restricts CORS and every WebSocket upgrade to the listed origins (`http://127.0.0.1:*` matches any port).
+The interactive shell sockets (`/ws/v1/qcli/shell`, `/ws/qcli/shell`, `/ws/v1/qcli`, `/ws/qcli`) are **disabled by default** — see [Shell security](#shell-security). `cli.SetAllowedOrigins(...)` restricts CORS and every WebSocket upgrade to the listed origins (`http://127.0.0.1:*` matches any port).
 
 ### Security
 
 Without an authentication plugin the server is open — protect it with the users plugin (`cli.AddUsers()` + `app.UseQodalisUsers()` before `app.UseCli()`), which by default (`ProtectServer = true`) requires a session on every CLI route and socket except login and version discovery. Processors can declare `RequiredPermissions`, enforced on `/execute` in addition to `commands:execute`. See [plugins/users/README.md](plugins/users/README.md) for the permission table and WebSocket tickets.
+
+### Shell security
+
+The shell gives OS-level access, so it is off unless enabled, and enabling it does **not** open it:
+exactly one access mode decides who may connect.
+
+| Mode (`shellAuth`) | When | Client sends |
+|---|---|---|
+| `users` | the users plugin is installed (`cli.AddUsers()`) | `?ticket=` of a session holding `shell:execute` |
+| `token` | `o.Token` is set (no users plugin) | `Authorization: Bearer <token>`, or `?_header_Authorization=Bearer%20<token>` (browser clients: the server's configured `headers`) |
+| `custom` | `o.Authorize` is set (no users plugin) | whatever your callback checks (headers, query, `ctx.Connection.RemoteIpAddress`) |
+| `anonymous` | only with `o.AllowAnonymous = true` | nothing — logs a startup WARNING; never use on a reachable network |
+| `locked` | enabled but none of the above | every connection closed with `4401`, startup ERROR log |
+
+With the users plugin, a configured `Token`/`Authorize` is required **in addition** to the session; outside users
+mode, when both are set both must pass (`shellAuth` reports `token`). Tokens are compared in constant time
+(SHA-256 + `CryptographicOperations.FixedTimeEquals`) and never logged. `GET /api/v1/qcli/capabilities` returns
+`shell: true|false` and, when enabled, `shellAuth`.
+
+**With the users plugin** (sessions, permissions, audit):
+
+```csharp
+cli.EnableShell();                 // users mode: ticket + shell:execute
+cli.AddUsers(o => { /* ... */ });
+```
+
+An open shell belongs to the session that opened it: logout, idle/absolute expiry, admin revoke (kick), the user
+being disabled or deleted, or losing `shell:execute` (re-checked every `SessionCheckInterval`, ≤ 60 s, and
+immediately on user/group changes) closes it with `4401 session ended` and kills the process tree. Shell input
+counts as session activity. The audit log records `shell_opened` / `shell_closed` with `userId`, `actorId` and
+`metadata: { mode: interactive|command, sessionId, durationMs, exitCode, reason }` — never the command or stdin.
+
+**Without the users plugin** use token mode (or `Authorize`):
+
+```csharp
+cli.EnableShell(o =>
+{
+    o.Token = builder.Configuration["Shell:Token"];   // long random secret
+    // o.Authorize = ctx => ValueTask.FromResult(IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress!));
+});
+```
+
+In the web-cli client, give the server entry `headers: { Authorization: 'Bearer <token>' }`; browsers cannot set
+WebSocket headers, so the client forwards it as `_header_Authorization` (prefer TLS; ASP.NET Core request logging
+at Information level includes query strings). Each open/close is logged at Information with the remote address
+and mode (no command text).
+
+**Limits, timeouts and environment** (all modes):
+
+| Option | Default | |
+|---|---|---|
+| `MaxSessionsPerUser` | 3 | per user (users mode) or per remote address → close `4429` |
+| `MaxSessions` | 20 | total concurrent shells → `4429` |
+| `IdleTimeout` | 15 min | without stdin → `4408 shell timed out` (null = never) |
+| `MaxDuration` | none | total lifetime → `4408` |
+| `SessionCheckInterval` | 30 s | users mode re-validation (capped at 60 s) |
+| `WorkingDirectory` | server user's home | |
+| `Shell` | detected (`$SHELL`, bash, sh; PowerShell on Windows) | |
+| `EnvironmentAllow` | — | extra server variables passed through |
+| `EnvironmentSet` | — | variables set in the shell (applied last) |
+
+The child gets a minimal environment — `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `COLUMNS`, `LINES`, `SHELL` plus
+`EnvironmentAllow`/`EnvironmentSet` — never the full server environment (connection strings and secrets stay out).
+
+Rejections are readable by browsers: the upgrade is accepted, then closed with `4401` (login required / session
+ended / locked), `4403` (missing `shell:execute`, bad token, `Authorize` false or throwing), `4404` (shell disabled),
+`4429` (limit), `4408` (timeout). Only a disallowed `Origin` is still rejected with HTTP 403.
 
 The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/qcli/versions` discovery endpoint.
 

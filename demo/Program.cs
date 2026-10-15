@@ -43,8 +43,14 @@ builder.Services
     {
         cli.SetAllowedOrigins(allowedOrigins.ToArray());
         // The demo exposes the interactive shell explicitly (library default: disabled).
-        // With the users plugin it requires the shell:execute permission.
-        cli.EnableShell();
+        // The users plugin is installed (below), so the shell runs in "users" mode: a WebSocket
+        // ticket of a session holding shell:execute (root/admins). Shells close when the session
+        // ends or loses the permission; limits, idle timeout and a minimal environment apply.
+        cli.EnableShell(o =>
+        {
+            o.IdleTimeout = TimeSpan.FromMinutes(15);
+            o.MaxSessionsPerUser = 3;
+        });
 
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();

@@ -17,7 +17,17 @@ builder.Services
         cli.SetAllowedOrigins(
             "http://localhost:4200", "http://localhost:4300", "http://localhost:4301",
             "http://localhost:4302", "http://localhost:4303", "http://127.0.0.1:*");
-        cli.EnableShell();
+        // This host has no users plugin, so the shell needs its own access mode (otherwise it is
+        // locked). Token mode: clients send "Authorization: Bearer <token>" (browser clients use
+        // the server's configured headers, forwarded as ?_header_Authorization=...).
+        // Set QCLI_SHELL_TOKEN or "Shell:Token" in configuration. Without a token the shell is
+        // anonymous in Development only (startup warning) and locked elsewhere.
+        var shellToken = builder.Configuration["Shell:Token"] ?? Environment.GetEnvironmentVariable("QCLI_SHELL_TOKEN");
+        cli.EnableShell(o =>
+        {
+            o.Token = string.IsNullOrWhiteSpace(shellToken) ? null : shellToken;
+            o.AllowAnonymous = o.Token == null && builder.Environment.IsDevelopment();
+        });
 
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();
