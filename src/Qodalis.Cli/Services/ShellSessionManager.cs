@@ -311,6 +311,10 @@ public class ShellSessionManager : IShellSessionManager
         }
         finally
         {
+            // Stop the I/O loops and the watchdog on every path (an exception above skips the
+            // normal cancel, and disposing the source alone would leave them running).
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+
             handle.OnTerminate = null;
             handle.Dispose();
 

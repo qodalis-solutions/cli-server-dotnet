@@ -706,3 +706,89 @@ public class ShellUsersModeTests
         Assert.DoesNotContain("typed-secret-123", all);
     }
 }
+
+/// <summary>Shell session cleanup when the session loop fails (no background work may outlive it).</summary>
+public class ShellSessionCleanupTests
+{
+    /// <summary>An open socket whose send of the <c>exit</c> message fails (client vanished mid-send).</summary>
+    private sealed class FailingExitWebSocket : WebSocket
+    {
+        private WebSocketState _state = WebSocketState.Open;
+
+        public override WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override WebSocketState State => _state;
+        public override string? SubProtocol => null;
+
+        public override void Abort() => _state = WebSocketState.Aborted;
+
+        public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken)
+        {
+            _state = WebSocketState.Closed;
+            return Task.CompletedTask;
+        }
+
+        public override Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken)
+        {
+            _state = WebSocketState.Closed;
+            return Task.CompletedTask;
+        }
+
+        public override void Dispose() { }
+
+        public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new InvalidOperationException("unreachable");
+        }
+
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage,
+            CancellationToken cancellationToken)
+        {
+            var text = System.Text.Encoding.UTF8.GetString(buffer);
+            if (text.Contains("\"type\":\"exit\"")) throw new WebSocketException("connection reset");
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CountingBridge : ICliAuthBridge
+    {
+        private int _revalidations;
+        public int Revalidations => Volatile.Read(ref _revalidations);
+
+        public Task<CliAuthLogin> LoginAsync(HttpContext context, string username, string password) => throw new NotSupportedException();
+        public Task<CliPrincipal?> AuthenticateAsync(HttpContext context) => throw new NotSupportedException();
+        public Task LogoutAsync(HttpContext context, string token) => throw new NotSupportedException();
+
+        public Task<CliPrincipal?> RevalidateAsync(CliPrincipal principal, bool touch)
+        {
+            Interlocked.Increment(ref _revalidations);
+            return Task.FromResult<CliPrincipal?>(principal);
+        }
+    }
+
+    [Fact]
+    public async Task FailedSession_StopsItsWatchdog()
+    {
+        var options = new CliServerOptions { EnableShell = true };
+        options.Shell.Shell = "/bin/sh";
+        options.Shell.IdleTimeout = null;
+        options.Shell.SessionCheckInterval = TimeSpan.FromMilliseconds(50);
+        var manager = new ShellSessionManager(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ShellSessionManager>.Instance, options);
+        var bridge = new CountingBridge();
+
+        await manager.HandleShellSessionAsync(new FailingExitWebSocket(), new ShellSessionRequest
+        {
+            Command = "echo hi",
+            AuthMode = CliShellAuthModes.Users,
+            Principal = new CliPrincipal("u1", "alice", [CliRoutePolicy.ShellExecute], "s1"),
+            AuthBridge = bridge,
+        }, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(15));
+
+        await Task.Delay(200);
+        var afterReturn = bridge.Revalidations;
+        await Task.Delay(500);
+        Assert.Equal(afterReturn, bridge.Revalidations);
+    }
+}
