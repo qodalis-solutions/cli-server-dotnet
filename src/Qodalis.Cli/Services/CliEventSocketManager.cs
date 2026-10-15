@@ -31,11 +31,13 @@ public class CliWebSocketClientInfo
 /// <summary>
 /// Manages WebSocket connections for server-push event broadcasting to connected clients.
 /// Sends to one socket are serialized (broadcasts and user-targeted messages may run concurrently).
+/// Sockets authenticated with a session are bound to it (see <see cref="ICliSessionBoundSockets"/>).
 /// </summary>
 public class CliEventSocketManager : ICliEventSocketManager
 {
     private readonly ConcurrentDictionary<string, SerializedWebSocketSender> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
+    private readonly ConcurrentDictionary<string, Qodalis.Cli.Security.CliPrincipal> _bound = new();
     private readonly ILogger<CliEventSocketManager> _logger;
 
     /// <summary>
@@ -62,6 +64,7 @@ public class CliEventSocketManager : ICliEventSocketManager
             Type = "events",
             UserId = principal?.UserId,
         });
+        if (SessionBoundSockets.IsBound(principal)) _bound.TryAdd(id, principal!);
 
         _logger.LogInformation("Event WebSocket client connected (id={ClientId})", id);
 
@@ -92,6 +95,7 @@ public class CliEventSocketManager : ICliEventSocketManager
         }
         finally
         {
+            _bound.TryRemove(id, out _);
             _clients.TryRemove(id, out _);
             _clientInfo.TryRemove(id, out _);
             sender.Dispose();
@@ -152,6 +156,24 @@ public class CliEventSocketManager : ICliEventSocketManager
         }
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <inheritdoc />
+    public async Task CloseEndedSessionsAsync(Func<Qodalis.Cli.Security.CliPrincipal, Task<bool>> isSessionActive)
+    {
+        await Task.WhenAll(_bound.ToArray().Select(async entry =>
+        {
+            if (await SessionBoundSockets.IsActiveAsync(entry.Value, isSessionActive, _logger)) return;
+            if (!_bound.TryRemove(entry.Key, out _)) return;
+
+            // Stop delivering to it, then close after any send in progress.
+            _clientInfo.TryRemove(entry.Key, out _);
+            if (_clients.TryRemove(entry.Key, out var sender))
+            {
+                _logger.LogInformation("Closing event WebSocket client of an ended session (id={ClientId})", entry.Key);
+                await SessionBoundSockets.CloseAsync(sender, _logger);
+            }
+        }));
     }
 
     private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));

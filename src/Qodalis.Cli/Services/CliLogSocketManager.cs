@@ -2,12 +2,14 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
 /// <summary>
 /// Manages WebSocket connections for real-time log streaming, supporting per-client level filtering.
-/// Sends to one socket are serialized (logs are broadcast from many threads).
+/// Sends to one socket are serialized (logs are broadcast from many threads). Sockets authenticated
+/// with a session are bound to it (see <see cref="ICliSessionBoundSockets"/>).
 /// Note: This class cannot use ILogger because it is part of the logging pipeline itself
 /// (WebSocketLoggerProvider depends on it), which would create a circular dependency.
 /// </summary>
@@ -16,13 +18,16 @@ public class CliLogSocketManager : ICliLogSocketManager
     private static readonly string[] LogLevelOrder = { "verbose", "debug", "information", "warning", "error", "fatal" };
 
     private readonly ConcurrentDictionary<string, (SerializedWebSocketSender Sender, string? LevelFilter)> _clients = new();
+    private readonly ConcurrentDictionary<string, CliPrincipal> _bound = new();
 
     /// <inheritdoc />
-    public async Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken)
+    public async Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken,
+        CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
         var sender = new SerializedWebSocketSender(socket);
         _clients.TryAdd(id, (sender, levelFilter));
+        if (SessionBoundSockets.IsBound(principal)) _bound.TryAdd(id, principal!);
 
         try
         {
@@ -50,6 +55,7 @@ public class CliLogSocketManager : ICliLogSocketManager
         }
         finally
         {
+            _bound.TryRemove(id, out _);
             _clients.TryRemove(id, out _);
             sender.Dispose();
         }
@@ -135,6 +141,20 @@ public class CliLogSocketManager : ICliLogSocketManager
         }
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <inheritdoc />
+    public async Task CloseEndedSessionsAsync(Func<CliPrincipal, Task<bool>> isSessionActive)
+    {
+        await Task.WhenAll(_bound.ToArray().Select(async entry =>
+        {
+            if (await SessionBoundSockets.IsActiveAsync(entry.Value, isSessionActive, null)) return;
+            if (!_bound.TryRemove(entry.Key, out _)) return;
+
+            // Stop delivering to it, then close after any send in progress.
+            if (_clients.TryRemove(entry.Key, out var client))
+                await SessionBoundSockets.CloseAsync(client.Sender, null);
+        }));
     }
 
     private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));

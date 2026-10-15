@@ -71,6 +71,8 @@ public sealed class FakeEventSocketManager : ICliEventSocketManager
 
     public Task BroadcastDisconnectAsync() => Task.CompletedTask;
 
+    public Task CloseEndedSessionsAsync(Func<CliPrincipal, Task<bool>> isSessionActive) => Task.CompletedTask;
+
     public IReadOnlyList<CliWebSocketClientInfo> GetClients() => [];
 
     /// <summary>Parsed <c>session-kicked</c> payloads (<c>data</c> objects), from any channel.</summary>

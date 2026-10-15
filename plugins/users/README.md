@@ -78,6 +78,8 @@ Public: `POST /sessions`, `POST /auth/login` (admin dashboard), `/api/qcli/versi
 
 **Shell sessions** are bound to the session that opened them: logout, expiry, revoke, user disabled/deleted or losing `shell:execute` closes them with `4401`. Audit events `shell_opened` / `shell_closed` (`metadata: { mode, sessionId, durationMs, exitCode, reason }`, never the command). Shell rejections are close codes (`4401`/`4403`/`4404`/`4429`/`4408`), not HTTP statuses. See the main README, "Shell security".
 
+**Events and logs sockets** are bound to the stored session that opened them: when it ends (logout, revoke, user disabled/deleted, expiry) the socket closes with `4401 session ended`; for a revoke, `session-kicked` is sent first. Sockets authenticated by an external adapter have no stored session and are not re-checked.
+
 **WebSockets** authenticate with a single-use ticket: `POST /sessions/ws-ticket` → `201 { ticket, expiresIn: 30 }`, then connect with `?ticket=<ticket>`. Bearer tokens are never accepted in query strings. Upgrades are checked against `cli.SetAllowedOrigins(...)`.
 
 **Anti-escalation:** callers can only grant permissions they hold (group permissions, group membership, user `groups`), and can only act on users whose permissions they cover (403 `insufficient privileges for this user`).

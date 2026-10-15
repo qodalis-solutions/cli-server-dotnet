@@ -52,6 +52,24 @@ internal sealed class SerializedWebSocketSender : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends a close frame (no other send can interleave). Does not wait for the client's close:
+    /// the connection's receive loop ends when it arrives.
+    /// </summary>
+    public async Task CloseAsync(int code, string reason)
+    {
+        if (!await EnterAsync()) return;
+        try
+        {
+            if (Socket.State != WebSocketState.Open) return;
+            await Socket.CloseOutputAsync((WebSocketCloseStatus)code, reason, CancellationToken.None);
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
     private async Task<bool> EnterAsync()
     {
         try

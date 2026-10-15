@@ -5,7 +5,7 @@ namespace Qodalis.Cli.Services;
 /// <summary>
 /// Manages WebSocket connections for real-time log streaming, supporting per-client level filtering.
 /// </summary>
-public interface ICliLogSocketManager : IDisposable
+public interface ICliLogSocketManager : ICliSessionBoundSockets, IDisposable
 {
     /// <summary>
     /// Accepts a WebSocket connection for log streaming with an optional minimum log level filter.
@@ -13,7 +13,10 @@ public interface ICliLogSocketManager : IDisposable
     /// <param name="socket">The WebSocket connection.</param>
     /// <param name="levelFilter">Optional minimum log level (e.g., "warning" to receive warning, error, and fatal only).</param>
     /// <param name="cancellationToken">A token to signal server shutdown.</param>
-    Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken);
+    /// <param name="principal">The authenticated caller, when the server is protected. A principal with a
+    /// session id binds the socket to that session.</param>
+    Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken,
+        Qodalis.Cli.Security.CliPrincipal? principal = null);
 
     /// <summary>
     /// Broadcasts a log message to all connected clients whose level filter permits it.

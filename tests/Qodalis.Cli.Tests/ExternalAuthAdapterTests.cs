@@ -244,6 +244,34 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AdapterEventsSocket_HasNoStoredSession_StaysOpenOnRecheck()
+    {
+        await using var h = await UsersTestHost.StartAsync(options => options.UseExternalAuth(context =>
+        {
+            var user = context.Request.Headers["X-Test-User"].FirstOrDefault();
+            return string.IsNullOrEmpty(user)
+                ? null
+                : new ExternalAuthResult
+                {
+                    User = new User { Id = $"ext-{user}", Name = user, Email = $"{user}@external.com" },
+                    IsAdmin = true,
+                };
+        }), realEventSockets: true);
+
+        var socket = await ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/events", AdapterUser(null));
+        Assert.Contains("connected", await ReceiveTextAsync(socket));
+
+        var auth = h.Service<Qodalis.Cli.Plugin.Users.Services.AuthService>();
+        auth.NotifyPermissionsChanged();
+        await auth.SweepIdleSessionsAsync();
+        await Task.Delay(100);
+
+        await h.Service<Qodalis.Cli.Services.ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
+        Assert.Contains("marker", await ReceiveTextAsync(socket));
+        await CloseAsync(socket);
+    }
+
+    [Fact]
     public async Task AdapterAuthenticatedWsUpgrade_SameOriginOrNoOrigin_IsAccepted()
     {
         await using var h = await StartWithoutAllowedOriginsAsync();

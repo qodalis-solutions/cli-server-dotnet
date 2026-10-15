@@ -245,7 +245,6 @@ public class UsersService
 
             var actor = caller.User.Name;
             var actorId = caller.User.Id;
-            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.UserUpdated, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
 
             if (update.Disabled == true)
@@ -258,6 +257,8 @@ public class UsersService
                 await _auth.AuditAsync(AuditEvents.UserEnabled, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
             }
 
+            // After a disable's revoke, so bound event sockets get session-kicked before they close.
+            _auth.NotifyPermissionsChanged();
             return updated;
         }
         finally

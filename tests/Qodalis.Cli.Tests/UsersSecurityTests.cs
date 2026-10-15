@@ -398,6 +398,105 @@ public class UsersSecurityTests : IAsyncLifetime
         await CloseAsync(rootSocket);
     }
 
+    // -------------------------------------------------------------------------
+    // Events/logs sockets are bound to their session (closed 4401 when it ends)
+    // -------------------------------------------------------------------------
+
+    /// <summary>Reads until the server's close frame; returns its code, reason and the text messages before it.</summary>
+    private static async Task<(int Code, string? Reason, List<string> Messages)> ReceiveUntilCloseAsync(WebSocket socket)
+    {
+        using var cts = new CancellationTokenSource(5000);
+        var buffer = new byte[8192];
+        var messages = new List<string>();
+        while (true)
+        {
+            var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+            if (result.MessageType == WebSocketMessageType.Close)
+                return ((int)result.CloseStatus!.Value, result.CloseStatusDescription, messages);
+            messages.Add(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        }
+    }
+
+    private async Task<WebSocket> OpenSocketAsync(string kind, string token)
+    {
+        var socket = await _h.ConnectWebSocketAsync($"/ws/v1/qcli/{kind}?ticket={await _h.TicketAsync(token)}");
+        Assert.Contains("connected", await ReceiveTextAsync(socket));
+        return socket;
+    }
+
+    [Fact]
+    public async Task EventsSocket_SessionRevoked_SendsKickedThenCloses4401()
+    {
+        await _h.CreateUserAsync(_root, "bound-revoke");
+        var (victim, session) = await _h.LoginAsync("bound-revoke", "pass1234");
+        var socket = await OpenSocketAsync("events", victim);
+
+        Assert.Equal(204, (int)(await _h.DeleteAsync($"sessions/{session.GetProperty("id").GetString()}", _root)).StatusCode);
+
+        var (code, reason, messages) = await ReceiveUntilCloseAsync(socket);
+        Assert.Equal(4401, code);
+        Assert.Equal("session ended", reason);
+        Assert.Contains(messages, m => m.Contains("session-kicked"));
+        socket.Dispose();
+    }
+
+    [Fact]
+    public async Task EventsAndLogsSockets_Logout_CloseOnlyThatSessionsSockets()
+    {
+        var (other, _) = await _h.LoginAsync("root", "root");
+        var events = await OpenSocketAsync("events", _root);
+        var logs = await OpenSocketAsync("logs", _root);
+        var otherEvents = await OpenSocketAsync("events", other);
+
+        Assert.Equal(204, (int)(await _h.DeleteAsync("sessions/current", _root)).StatusCode);
+
+        Assert.Equal(4401, (await ReceiveUntilCloseAsync(events)).Code);
+        var logsClose = await ReceiveUntilCloseAsync(logs);
+        Assert.Equal(4401, logsClose.Code);
+        Assert.Equal("session ended", logsClose.Reason);
+
+        // The other session's socket stays open.
+        await _h.Service<ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
+        Assert.Contains("marker", await ReceiveTextAsync(otherEvents));
+
+        events.Dispose();
+        logs.Dispose();
+        await CloseAsync(otherEvents);
+        _root = other;
+    }
+
+    [Fact]
+    public async Task EventsSocket_UserDisabled_SendsKickedThenCloses4401()
+    {
+        await _h.CreateUserAsync(_root, "bound-disable");
+        var (token, _) = await _h.LoginAsync("bound-disable", "pass1234");
+        var socket = await OpenSocketAsync("events", token);
+
+        Assert.Equal(200, (int)(await _h.PutAsync("users/bound-disable", _root, new { disabled = true })).StatusCode);
+
+        var (code, _, messages) = await ReceiveUntilCloseAsync(socket);
+        Assert.Equal(4401, code);
+        Assert.Contains(messages, m => m.Contains("session-kicked") && m.Contains("user_disabled"));
+        socket.Dispose();
+    }
+
+    [Fact]
+    public async Task EventsSocket_SessionExpired_ClosesOnSweep()
+    {
+        await _h.CreateUserAsync(_root, "bound-expire");
+        var (token, _) = await _h.LoginAsync("bound-expire", "pass1234");
+        var socket = await OpenSocketAsync("events", token);
+
+        var auth = _h.Service<AuthService>();
+        _h.Time.Advance(TimeSpan.FromMilliseconds(auth.SessionTimeoutMs + 1000));
+        await auth.SweepIdleSessionsAsync();
+
+        var (code, reason, _) = await ReceiveUntilCloseAsync(socket);
+        Assert.Equal(4401, code);
+        Assert.Equal("session ended", reason);
+        socket.Dispose();
+    }
+
     [Fact]
     public async Task Cors_AllowsOnlyConfiguredOrigins()
     {

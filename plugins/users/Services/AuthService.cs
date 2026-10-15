@@ -31,6 +31,7 @@ public class AuthService
     private readonly TimeProvider _time;
     private readonly ILogger<AuthService> _logger;
     private readonly ICliShellSessions? _shells;
+    private readonly ICliLogSocketManager? _logs;
     private readonly ConcurrentDictionary<string, LockoutState> _lockouts = new();
     private readonly ConcurrentDictionary<string, WsTicket> _tickets = new();
     private readonly ConditionalWeakTable<CliPrincipal, ExternalRequestSnapshot> _externalRequests = new();
@@ -88,7 +89,8 @@ public class AuthService
         ICliEventSocketManager? eventSocketManager = null,
         TimeProvider? timeProvider = null,
         ILogger<AuthService>? logger = null,
-        ICliShellSessions? shellSessions = null)
+        ICliShellSessions? shellSessions = null,
+        ICliLogSocketManager? logSocketManager = null)
     {
         _userStore = userStore;
         _sessionStore = sessionStore;
@@ -100,6 +102,7 @@ public class AuthService
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<AuthService>.Instance;
         _shells = shellSessions;
+        _logs = logSocketManager;
         _hashGate = new SemaphoreSlim(Math.Max(1, _options.PasswordHashConcurrency));
     }
 
@@ -367,6 +370,7 @@ public class AuthService
     {
         await _sessionStore.DeleteSessionByIdAsync(session.Id);
         _shells?.CloseBySession(session.Id);
+        await CloseEndedSessionSocketsAsync();
         await AuditAsync(AuditEvents.Logout, session.UserName, "user logged out",
             actor: session.UserName, metadata: new AuditMetadata { SessionId = session.Id },
             userId: session.UserId, actorId: session.UserId);
@@ -583,8 +587,8 @@ public class AuthService
     };
 
     /// <summary>
-    /// Revokes a session: deletes it, audits <c>session_revoked</c> and sends <c>session-kicked</c>
-    /// to the event sockets of that user only.
+    /// Revokes a session: deletes it, audits <c>session_revoked</c>, sends <c>session-kicked</c>
+    /// to the event sockets of that user only, then closes the events/logs sockets bound to it (4401).
     /// </summary>
     public async Task RevokeSessionAsync(Session session, string reason, string? actor, string? actorId = null)
     {
@@ -593,6 +597,7 @@ public class AuthService
         await AuditAsync(AuditEvents.SessionRevoked, session.UserName, reason, actor,
             new AuditMetadata { SessionId = session.Id }, session.UserId, actorId);
         await SendSessionKickedAsync(session, reason);
+        await CloseEndedSessionSocketsAsync();
     }
 
     /// <summary>Revokes all sessions of a user, optionally keeping one.</summary>
@@ -625,10 +630,48 @@ public class AuthService
     }
 
     /// <summary>
-    /// Asks open shells to re-validate their session and <c>shell:execute</c> now (after a user,
-    /// group or membership change).
+    /// Asks open shells to re-validate their session and <c>shell:execute</c> now, and closes the
+    /// events/logs sockets whose session ended (after a user, group or membership change).
     /// </summary>
-    public void NotifyPermissionsChanged() => _shells?.RequestRecheck();
+    public void NotifyPermissionsChanged()
+    {
+        _shells?.RequestRecheck();
+        _ = CloseEndedSessionSocketsAsync();
+    }
+
+    /// <summary>
+    /// Whether the stored session behind an events/logs socket is still alive: not logged out,
+    /// revoked or expired, and its user neither deleted nor disabled. Never extends the session.
+    /// External-adapter principals have no stored session and stay valid.
+    /// </summary>
+    public async Task<bool> IsSocketSessionActiveAsync(CliPrincipal principal)
+    {
+        if (principal.SessionId == null) return false;
+        if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal)) return true;
+
+        var session = await _sessionStore.GetSessionByIdAsync(principal.SessionId);
+        if (session == null || session.UserId != principal.UserId) return false;
+        var now = Now();
+        if (now - session.LastActivity > SessionTimeoutMs || now - session.LoginTime > MaxSessionLifetimeMs) return false;
+
+        var user = await _userStore.GetUserAsync(principal.UserId);
+        return user != null && user.Id == principal.UserId && !user.Disabled;
+    }
+
+    /// <summary>Closes (4401 <c>session ended</c>) the events/logs sockets whose session ended.</summary>
+    private async Task CloseEndedSessionSocketsAsync()
+    {
+        try
+        {
+            await Task.WhenAll(
+                _events?.CloseEndedSessionsAsync(IsSocketSessionActiveAsync) ?? Task.CompletedTask,
+                _logs?.CloseEndedSessionsAsync(IsSocketSessionActiveAsync) ?? Task.CompletedTask);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to close sockets of ended sessions");
+        }
+    }
 
     /// <summary>
     /// Re-validates a stored session for a long-lived connection (an open shell) without the
@@ -701,9 +744,15 @@ public class AuthService
         return await AuthenticateExternalAsync(result, request);
     }
 
-    /// <summary>Deletes sessions idle for longer than the session timeout.</summary>
-    public Task SweepIdleSessionsAsync() =>
-        _sessionStore.DeleteIdleSessionsAsync(Now() - SessionTimeoutMs);
+    /// <summary>
+    /// Deletes sessions idle for longer than the session timeout and closes the events/logs sockets
+    /// whose session expired (idle or absolute lifetime).
+    /// </summary>
+    public async Task SweepIdleSessionsAsync()
+    {
+        await _sessionStore.DeleteIdleSessionsAsync(Now() - SessionTimeoutMs);
+        await CloseEndedSessionSocketsAsync();
+    }
 
     // -------------------------------------------------------------------------
     // Audit

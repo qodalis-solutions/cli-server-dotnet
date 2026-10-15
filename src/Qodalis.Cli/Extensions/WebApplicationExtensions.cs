@@ -107,7 +107,7 @@ public static class WebApplicationExtensions
                     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
                     var levelFilter = context.Request.Query["level"].FirstOrDefault();
                     logger.LogDebug("Log WebSocket connection accepted (level={Level})", levelFilter ?? "all");
-                    await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted);
+                    await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted, principal);
                     break;
                 }
             }
