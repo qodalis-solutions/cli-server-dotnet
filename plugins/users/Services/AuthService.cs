@@ -36,7 +36,12 @@ public class AuthService
     private readonly ConditionalWeakTable<CliPrincipal, ExternalRequestSnapshot> _externalRequests = new();
     private readonly SemaphoreSlim _hashGate;
 
-    private const int MaxTrackedLockouts = 10_000;
+    /// <summary>Tracked lockout entries above which expired ones are pruned.</summary>
+    internal int MaxTrackedLockouts { get; init; } = 10_000;
+
+    /// <summary>Number of tracked lockout entries (names and users).</summary>
+    internal int TrackedLockouts => _lockouts.Count;
+
     private const int MaxOutstandingTickets = 10_000;
 
     /// <summary>WebSocket ticket lifetime in seconds.</summary>
@@ -59,10 +64,15 @@ public class AuthService
         public const string PasswordChanged = "password_changed";
     }
 
+    /// <summary>Failure count of one name or user. Mutated only under <c>lock (state)</c>.</summary>
     private sealed class LockoutState
     {
         public int Failures;
+        public long LastFailure;
         public long LockedUntil;
+
+        /// <summary>Detached from the table (pruned or reset): callers retry with a fresh entry.</summary>
+        public bool Removed;
     }
 
     private sealed record WsTicket(string? SessionId, ExternalAuthResult? External, ExternalRequestSnapshot? ExternalRequest,
@@ -181,43 +191,68 @@ public class AuthService
     /// <summary>
     /// Reserves an attempt for <paramref name="key"/>: false when locked. The attempt counts as a
     /// failure until <see cref="AttemptSucceeded"/> resets it, so concurrent requests cannot exceed
-    /// <see cref="UsersModuleOptions.MaxLoginAttempts"/>.
+    /// <see cref="UsersModuleOptions.MaxLoginAttempts"/>. Failures older than
+    /// <see cref="UsersModuleOptions.LockoutMs"/> no longer count. Above
+    /// <see cref="MaxTrackedLockouts"/> entries, expired ones are pruned first.
     /// </summary>
     private bool TryReserveAttempt(string key)
     {
         if (_lockouts.Count > MaxTrackedLockouts) PruneLockouts();
 
-        var state = _lockouts.GetOrAdd(key, _ => new LockoutState());
-        lock (state)
+        while (true)
         {
-            var now = Now();
-            if (state.LockedUntil > now) return false;
-            if (state.LockedUntil != 0)
+            var state = _lockouts.GetOrAdd(key, _ => new LockoutState());
+            lock (state)
             {
-                state.LockedUntil = 0;
-                state.Failures = 0;
+                // Pruned or reset between the lookup and the lock: use the table's current entry.
+                if (state.Removed) continue;
+
+                var now = Now();
+                if (state.LockedUntil > now) return false;
+                if (state.LockedUntil != 0 || now - state.LastFailure > _options.LockoutMs)
+                {
+                    state.LockedUntil = 0;
+                    state.Failures = 0;
+                }
+                state.Failures++;
+                state.LastFailure = now;
+                if (state.Failures >= Math.Max(1, _options.MaxLoginAttempts))
+                    state.LockedUntil = now + _options.LockoutMs;
+                return true;
             }
-            state.Failures++;
-            if (state.Failures >= Math.Max(1, _options.MaxLoginAttempts))
-                state.LockedUntil = now + _options.LockoutMs;
-            return true;
         }
     }
 
-    private void AttemptSucceeded(string key) => _lockouts.TryRemove(key, out _);
+    private void AttemptSucceeded(string key) => RemoveLockout(key, _ => true);
 
+    /// <summary>
+    /// Removes entries whose failures all expired (not locked, last failure older than the lockout
+    /// window). Partial failure counts that still apply are kept.
+    /// </summary>
     private void PruneLockouts()
     {
         var now = Now();
-        foreach (var (key, state) in _lockouts)
+        foreach (var key in _lockouts.Keys)
+            RemoveLockout(key, state => state.LockedUntil <= now && now - state.LastFailure > _options.LockoutMs);
+    }
+
+    /// <summary>
+    /// Removes the entry for <paramref name="key"/> when <paramref name="predicate"/> holds, atomically
+    /// with respect to <see cref="TryReserveAttempt"/> (an attempt in progress is never lost).
+    /// </summary>
+    private void RemoveLockout(string key, Func<LockoutState, bool> predicate)
+    {
+        if (!_lockouts.TryGetValue(key, out var state)) return;
+        lock (state)
         {
-            if (Volatile.Read(ref state.LockedUntil) <= now)
-                _lockouts.TryRemove(key, out _);
+            if (state.Removed || !predicate(state)) return;
+            state.Removed = true;
+            _lockouts.TryRemove(new KeyValuePair<string, LockoutState>(key, state));
         }
     }
 
     /// <summary>Clears lockout state for a user (admin password reset, user deletion).</summary>
-    public void ClearLockout(string userId) => _lockouts.TryRemove(UserKey(userId), out _);
+    public void ClearLockout(string userId) => RemoveLockout(UserKey(userId), _ => true);
 
     // -------------------------------------------------------------------------
     // Permissions

@@ -48,7 +48,7 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `MaxSessionLifetimeMs` | `long` | `43200000` (12 h) | Absolute session lifetime; `expiresAt` = min(idle, absolute) |
 | `DefaultAdminPassword` | `string?` | random (logged once, must change) | Password for the seeded `root` user |
 | `MinPasswordLength` / `MaxPasswordLength` | `int` | `8` / `1024` | Password policy |
-| `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures (429), also for unknown names |
+| `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures within `LockoutMs` (429), also for unknown names; older failures expire |
 | `MaxAttemptsPerIpPerMinute` | `int` | `20` | Per-IP limit on login, verify-password and self password change (429) |
 | `TrustProxy` | `bool` | `false` | Use `X-Forwarded-For` for the client IP (only behind a trusted proxy): the entry `TrustedProxyHops` from the right (the one your proxy appended), the leftmost if there are fewer entries, the remote address if absent. When `false` the header is ignored |
 | `TrustedProxyHops` | `int` | `1` | Number of trusted proxies in front of the server (used when `TrustProxy` is on); client IP = entry at index `count - TrustedProxyHops` |

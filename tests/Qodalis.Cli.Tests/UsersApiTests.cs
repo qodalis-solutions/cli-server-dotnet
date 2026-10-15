@@ -121,6 +121,85 @@ public class UsersApiTests
         await auth.LoginAsync("lk", "pass");
     }
 
+    private async Task<AuthService> LockoutServiceAsync(string userName, int maxTracked = 10_000)
+    {
+        var options = new UsersModuleOptions { MaxLoginAttempts = 3, LockoutMs = 60_000 };
+        var auth = new AuthService(_userStore, _sessionStore, _credentialStore, _auditStore, _groupStore, options, null, _time)
+        {
+            MaxTrackedLockouts = maxTracked,
+        };
+        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = userName, Email = $"{userName}@x" });
+        await auth.SetPasswordAsync(user.Id, "pass");
+        return auth;
+    }
+
+    private static async Task<int> LoginStatusAsync(AuthService auth, string name, string password)
+    {
+        try
+        {
+            await auth.LoginAsync(name, password);
+            return 200;
+        }
+        catch (UsersApiException ex)
+        {
+            return ex.StatusCode;
+        }
+    }
+
+    [Fact]
+    public async Task Lockout_FailureCountsExpireAfterTheLockoutWindow()
+    {
+        var auth = await LockoutServiceAsync("slow");
+        Assert.Equal(401, await LoginStatusAsync(auth, "slow", "bad"));
+        Assert.Equal(401, await LoginStatusAsync(auth, "slow", "bad"));
+
+        _time.Advance(TimeSpan.FromMilliseconds(60_001)); // older failures no longer count
+        Assert.Equal(401, await LoginStatusAsync(auth, "slow", "bad"));
+        Assert.Equal(401, await LoginStatusAsync(auth, "slow", "bad"));
+        Assert.Equal(200, await LoginStatusAsync(auth, "slow", "pass"));
+    }
+
+    [Fact]
+    public async Task Lockout_PruningKeepsPartialFailureCountsOfActiveEntries()
+    {
+        var auth = await LockoutServiceAsync("victim", maxTracked: 5);
+        Assert.Equal(401, await LoginStatusAsync(auth, "victim", "bad"));
+        Assert.Equal(401, await LoginStatusAsync(auth, "victim", "bad"));
+
+        // Many tracked names push the table over its cap: pruning runs, but nothing has expired.
+        for (var i = 0; i < 8; i++)
+            await LoginStatusAsync(auth, $"ghost-{i}", "x");
+
+        Assert.Equal(401, await LoginStatusAsync(auth, "victim", "bad")); // 3rd failure locks
+        Assert.Equal(429, await LoginStatusAsync(auth, "victim", "pass"));
+    }
+
+    [Fact]
+    public async Task Lockout_PruningRemovesOnlyExpiredEntries()
+    {
+        var auth = await LockoutServiceAsync("someone", maxTracked: 3);
+        for (var i = 0; i < 4; i++)
+            await LoginStatusAsync(auth, $"old-{i}", "x");
+        Assert.Equal(4, auth.TrackedLockouts);
+
+        _time.Advance(TimeSpan.FromMilliseconds(60_001));
+        await LoginStatusAsync(auth, "fresh", "x"); // over the cap: the expired entries go
+        Assert.Equal(1, auth.TrackedLockouts);
+    }
+
+    [Fact]
+    public async Task Lockout_ConcurrentAttemptsWhilePruning_NeverLoseTheLock()
+    {
+        var auth = await LockoutServiceAsync("racer", maxTracked: 0); // prune on every attempt
+        var statuses = await Task.WhenAll(Enumerable.Range(0, 30).Select(i => Task.Run(() =>
+            LoginStatusAsync(auth, i % 2 == 0 ? "racer" : $"noise-{i}", "bad"))));
+
+        var racer = statuses.Where((_, i) => i % 2 == 0).ToList();
+        Assert.Equal(3, racer.Count(s => s == 401));
+        Assert.Equal(12, racer.Count(s => s == 429));
+        Assert.Equal(429, await LoginStatusAsync(auth, "racer", "pass"));
+    }
+
     [Fact]
     public async Task Logout_RemovesSession()
     {
