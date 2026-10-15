@@ -459,8 +459,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     {
         await using var host = await UsersTestHost.StartAsync(o => o.MinPasswordLength = 10);
         var token = await host.RootTokenAsync();
-        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "123456789" }), 400);
-        Assert.Equal(201, (int)(await host.PostAsync("users", token, new { name = "p", email = "p@t.c", password = "1234567890" })).StatusCode);
+        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "p", email = "p@t.co", password = "123456789" }), 400);
+        Assert.Equal(201, (int)(await host.PostAsync("users", token, new { name = "p", email = "p@t.co", password = "1234567890" })).StatusCode);
     }
 
     [Fact]
@@ -525,7 +525,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         await _h.CreateUserAsync(_root, "ug");
         Assert.Equal("unknown group: ghosts",
             await AssertErrorAsync(await _h.PutAsync("users/ug", _root, new { groups = new[] { "ghosts" } }), 400));
-        await AssertErrorAsync(await _h.PutAsync("users/nobody", _root, new { email = "x@y.z" }), 404);
+        await AssertErrorAsync(await _h.PutAsync("users/nobody", _root, new { email = "x@y.zo" }), 404);
         await AssertErrorAsync(await _h.SendAsync(HttpMethod.Put, "users/ug", _root, "{\"disabled\":\"nope\"}"), 400);
     }
 
@@ -662,8 +662,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         Assert.Equal(["commands:execute"], Strings(perms.GetProperty("permissions")));
         await AssertErrorAsync(await _h.GetAsync("users/other-user/permissions", token), 403);
 
-        await AssertErrorAsync(await _h.PostAsync("users", token, new { name = "x", email = "x@x.x" }), 403);
-        await AssertErrorAsync(await _h.PutAsync("users/other-user", token, new { email = "h@h.h" }), 403);
+        await AssertErrorAsync(await _h.PostAsync("users", token, new { name = "x", email = "x@x.xo" }), 403);
+        await AssertErrorAsync(await _h.PutAsync("users/other-user", token, new { email = "h@h.ho" }), 403);
         await AssertErrorAsync(await _h.DeleteAsync("users/other-user", token), 403);
         await AssertErrorAsync(await _h.DeleteAsync("users/plain-user", token), 403);
         await AssertErrorAsync(await _h.PutAsync("users/root/password", token, new { password = "hacked" }), 403);
@@ -714,8 +714,8 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
         Assert.Equal(200, (int)(await _h.GetAsync("audit", auditor)).StatusCode);
 
         await AssertErrorAsync(await _h.DeleteAsync("audit", auditor), 403);
-        await AssertErrorAsync(await _h.PostAsync("users", auditor, new { name = "x", email = "x@x.x" }), 403);
-        await AssertErrorAsync(await _h.PutAsync("users/root", auditor, new { email = "x@x.x" }), 403);
+        await AssertErrorAsync(await _h.PostAsync("users", auditor, new { name = "x", email = "x@x.xo" }), 403);
+        await AssertErrorAsync(await _h.PutAsync("users/root", auditor, new { email = "x@x.xo" }), 403);
         await AssertErrorAsync(await _h.GetAsync("sessions", auditor), 403);
         await AssertErrorAsync(await _h.GetAsync("groups/admin/members", auditor), 403);
         await AssertErrorAsync(await _h.PostAsync("groups", auditor, new { name = "g" }), 403);
@@ -726,9 +726,9 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
     {
         var helpdesk = await _h.UserWithPermissionsAsync(_root, "helpdesk", "users:*", "sessions:read", "commands:execute");
 
-        var created = await _h.PostAsync("users", helpdesk, new { name = "made-by-helpdesk", email = "m@h.d", password = "pass1234" });
+        var created = await _h.PostAsync("users", helpdesk, new { name = "made-by-helpdesk", email = "m@h.do", password = "pass1234" });
         Assert.Equal(201, (int)created.StatusCode);
-        Assert.Equal(200, (int)(await _h.PutAsync("users/made-by-helpdesk", helpdesk, new { email = "m2@h.d" })).StatusCode);
+        Assert.Equal(200, (int)(await _h.PutAsync("users/made-by-helpdesk", helpdesk, new { email = "m2@h.do" })).StatusCode);
         Assert.Equal(204, (int)(await _h.PutAsync("users/made-by-helpdesk/password", helpdesk, new { password = "newpass1" })).StatusCode);
         Assert.Equal(200, (int)(await _h.GetAsync("sessions", helpdesk)).StatusCode);
         Assert.Equal(204, (int)(await _h.DeleteAsync("users/made-by-helpdesk", helpdesk)).StatusCode);
@@ -1081,7 +1081,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
             o.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault;
         });
         var token = await host.RootTokenAsync();
-        var created = await ReadJsonAsync(await host.PostAsync("users", token, new { name = "shape", email = "s@s.s" }));
+        var created = await ReadJsonAsync(await host.PostAsync("users", token, new { name = "shape", email = "s@s.so" }));
         Assert.True(created.TryGetProperty("name", out _));
         Assert.False(created.GetProperty("disabled").GetBoolean());
         Assert.False(created.TryGetProperty("homeDir", out _));
@@ -1105,7 +1105,7 @@ public class UsersHttpIntegrationTests : IAsyncLifetime
             await AssertErrorAsync(await host.GetAsync(path), 401);
             await AssertErrorAsync(await host.GetAsync(path, token), 401);
         }
-        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "x", email = "x@x.x" }), 401);
+        await AssertErrorAsync(await host.PostAsync("users", token, new { name = "x", email = "x@x.xo" }), 401);
         await AssertErrorAsync(await host.DeleteAsync("users/root", token), 401);
         await AssertErrorAsync(await host.DeleteAsync("audit", token), 401);
     }
