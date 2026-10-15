@@ -45,7 +45,7 @@ public class StatusController : ControllerBase
             platformVersion = RuntimeInformation.FrameworkDescription,
             os = RuntimeInformation.OSDescription,
             activeWsConnections = _eventSocketManager.GetClients().Count,
-            activeShellSessions = 0,
+            activeShellSessions = _serviceProvider.GetService(typeof(ICliShellSessions)) is ICliShellSessions shells ? shells.Count : 0,
             registeredCommands = _commandRegistry.Processors.Count,
             registeredJobs = 0,
             enabledFeatures = DetectEnabledFeatures(),

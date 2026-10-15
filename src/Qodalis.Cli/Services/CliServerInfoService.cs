@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Models;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
@@ -9,6 +12,22 @@ namespace Qodalis.Cli.Services;
 /// </summary>
 public class CliServerInfoService : ICliServerInfoService
 {
+    private readonly CliServerOptions? _options;
+    private readonly IServiceProvider? _services;
+
+    /// <summary>Creates the service without server options (shell reported as enabled, no <c>shellAuth</c>).</summary>
+    public CliServerInfoService()
+    {
+    }
+
+    /// <summary>Creates the service reporting the configured shell state and access mode.</summary>
+    [ActivatorUtilitiesConstructor]
+    public CliServerInfoService(CliServerOptions options, IServiceProvider services)
+    {
+        _options = options;
+        _services = services;
+    }
+
     /// <inheritdoc />
     public string ServerVersion => "1.0.0";
 
@@ -30,13 +49,22 @@ public class CliServerInfoService : ICliServerInfoService
             ? "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
             : "/bin/bash";
 
-        return new
+        if (_options == null)
         {
-            Shell = true,
+            return new CliServerCapabilities { Shell = true, Os = os, ShellPath = shellPath, Version = ServerVersion };
+        }
+
+        var enabled = _options.EnableShell;
+        if (!string.IsNullOrWhiteSpace(_options.Shell.Shell)) shellPath = _options.Shell.Shell;
+        return new CliServerCapabilities
+        {
+            Shell = enabled,
             Os = os,
             ShellPath = shellPath,
             Version = ServerVersion,
-            Streaming = true,
+            ShellAuth = enabled
+                ? CliShellAccess.ResolveMode(_options.Shell, _services?.GetService<ICliAuthBridge>() != null)
+                : null,
         };
     }
 
@@ -60,4 +88,32 @@ public class CliServerInfoService : ICliServerInfoService
             Processors = processor.Processors?.Select(MapToDescriptor).ToList(),
         };
     }
+}
+
+/// <summary>Response of <c>GET /api/v1/qcli/capabilities</c>.</summary>
+public sealed class CliServerCapabilities
+{
+    /// <summary>The shell WebSocket is enabled.</summary>
+    [JsonPropertyName("shell")]
+    public bool Shell { get; init; }
+
+    [JsonPropertyName("os")]
+    public string Os { get; init; } = string.Empty;
+
+    [JsonPropertyName("shellPath")]
+    public string ShellPath { get; init; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("streaming")]
+    public bool Streaming { get; init; } = true;
+
+    /// <summary>
+    /// Shell access mode when the shell is enabled: <c>users</c>, <c>token</c>, <c>custom</c>,
+    /// <c>anonymous</c> or <c>locked</c> (see <see cref="CliShellAuthModes"/>).
+    /// </summary>
+    [JsonPropertyName("shellAuth")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShellAuth { get; init; }
 }

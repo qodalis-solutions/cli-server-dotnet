@@ -1091,15 +1091,15 @@ public class AdminAuthControllerTests
     }
 
     [Fact]
-    public void Login_ValidCredentials_ReturnsOkWithToken()
+    public async Task Login_ValidCredentials_ReturnsOkWithToken()
     {
         var controller = CreateAuthController();
 
-        var result = controller.Login(new LoginRequest
+        var result = (await controller.Login(new LoginRequest
         {
             Username = "admin",
             Password = "secret",
-        }) as OkObjectResult;
+        })) as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1110,11 +1110,11 @@ public class AdminAuthControllerTests
     }
 
     [Fact]
-    public void Login_InvalidCredentials_ReturnsUnauthorized()
+    public async Task Login_InvalidCredentials_ReturnsUnauthorized()
     {
         var controller = CreateAuthController();
 
-        var result = controller.Login(new LoginRequest
+        var result = await controller.Login(new LoginRequest
         {
             Username = "admin",
             Password = "wrong",
@@ -1124,15 +1124,15 @@ public class AdminAuthControllerTests
     }
 
     [Fact]
-    public void Login_InvalidCredentials_ReturnsErrorMessage()
+    public async Task Login_InvalidCredentials_ReturnsErrorMessage()
     {
         var controller = CreateAuthController();
 
-        var result = controller.Login(new LoginRequest
+        var result = (await controller.Login(new LoginRequest
         {
             Username = "admin",
             Password = "wrong",
-        }) as UnauthorizedObjectResult;
+        })) as UnauthorizedObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);

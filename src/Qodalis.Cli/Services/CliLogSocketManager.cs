@@ -2,11 +2,14 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
 /// <summary>
 /// Manages WebSocket connections for real-time log streaming, supporting per-client level filtering.
+/// Sends to one socket are serialized (logs are broadcast from many threads). Sockets authenticated
+/// with a session are bound to it (see <see cref="ICliSessionBoundSockets"/>).
 /// Note: This class cannot use ILogger because it is part of the logging pipeline itself
 /// (WebSocketLoggerProvider depends on it), which would create a circular dependency.
 /// </summary>
@@ -14,18 +17,22 @@ public class CliLogSocketManager : ICliLogSocketManager
 {
     private static readonly string[] LogLevelOrder = { "verbose", "debug", "information", "warning", "error", "fatal" };
 
-    private readonly ConcurrentDictionary<string, (WebSocket Socket, string? LevelFilter)> _clients = new();
+    private readonly ConcurrentDictionary<string, (SerializedWebSocketSender Sender, string? LevelFilter)> _clients = new();
+    private readonly ConcurrentDictionary<string, CliPrincipal> _bound = new();
 
     /// <inheritdoc />
-    public async Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken)
+    public async Task HandleConnectionAsync(WebSocket socket, string? levelFilter, CancellationToken cancellationToken,
+        CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
-        _clients.TryAdd(id, (socket, levelFilter));
+        var sender = new SerializedWebSocketSender(socket);
+        _clients.TryAdd(id, (sender, levelFilter));
+        if (SessionBoundSockets.IsBound(principal)) _bound.TryAdd(id, principal!);
 
         try
         {
             // Send connected event
-            await SendAsync(socket, new { type = "connected" }, cancellationToken);
+            await sender.SendTextAsync(Serialize(new { type = "connected" }), cancellationToken);
 
             // Keep alive — wait for client to close or cancellation
             var buffer = new byte[256];
@@ -48,7 +55,9 @@ public class CliLogSocketManager : ICliLogSocketManager
         }
         finally
         {
+            _bound.TryRemove(id, out _);
             _clients.TryRemove(id, out _);
+            sender.Dispose();
         }
     }
 
@@ -61,9 +70,9 @@ public class CliLogSocketManager : ICliLogSocketManager
 
         foreach (var (id, client) in _clients)
         {
-            if (client.Socket.State == WebSocketState.Open && ShouldSendLog(client.LevelFilter, level))
+            if (client.Sender.Socket.State == WebSocketState.Open && ShouldSendLog(client.LevelFilter, level))
             {
-                tasks.Add(SendBytesAsync(client.Socket, bytes));
+                tasks.Add(SendBytesAsync(client.Sender, bytes));
             }
         }
 
@@ -118,14 +127,14 @@ public class CliLogSocketManager : ICliLogSocketManager
     /// <inheritdoc />
     public async Task BroadcastDisconnectAsync()
     {
-        var message = new { type = "disconnect" };
+        var bytes = Serialize(new { type = "disconnect" });
         var tasks = new List<Task>();
 
         foreach (var (id, client) in _clients)
         {
-            if (client.Socket.State == WebSocketState.Open)
+            if (client.Sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(SendAndCloseAsync(client.Socket, message));
+                tasks.Add(SendAndCloseAsync(client.Sender, bytes));
             }
 
             _clients.TryRemove(id, out _);
@@ -134,18 +143,27 @@ public class CliLogSocketManager : ICliLogSocketManager
         await Task.WhenAll(tasks);
     }
 
-    private static async Task SendAsync(WebSocket socket, object message, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task CloseEndedSessionsAsync(Func<CliPrincipal, Task<bool>> isSessionActive)
     {
-        var json = JsonSerializer.Serialize(message);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
+        await Task.WhenAll(_bound.ToArray().Select(async entry =>
+        {
+            if (await SessionBoundSockets.IsActiveAsync(entry.Value, isSessionActive, null)) return;
+            if (!_bound.TryRemove(entry.Key, out _)) return;
+
+            // Stop delivering to it, then close after any send in progress.
+            if (_clients.TryRemove(entry.Key, out var client))
+                await SessionBoundSockets.CloseAsync(client.Sender, null);
+        }));
     }
 
-    private static async Task SendBytesAsync(WebSocket socket, byte[] bytes)
+    private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+
+    private static async Task SendBytesAsync(SerializedWebSocketSender sender, byte[] bytes)
     {
         try
         {
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            await sender.SendTextAsync(bytes);
         }
         catch
         {
@@ -153,14 +171,11 @@ public class CliLogSocketManager : ICliLogSocketManager
         }
     }
 
-    private static async Task SendAndCloseAsync(WebSocket socket, object message)
+    private static async Task SendAndCloseAsync(SerializedWebSocketSender sender, byte[] bytes)
     {
         try
         {
-            var json = JsonSerializer.Serialize(message);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None);
+            await sender.SendAndCloseAsync(bytes, "Server shutting down");
         }
         catch
         {
@@ -173,7 +188,8 @@ public class CliLogSocketManager : ICliLogSocketManager
     {
         foreach (var (_, client) in _clients)
         {
-            client.Socket.Dispose();
+            client.Sender.Socket.Dispose();
+            client.Sender.Dispose();
         }
 
         _clients.Clear();

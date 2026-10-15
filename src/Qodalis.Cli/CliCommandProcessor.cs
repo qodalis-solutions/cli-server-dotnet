@@ -32,6 +32,12 @@ public abstract class CliCommandProcessor : ICliCommandProcessor
     /// <inheritdoc />
     public virtual IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; }
 
+    /// <summary>
+    /// Permissions required to execute this command when the server is protected
+    /// (in addition to <c>commands:execute</c>).
+    /// </summary>
+    public virtual IEnumerable<string>? RequiredPermissions { get; set; }
+
     /// <inheritdoc />
     public abstract Task<string> HandleAsync
         (

@@ -3,6 +3,7 @@ using System.Security.Claims;
 
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Plugin.Admin.Services;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Admin.Auth;
 
@@ -15,6 +16,7 @@ public class AuthController : ControllerBase
 {
     private readonly AdminConfig _config;
     private readonly JwtService _jwtService;
+    private readonly ICliAuthBridge? _bridge;
 
     // Rate limiting: track login attempts per IP
     private static readonly ConcurrentDictionary<string, List<DateTime>> _loginAttempts = new();
@@ -39,8 +41,10 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the <see cref="AuthController"/> class.
     /// </summary>
-    public AuthController(AdminConfig config, JwtService jwtService)
+    /// <param name="bridge">The users-plugin auth bridge, when installed.</param>
+    public AuthController(AdminConfig config, JwtService jwtService, ICliAuthBridge? bridge = null)
     {
+        _bridge = bridge;
         _config = config;
         _jwtService = jwtService;
     }
@@ -50,8 +54,38 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <param name="request">The login credentials.</param>
     [HttpPost("login")]
-    public IActionResult Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        // When the users plugin is installed the dashboard authenticates through it
+        // (lockout, rate limiting, audit) and requires the admin:access permission;
+        // the static admin credentials are only used without the users plugin.
+        var bridge = _bridge;
+        if (bridge != null)
+        {
+            CliAuthLogin login;
+            try
+            {
+                login = await bridge.LoginAsync(HttpContext, request.Username, request.Password);
+            }
+            catch (CliAuthException ex)
+            {
+                return StatusCode(ex.StatusCode, new { error = ex.Message, code = ex.StatusCode == 429 ? "RATE_LIMITED" : "INVALID_CREDENTIALS" });
+            }
+
+            if (!login.Principal.Can(CliRoutePolicy.AdminAccess))
+            {
+                await bridge.LogoutAsync(HttpContext, login.Token);
+                return StatusCode(403, new { error = $"permission denied: {CliRoutePolicy.AdminAccess}", code = "FORBIDDEN" });
+            }
+
+            return Ok(new
+            {
+                token = login.Token,
+                expiresIn = login.ExpiresInSeconds,
+                username = login.Principal.UserName,
+            });
+        }
+
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         // Rate limiting
