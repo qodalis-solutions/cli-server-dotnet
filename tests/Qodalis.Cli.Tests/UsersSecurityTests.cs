@@ -304,15 +304,16 @@ public class UsersSecurityTests : IAsyncLifetime
     [Fact]
     public async Task Shell_IsDisabledByDefault_AndRequiresShellExecute()
     {
-        Assert.Equal(404, await _h.RejectedUpgradeStatusAsync($"/ws/v1/qcli/shell?ticket={await _h.TicketAsync(_root)}"));
-        Assert.Equal(404, await _h.RejectedUpgradeStatusAsync($"/ws/qcli?ticket={await _h.TicketAsync(_root)}"));
+        // C5: shell rejections are accept-then-close with a readable code.
+        Assert.Equal(4404, (await ShellTestClient.CloseOfAsync(_h.Host, $"/ws/v1/qcli/shell?ticket={await _h.TicketAsync(_root)}")).Code);
+        Assert.Equal(4404, (await ShellTestClient.CloseOfAsync(_h.Host, $"/ws/qcli?ticket={await _h.TicketAsync(_root)}")).Code);
 
         await using var host = await UsersTestHost.StartAsync(configureCli: cli => cli.EnableShell());
         var root = await host.RootTokenAsync();
         await host.CreateUserAsync(root, "shell-less");
         var user = (await host.LoginAsync("shell-less", "pass1234")).Token;
-        Assert.Equal(403, await host.RejectedUpgradeStatusAsync($"/ws/v1/qcli/shell?ticket={await host.TicketAsync(user)}"));
-        Assert.Equal(401, await host.RejectedUpgradeStatusAsync("/ws/v1/qcli/shell"));
+        Assert.Equal(4403, (await ShellTestClient.CloseOfAsync(host.Host, $"/ws/v1/qcli/shell?ticket={await host.TicketAsync(user)}")).Code);
+        Assert.Equal(4401, (await ShellTestClient.CloseOfAsync(host.Host, "/ws/v1/qcli/shell")).Code);
     }
 
     [Fact]
