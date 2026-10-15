@@ -196,6 +196,67 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
         await AssertErrorAsync(await SendAsync(HttpMethod.Post, "execute", "bob", body: new { command = "x" }), 403);
     }
 
+    // =========================================================================
+    // Cross-site WebSocket hijacking: adapter (cookie) auth on upgrades needs an allowed Origin
+    // =========================================================================
+
+    private static Task<UsersTestHost> StartWithoutAllowedOriginsAsync() =>
+        UsersTestHost.StartAsync(options => options.UseExternalAuth(context =>
+        {
+            var user = context.Request.Headers["X-Test-User"].FirstOrDefault();
+            return string.IsNullOrEmpty(user)
+                ? null
+                : new ExternalAuthResult
+                {
+                    User = new User { Id = $"ext-{user}", Name = user, Email = $"{user}@external.com" },
+                    IsAdmin = true,
+                };
+        }), configureCli: cli => cli.EnableShell(o =>
+        {
+            o.Shell = "/bin/sh";
+            o.IdleTimeout = null;
+        }));
+
+    private static Action<Microsoft.AspNetCore.Http.HttpRequest> AdapterUser(string? origin) => r =>
+    {
+        r.Headers["X-Test-User"] = "alice";
+        if (origin != null) r.Headers.Origin = origin;
+    };
+
+    [Fact]
+    public async Task AdapterAuthenticatedWsUpgrade_FromForeignOrigin_IsRejected()
+    {
+        await using var h = await StartWithoutAllowedOriginsAsync();
+
+        // Events socket: HTTP 403 for a cross-site upgrade that relies on adapter (cookie) auth.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/events", AdapterUser("http://evil.test")));
+        Assert.Contains("403", ex.Message);
+
+        // Shell socket: accepted then closed with 4403, never opens a shell.
+        var shell = await ShellTestClient.CloseOfAsync(h.Host, "/ws/v1/qcli/shell?cmd=echo%20pwned",
+            AdapterUser("http://evil.test"));
+        Assert.Equal(4403, shell.Code);
+        Assert.False(shell.GotReady);
+        Assert.DoesNotContain("pwned", shell.Stdout);
+    }
+
+    [Fact]
+    public async Task AdapterAuthenticatedWsUpgrade_SameOriginOrNoOrigin_IsAccepted()
+    {
+        await using var h = await StartWithoutAllowedOriginsAsync();
+
+        using (var noOrigin = await ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/events", AdapterUser(null)))
+            await CloseAsync(noOrigin);
+        using (var sameOrigin = await ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/events", AdapterUser("http://localhost")))
+            await CloseAsync(sameOrigin);
+
+        var shell = await ShellTestClient.CloseOfAsync(h.Host, "/ws/v1/qcli/shell?cmd=echo%20same-ok",
+            AdapterUser("http://localhost"));
+        Assert.True(shell.GotReady);
+        Assert.Contains("same-ok", shell.Stdout);
+    }
+
     [Fact]
     public async Task NonProtectedRoute_PassesThrough()
     {

@@ -16,7 +16,8 @@ namespace Qodalis.Cli.Plugin.Users.Middleware;
 /// <list type="bullet">
 /// <item>HTTP: <c>Authorization: Bearer</c> token, or the external adapter.</item>
 /// <item>WebSocket: single-use <c>?ticket=</c> from <c>POST /sessions/ws-ticket</c> (bearer tokens are never
-/// accepted in query strings); in adapter mode the adapter may authenticate the upgrade directly.</item>
+/// accepted in query strings); in adapter mode the adapter may authenticate the upgrade directly
+/// (a present Origin must then be allowed or same-origin).</item>
 /// <item>CSRF: state-changing requests without a bearer token must not carry a disallowed
 /// <c>Origin</c>; in adapter mode they must carry an allowed one. The request's own origin is always allowed.</item>
 /// <item>Sessions with <c>mustChangePassword</c> may only read/end the current session and change their own password.</item>
@@ -112,7 +113,17 @@ public class UsersAuthMiddleware
             {
                 auth = await authService.ConsumeTicketAsync(context.Request.Query["ticket"].FirstOrDefault());
                 if (auth == null && adapter != null)
+                {
+                    // Adapter (cookie) auth rides along with cross-site upgrades: a present
+                    // Origin must be allowed (or same-origin), otherwise this is CSWSH.
+                    var origin = context.Request.Headers.Origin.FirstOrDefault();
+                    if (!string.IsNullOrEmpty(origin) && !serverOptions.IsOriginAllowed(origin, context.Request))
+                    {
+                        await FailAsync(context, isShellSocket, 403, "origin not allowed");
+                        return;
+                    }
                     auth = await authService.AuthenticateRequestAsync(context, adapter);
+                }
             }
             else
             {
