@@ -245,6 +245,7 @@ public class UsersService
 
             var actor = caller.User.Name;
             var actorId = caller.User.Id;
+            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.UserUpdated, updated.Name, null, actor, userId: updated.Id, actorId: actorId);
 
             if (update.Disabled == true)
@@ -429,6 +430,7 @@ public class UsersService
                 throw UsersApiException.NotFound(ex.Message);
             }
 
+            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupUpdated, caller.User.Name, $"group '{updated.Name}' updated",
                 caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
             return updated;
@@ -457,6 +459,7 @@ public class UsersService
             }
 
             await _groupStore.DeleteGroupAsync(group.Name);
+            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupDeleted, caller.User.Name, $"group '{group.Name}' deleted",
                 caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
         }
@@ -481,6 +484,7 @@ public class UsersService
             await EnsureCoversTargetAsync(caller, user);
 
             await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Groups = [.. user.Groups, group.Name] });
+            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberAdded, user.Name, $"added to group '{group.Name}'",
                 caller.User.Name, userId: user.Id, actorId: caller.User.Id);
         }
@@ -512,6 +516,7 @@ public class UsersService
             {
                 Groups = user.Groups.Where(g => !string.Equals(g, group.Name, StringComparison.OrdinalIgnoreCase)).ToList(),
             });
+            _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberRemoved, user.Name, $"removed from group '{group.Name}'",
                 caller.User.Name, userId: user.Id, actorId: caller.User.Id);
         }

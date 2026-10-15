@@ -53,7 +53,9 @@ public class UsersAuthMiddleware
 
         var isUsersRoute = IsUsersRoute(path);
         var rule = CliRoutePolicy.Resolve(method, path);
-        if (!isUsersRoute && !(options.ProtectServer && rule.IsCliRoute))
+        // C1: with the users plugin the shell always needs a users session, even without ProtectServer.
+        var isShellSocket = rule.IsWebSocket && rule.Permission == CliRoutePolicy.ShellExecute;
+        if (!isUsersRoute && !isShellSocket && !(options.ProtectServer && rule.IsCliRoute))
         {
             await _next(context);
             return;
@@ -120,23 +122,24 @@ public class UsersAuthMiddleware
         catch (UsersApiException ex)
         {
             _logger.LogDebug("Users auth failed for {Path}: {Reason}", path, ex.Message);
-            await WriteErrorAsync(context, ex.StatusCode, ex.Message);
+            await FailAsync(context, isShellSocket, ex.StatusCode, ex.Message);
             return;
         }
 
         if (auth == null)
         {
-            await WriteErrorAsync(context, 401, "unauthorized");
+            await FailAsync(context, isShellSocket, 401, "unauthorized");
             return;
         }
 
         if (auth.User.MustChangePassword && !IsAllowedWhilePasswordChangeRequired(method, path, auth.User))
         {
-            await WriteErrorAsync(context, 403, AuthService.PasswordChangeRequiredMessage);
+            await FailAsync(context, isShellSocket, 403, AuthService.PasswordChangeRequiredMessage);
             return;
         }
 
-        if (!isUsersRoute && rule.Permission != null && !auth.Can(rule.Permission))
+        // The shell endpoint checks shell:execute itself and closes with 4403 (C5).
+        if (!isUsersRoute && !isShellSocket && rule.Permission != null && !auth.Can(rule.Permission))
         {
             await WriteErrorAsync(context, 403, $"permission denied: {rule.Permission}");
             return;
@@ -145,6 +148,21 @@ public class UsersAuthMiddleware
         context.SetUsersAuth(auth);
         context.SetCliPrincipal(auth.ToCliPrincipal());
         await _next(context);
+    }
+
+    /// <summary>
+    /// Shell sockets are not rejected here: the failure is recorded and the shell endpoint accepts
+    /// the upgrade and closes it with a readable code (4401/4403). Other requests get an HTTP error.
+    /// </summary>
+    private async Task FailAsync(HttpContext context, bool isShellSocket, int status, string message)
+    {
+        if (isShellSocket)
+        {
+            context.Items[CliAuthFailure.ItemKey] = new CliAuthFailure(status, message);
+            await _next(context);
+            return;
+        }
+        await WriteErrorAsync(context, status, message);
     }
 
     private static bool LimitBody(HttpContext context)

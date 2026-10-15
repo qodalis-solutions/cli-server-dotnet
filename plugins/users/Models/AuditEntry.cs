@@ -57,6 +57,26 @@ public class AuditMetadata
     [JsonPropertyName("sessionId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SessionId { get; set; }
+
+    /// <summary>Shell events: <c>interactive</c> or <c>command</c> (the command text is never recorded).</summary>
+    [JsonPropertyName("mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Mode { get; set; }
+
+    /// <summary>Shell events: lifetime of the shell in milliseconds (<c>shell_closed</c>).</summary>
+    [JsonPropertyName("durationMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DurationMs { get; set; }
+
+    /// <summary>Shell events: process exit code (<c>shell_closed</c>, when the process exited by itself).</summary>
+    [JsonPropertyName("exitCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ExitCode { get; set; }
+
+    /// <summary>Shell events: why the shell closed (<c>shell_closed</c>).</summary>
+    [JsonPropertyName("reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; set; }
 }
 
 /// <summary>
@@ -80,4 +100,6 @@ public static class AuditEvents
     public const string GroupMemberRemoved = "group_member_removed";
     public const string SessionRevoked = "session_revoked";
     public const string AuditCleared = "audit_cleared";
+    public const string ShellOpened = "shell_opened";
+    public const string ShellClosed = "shell_closed";
 }

@@ -29,6 +29,7 @@ public class AuthService
     private readonly ICliEventSocketManager? _events;
     private readonly TimeProvider _time;
     private readonly ILogger<AuthService> _logger;
+    private readonly ICliShellSessions? _shells;
     private readonly ConcurrentDictionary<string, LockoutState> _lockouts = new();
     private readonly ConcurrentDictionary<string, WsTicket> _tickets = new();
     private readonly SemaphoreSlim _hashGate;
@@ -73,7 +74,8 @@ public class AuthService
         UsersModuleOptions? options = null,
         ICliEventSocketManager? eventSocketManager = null,
         TimeProvider? timeProvider = null,
-        ILogger<AuthService>? logger = null)
+        ILogger<AuthService>? logger = null,
+        ICliShellSessions? shellSessions = null)
     {
         _userStore = userStore;
         _sessionStore = sessionStore;
@@ -84,6 +86,7 @@ public class AuthService
         _events = eventSocketManager;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<AuthService>.Instance;
+        _shells = shellSessions;
         _hashGate = new SemaphoreSlim(Math.Max(1, _options.PasswordHashConcurrency));
     }
 
@@ -325,6 +328,7 @@ public class AuthService
     public async Task LogoutAsync(Session session)
     {
         await _sessionStore.DeleteSessionByIdAsync(session.Id);
+        _shells?.CloseBySession(session.Id);
         await AuditAsync(AuditEvents.Logout, session.UserName, "user logged out",
             actor: session.UserName, metadata: new AuditMetadata { SessionId = session.Id },
             userId: session.UserId, actorId: session.UserId);
@@ -539,6 +543,7 @@ public class AuthService
     public async Task RevokeSessionAsync(Session session, string reason, string? actor, string? actorId = null)
     {
         await _sessionStore.DeleteSessionByIdAsync(session.Id);
+        _shells?.CloseBySession(session.Id);
         await AuditAsync(AuditEvents.SessionRevoked, session.UserName, reason, actor,
             new AuditMetadata { SessionId = session.Id }, session.UserId, actorId);
         await SendSessionKickedAsync(session, reason);
@@ -551,6 +556,8 @@ public class AuthService
         var sessions = await _sessionStore.GetUserSessionsAsync(userId);
         foreach (var session in sessions.Where(s => s.Id != exceptSessionId))
             await RevokeSessionAsync(session, reason, actor, actorId);
+        // Also ends shells not tied to a stored session (e.g. external-adapter principals).
+        if (exceptSessionId == null) _shells?.CloseByUser(userId);
     }
 
     private async Task SendSessionKickedAsync(Session session, string reason)
@@ -569,6 +576,51 @@ public class AuthService
         {
             _logger.LogWarning(ex, "Failed to send session-kicked for session {SessionId}", session.Id);
         }
+    }
+
+    /// <summary>
+    /// Asks open shells to re-validate their session and <c>shell:execute</c> now (after a user,
+    /// group or membership change).
+    /// </summary>
+    public void NotifyPermissionsChanged() => _shells?.RequestRecheck();
+
+    /// <summary>
+    /// Re-validates a stored session for a long-lived connection (an open shell) without the
+    /// side effects of a request: null when the session is gone, expired (idle or absolute), or the
+    /// user is missing, disabled or must change the password. <paramref name="touch"/> slides
+    /// <c>lastActivity</c> (the connection was used since the last check).
+    /// </summary>
+    public async Task<UsersAuthContext?> RevalidateSessionAsync(string sessionId, bool touch)
+    {
+        var session = await _sessionStore.GetSessionByIdAsync(sessionId);
+        if (session == null) return null;
+
+        var now = Now();
+        if (now - session.LastActivity > SessionTimeoutMs || now - session.LoginTime > MaxSessionLifetimeMs)
+        {
+            await _sessionStore.DeleteSessionByIdAsync(session.Id);
+            return null;
+        }
+
+        var user = await _userStore.GetUserAsync(session.UserId);
+        if (user == null || user.Id != session.UserId || user.Disabled || user.MustChangePassword) return null;
+
+        if (touch)
+        {
+            await _sessionStore.UpdateLastActivityAsync(session.TokenHash, now);
+            session.LastActivity = now;
+        }
+
+        return new UsersAuthContext
+        {
+            User = user,
+            Permissions = await GetEffectivePermissionsAsync(user),
+            Session = session,
+            SessionId = session.Id,
+            LoginTime = session.LoginTime,
+            LastActivity = session.LastActivity,
+            ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
+        };
     }
 
     /// <summary>Deletes sessions idle for longer than the session timeout.</summary>

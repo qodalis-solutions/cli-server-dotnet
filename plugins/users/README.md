@@ -71,9 +71,11 @@ Permissions are `resource:action` strings with `*` wildcards (`*`, `users:*`), m
 | admin dashboard API | `admin:access` |
 | events WebSocket | authenticated |
 | logs WebSocket | `logs:read` |
-| shell WebSocket (opt-in `cli.EnableShell()`) | `shell:execute` |
+| shell WebSocket (opt-in `cli.EnableShell()`; required even with `ProtectServer = false`) | `shell:execute` |
 
 Public: `POST /sessions`, `POST /auth/login` (admin dashboard), `/api/qcli/versions`, `/api/cli/versions`, `/api/v1/qcli/version`, `/api/v1/qcli/capabilities`.
+
+**Shell sessions** are bound to the session that opened them: logout, expiry, revoke, user disabled/deleted or losing `shell:execute` closes them with `4401`. Audit events `shell_opened` / `shell_closed` (`metadata: { mode, sessionId, durationMs, exitCode, reason }`, never the command). Shell rejections are close codes (`4401`/`4403`/`4404`/`4429`/`4408`), not HTTP statuses. See the main README, "Shell security".
 
 **WebSockets** authenticate with a single-use ticket: `POST /sessions/ws-ticket` → `201 { ticket, expiresIn: 30 }`, then connect with `?ticket=<ticket>`. Bearer tokens are never accepted in query strings. Upgrades are checked against `cli.SetAllowedOrigins(...)`.
 
