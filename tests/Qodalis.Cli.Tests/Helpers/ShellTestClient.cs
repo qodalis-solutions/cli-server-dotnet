@@ -100,6 +100,27 @@ public static class ShellTestClient
         }
     }
 
+    /// <summary>Reads stdout until <paramref name="done"/> holds for the accumulated text (fails on close or timeout).</summary>
+    public static async Task<string> ReadStdoutUntilAsync(WebSocket socket, Func<string, bool> done, int timeoutMs = 15000)
+    {
+        using var cts = new CancellationTokenSource(timeoutMs);
+        var stdout = new StringBuilder();
+        var buffer = new byte[16384];
+        var current = new MemoryStream();
+        while (!done(stdout.ToString()))
+        {
+            var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+            Assert.True(result.MessageType != WebSocketMessageType.Close,
+                $"shell closed early: {(int?)result.CloseStatus} {result.CloseStatusDescription}; stdout: {stdout}");
+            current.Write(buffer, 0, result.Count);
+            if (!result.EndOfMessage) continue;
+            var msg = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(current.ToArray()));
+            current.SetLength(0);
+            if (msg.GetProperty("type").GetString() == "stdout") stdout.Append(msg.GetProperty("data").GetString());
+        }
+        return stdout.ToString();
+    }
+
     public static Task SendStdinAsync(WebSocket socket, string data) =>
         socket.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "stdin", data })),
             WebSocketMessageType.Text, true, CancellationToken.None);

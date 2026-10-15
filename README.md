@@ -530,6 +530,14 @@ and mode (no command text).
 The child gets a minimal environment — `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `COLUMNS`, `LINES`, `SHELL` plus
 `EnvironmentAllow`/`EnvironmentSet` — never the full server environment (connection strings and secrets stay out).
 
+**Process cleanup.** Whenever a shell ends while its process is running (client close, timeout, session end,
+server shutdown), the whole process tree is collected first (`ps -A -o pid=,ppid=,pgid=,tty=`, macOS and Linux) and
+then signalled `SIGHUP` → `SIGTERM` → (2 s grace) → `SIGKILL`: every descendant, including `&` jobs in their own
+process groups and `setsid`/`nohup` children, every process still on the shell's terminal, and their process
+groups. Limitation: a daemon that double-forks and detaches from the terminal (e.g. `setsid` in a child that then
+exits) is re-parented to init and can no longer be traced to the shell; neither can jobs left behind by a shell
+that exited on its own (`nohup cmd & exit`). On Windows the process tree is killed directly.
+
 Rejections are readable by browsers: the upgrade is accepted, then closed with a code and reason:
 `4401 "login required"` (no ticket/token), `4401 "session ended"`, `4401 "shell access is not configured"` (locked),
 `4403 "forbidden"` (missing `shell:execute`, wrong token, `Authorize` false or throwing), `4404 "shell disabled"`,

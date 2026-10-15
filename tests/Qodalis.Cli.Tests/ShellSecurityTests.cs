@@ -435,6 +435,104 @@ public class ShellSecurityTests
         Assert.DoesNotContain(h.Logs.Messages, m => m.Contains("echo hidden-command-text-42"));
     }
 
+    // ------------------------------------------------------------------ process tree
+
+    /// <summary>
+    /// Starts background processes that escape a plain process kill: a job in its own process
+    /// group, one in a new session (setsid), one that ignores HUP and TERM, and one whose parent
+    /// subshell exits at once (re-parented, still on the shell's terminal). Returns their PIDs.
+    /// </summary>
+    private static readonly string[] Keys = ["BG", "SS", "TR", "DF"];
+
+    private static async Task<int[]> StartBackgroundJobsAsync(WebSocket socket)
+    {
+        var setsid = File.Exists("/usr/bin/setsid") || File.Exists("/bin/setsid")
+            ? "setsid sleep 1001"
+            : "perl -e 'use POSIX; POSIX::setsid(); exec @ARGV' sleep 1001";
+        await SendStdinAsync(socket,
+            "set +H\n" +
+            "sleep 1000 & echo \"BG=$!\"\n" +
+            setsid + " & echo \"SS=$!\"\n" +
+            "sh -c 'trap \"\" HUP TERM; sleep 1002' & echo \"TR=$!\"\n" +
+            "( sleep 1003 & echo \"DF=$!\" )\n");
+        var output = await ReadStdoutUntilAsync(socket, o =>
+            Keys.All(k => System.Text.RegularExpressions.Regex.IsMatch(o, k + @"=\d+")));
+        return Keys
+            .Select(k => int.Parse(System.Text.RegularExpressions.Regex.Match(output, k + @"=(\d+)").Groups[1].Value))
+            .ToArray();
+    }
+
+    /// <summary>True while the process exists and is not a zombie.</summary>
+    internal static bool IsAlive(int pid)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("ps", $"-o stat= -p {pid}")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var ps = System.Diagnostics.Process.Start(psi)!;
+        var stat = ps.StandardOutput.ReadToEnd().Trim();
+        ps.WaitForExit();
+        return stat.Length > 0 && !stat.StartsWith('Z');
+    }
+
+    private static void KillLeftovers(IEnumerable<int> pids)
+    {
+        foreach (var pid in pids)
+        {
+            try { System.Diagnostics.Process.GetProcessById(pid).Kill(); } catch (Exception) { }
+        }
+    }
+
+    [Fact]
+    public async Task ClientClose_KillsBackgroundJobsOfTheShell()
+    {
+        await using var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(o =>
+        {
+            o.Shell = "/bin/bash";
+            o.AllowAnonymous = true;
+        }));
+        var socket = await ConnectAsync(h.Host, Path + "?cols=200&rows=24");
+        await ExpectReadyAsync(socket);
+        var pids = await StartBackgroundJobsAsync(socket);
+        try
+        {
+            Assert.All(pids, pid => Assert.True(IsAlive(pid), $"{pid} should run while the shell is open"));
+
+            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+            await WaitUntilAsync(() => pids.All(pid => !IsAlive(pid)), 15000);
+        }
+        finally
+        {
+            KillLeftovers(pids);
+        }
+    }
+
+    [Fact]
+    public async Task Terminate_KillsBackgroundJobsOfTheShell()
+    {
+        await using var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(o =>
+        {
+            o.Shell = "/bin/bash";
+            o.AllowAnonymous = true;
+            o.IdleTimeout = null;
+            o.MaxDuration = TimeSpan.FromSeconds(3);
+        }));
+        var socket = await ConnectAsync(h.Host, Path + "?cols=200&rows=24");
+        await ExpectReadyAsync(socket);
+        var pids = await StartBackgroundJobsAsync(socket);
+        try
+        {
+            Assert.Equal(4408, (await ReadUntilCloseAsync(socket, 10000)).Code);
+            await WaitUntilAsync(() => pids.All(pid => !IsAlive(pid)), 15000);
+        }
+        finally
+        {
+            KillLeftovers(pids);
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     internal static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 10000)

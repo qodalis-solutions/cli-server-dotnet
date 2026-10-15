@@ -12,7 +12,9 @@ namespace Qodalis.Cli.Services;
 /// Manages interactive shell sessions over WebSocket, spawning a PTY process and bridging I/O.
 /// Enforces <see cref="CliShellOptions"/>: concurrency limits (4429), idle timeout and maximum
 /// duration (4408), session binding in users mode (4401 when the session ends or loses
-/// <c>shell:execute</c>) and a minimal child environment.
+/// <c>shell:execute</c>) and a minimal child environment. When a shell ends for any reason its
+/// whole process tree (background jobs, <c>setsid</c>/<c>nohup</c> children, processes on its
+/// terminal) is signalled HUP, TERM, then KILL (see <see cref="ShellProcessTree"/>).
 /// </summary>
 public class ShellSessionManager : IShellSessionManager
 {
@@ -147,14 +149,10 @@ public class ShellSessionManager : IShellSessionManager
         void Terminate(int code, string reason, string? auditReason)
         {
             if (!state.TryTerminate(code, reason, auditReason)) return;
-            // Kill the process: the session loop then ends normally and sends the close
+            // End the process tree: the session loop then ends normally and sends the close
             // code before cancelling (cancelling first would abort the socket without one).
             // Cancel shortly after as a fallback in case nothing else unblocks the loop.
-            try
-            {
-                if (process is { HasExited: false }) process.Kill(entireProcessTree: true);
-            }
-            catch (Exception) { }
+            if (process != null) ShellProcessTree.Terminate(process, _logger);
             try { cts.CancelAfter(TimeSpan.FromSeconds(3)); } catch (ObjectDisposedException) { }
             if (process == null)
             {
@@ -324,7 +322,7 @@ public class ShellSessionManager : IShellSessionManager
                 try
                 {
                     if (!process.HasExited)
-                        process.Kill(entireProcessTree: true);
+                        ShellProcessTree.Terminate(process, _logger);
                     else if (!state.Terminated)
                         exitCode = process.ExitCode;
                 }
