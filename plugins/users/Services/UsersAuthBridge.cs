@@ -17,6 +17,8 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
             throw new CliAuthException(501, "Authentication is managed by the host application");
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
             throw new CliAuthException(400, "username and password are required");
+        if (username.Length > UsersValidation.MaxEmailLength || password.Length > auth.Options.MaxPasswordLength)
+            throw new CliAuthException(400, "username or password is too long");
 
         try
         {

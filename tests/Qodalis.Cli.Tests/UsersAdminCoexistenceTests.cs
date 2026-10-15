@@ -153,6 +153,20 @@ public class UsersAdminCoexistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AdminLogin_RejectsOversizedCredentials_LikeUsersLogin()
+    {
+        // Same input limits as POST /sessions: an unbounded attempted name would otherwise be
+        // kept as a lockout key and audited.
+        var longName = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+            new { username = new string('a', 300), password = "whatever" });
+        Assert.Equal(HttpStatusCode.BadRequest, longName.StatusCode);
+
+        var longPassword = await _client.PostAsJsonAsync("/api/v1/qcli/auth/login",
+            new { username = "root", password = new string('p', 2000) });
+        Assert.Equal(HttpStatusCode.BadRequest, longPassword.StatusCode);
+    }
+
+    [Fact]
     public async Task UsersToken_AcceptedByUsersEndpoints()
     {
         var login = await _client.PostAsJsonAsync("/api/v1/qcli/sessions",
