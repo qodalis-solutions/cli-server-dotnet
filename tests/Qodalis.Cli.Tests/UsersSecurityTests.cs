@@ -52,6 +52,17 @@ public class UsersSecurityTests : IAsyncLifetime
         cli.SetAllowedOrigins(AppOrigin, "http://127.0.0.1:*");
         cli.AddProcessor(new TestProcessor("echo", "Echo"));
         cli.AddProcessor(new TestProcessor("secret-cmd", "Needs secret:run") { RequiredPermissions = ["secret:run"] });
+        cli.AddProcessor(new TestProcessor("release", "Release")
+        {
+            Processors =
+            [
+                new TestProcessor("prod", "Needs release:prod")
+                {
+                    RequiredPermissions = ["release:prod"],
+                    Processors = [new TestProcessor("run", "Run")],
+                },
+            ],
+        });
     }
 
     public async Task InitializeAsync()
@@ -141,6 +152,17 @@ public class UsersSecurityTests : IAsyncLifetime
         var runner = await UserAsync("secret-runner", "commands:execute", "secret:run");
         Assert.Equal(200, (int)(await _h.PostAsync("execute", runner, Exec("secret-cmd"))).StatusCode);
         Assert.Equal(200, (int)(await _h.PostAsync("execute", _root, Exec("secret-cmd"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Execute_EnforcesPermissionsOfEveryProcessorInTheChain()
+    {
+        var execOnly = await UserAsync("release-exec", "commands:execute");
+        var cmd = new { command = "release", value = "", args = new { }, chainCommands = new[] { "prod", "run" } };
+        Assert.Contains("release:prod", await AssertErrorAsync(await _h.PostAsync("execute", execOnly, cmd), 403));
+
+        var releaser = await UserAsync("releaser", "commands:execute", "release:prod");
+        Assert.Equal(200, (int)(await _h.PostAsync("execute", releaser, cmd)).StatusCode);
     }
 
     [Fact]

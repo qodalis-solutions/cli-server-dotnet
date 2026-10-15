@@ -50,7 +50,7 @@ public class CliController : ControllerBase
 
     /// <summary>
     /// When the server is protected, enforces the processor's declared
-    /// <see cref="ICliCommandProcessor.RequiredPermissions"/> (root and resolved sub-command).
+    /// <see cref="ICliCommandProcessor.RequiredPermissions"/> (every processor from the root to the resolved sub-command).
     /// </summary>
     private ObjectResult? CheckCommandPermissions(CliProcessCommand command)
     {
@@ -60,12 +60,17 @@ public class CliController : ControllerBase
         if (principal == null)
             return StatusCode(401, new { error = "unauthorized" });
 
+        // Every processor on the path counts, not only the root and the resolved one
         var required = new List<string>();
-        var root = _registry.FindProcessor(command.Command);
-        if (root?.RequiredPermissions != null) required.AddRange(root.RequiredPermissions);
-        var resolved = _registry.FindProcessor(command.Command, command.ChainCommands);
-        if (resolved != null && !ReferenceEquals(resolved, root) && resolved.RequiredPermissions != null)
-            required.AddRange(resolved.RequiredPermissions);
+        var processor = _registry.FindProcessor(command.Command);
+        if (processor?.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
+        foreach (var sub in command.ChainCommands ?? [])
+        {
+            processor = processor?.Processors?.FirstOrDefault(
+                p => string.Equals(p.Command, sub, StringComparison.OrdinalIgnoreCase));
+            if (processor == null) break;
+            if (processor.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
+        }
 
         var missing = CliPermissionMatcher.Missing(principal.Permissions, required.Distinct(StringComparer.OrdinalIgnoreCase));
         return missing.Count == 0
