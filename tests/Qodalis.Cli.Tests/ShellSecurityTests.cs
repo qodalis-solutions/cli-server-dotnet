@@ -324,6 +324,35 @@ public class ShellSecurityTests
     }
 
     [Fact]
+    public async Task LargeFragmentedAndMalformedInput_DoesNotEndTheShell()
+    {
+        await using var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(Base(o =>
+        {
+            o.AllowAnonymous = true;
+            o.IdleTimeout = null;
+        })));
+
+        var socket = await ConnectAsync(h.Host, Path);
+        await ExpectReadyAsync(socket);
+
+        // A malformed message is ignored.
+        await socket.SendAsync("not json"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await socket.SendAsync("{\"data\":\"x\"}"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        // A stdin message larger than the server's receive buffer (a paste), sent in two frames.
+        var paste = string.Concat(Enumerable.Repeat(": 0123456789abcdef\n", 600)) + "echo big-$((40+2))\nexit\n";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "stdin", data = paste }));
+        Assert.True(bytes.Length > 8192);
+        var half = bytes.Length / 2;
+        await socket.SendAsync(bytes.AsMemory(0, half), WebSocketMessageType.Text, false, CancellationToken.None);
+        await socket.SendAsync(bytes.AsMemory(half), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var close = await ReadUntilCloseAsync(socket, 15000);
+        Assert.Contains("big-42", close.Stdout);
+        Assert.Equal(0, close.ExitCode);
+    }
+
+    [Fact]
     public async Task MaxDuration_ClosesWith4408()
     {
         await using var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(Base(o =>

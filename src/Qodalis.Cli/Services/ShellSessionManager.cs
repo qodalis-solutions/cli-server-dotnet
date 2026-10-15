@@ -519,6 +519,9 @@ public class ShellSessionManager : IShellSessionManager
         catch (IOException) { }
     }
 
+    /// <summary>Largest client message accepted on the shell socket; bigger ones are dropped.</summary>
+    internal const int MaxInputMessageBytes = 1024 * 1024;
+
     private static async Task ReadWebSocketInputAsync(
         WebSocket webSocket,
         Process process,
@@ -526,6 +529,8 @@ public class ShellSessionManager : IShellSessionManager
         CancellationToken cancellationToken)
     {
         var buffer = new byte[4096];
+        using var message = new MemoryStream();
+        var oversized = false;
         try
         {
             while (!cancellationToken.IsCancellationRequested &&
@@ -540,15 +545,45 @@ public class ShellSessionManager : IShellSessionManager
                 if (process.HasExited)
                     break;
 
-                var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                using var doc = JsonDocument.Parse(json);
-                var msgType = doc.RootElement.GetProperty("type").GetString();
+                // Messages larger than the buffer (pastes) arrive in several reads.
+                if (!oversized)
+                {
+                    message.Write(buffer, 0, result.Count);
+                    oversized = message.Length > MaxInputMessageBytes;
+                }
+                if (!result.EndOfMessage) continue;
+
+                var complete = !oversized;
+                var json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+                message.SetLength(0);
+                oversized = false;
+                if (!complete) continue;
+
+                // Malformed messages are ignored instead of ending the session.
+                JsonDocument doc;
+                try
+                {
+                    doc = JsonDocument.Parse(json);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+                using var _ = doc;
+                if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                    !doc.RootElement.TryGetProperty("type", out var typeProperty) ||
+                    typeProperty.ValueKind != JsonValueKind.String)
+                    continue;
+                var msgType = typeProperty.GetString();
 
                 switch (msgType)
                 {
                     case "stdin":
                         state.Stdin();
-                        var data = doc.RootElement.GetProperty("data").GetString();
+                        var data = doc.RootElement.TryGetProperty("data", out var dataProperty) &&
+                                   dataProperty.ValueKind == JsonValueKind.String
+                            ? dataProperty.GetString()
+                            : null;
                         if (data != null)
                         {
                             try
@@ -561,8 +596,11 @@ public class ShellSessionManager : IShellSessionManager
                         break;
 
                     case "resize":
-                        var newCols = doc.RootElement.GetProperty("cols").GetInt32();
-                        var newRows = doc.RootElement.GetProperty("rows").GetInt32();
+                        if (!doc.RootElement.TryGetProperty("cols", out var colsProperty) ||
+                            !colsProperty.TryGetInt32(out var newCols) ||
+                            !doc.RootElement.TryGetProperty("rows", out var rowsProperty) ||
+                            !rowsProperty.TryGetInt32(out var newRows))
+                            break;
                         try
                         {
                             await process.StandardInput.WriteAsync(
