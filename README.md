@@ -459,6 +459,8 @@ The interactive shell sockets (`/ws/v1/qcli/shell`, `/ws/qcli/shell`, `/ws/v1/qc
 
 Without an authentication plugin the server is open — protect it with the users plugin (`cli.AddUsers()` + `app.UseQodalisUsers()` before `app.UseCli()`), which by default (`ProtectServer = true`) requires a session on every CLI route and socket except login and version discovery. Processors can declare `RequiredPermissions`, enforced on `/execute` in addition to `commands:execute`. See [plugins/users/README.md](plugins/users/README.md) for the permission table and WebSocket tickets.
 
+Same-origin requests (whose `Origin` equals the server's own `scheme://host[:port]`, e.g. the bundled admin dashboard at `/qcli/admin`) always pass the Origin checks (WebSocket upgrades and CSRF), even when that origin is not listed in `SetAllowedOrigins(...)`.
+
 ### Shell security
 
 The shell gives OS-level access, so it is off unless enabled, and enabling it does **not** open it:

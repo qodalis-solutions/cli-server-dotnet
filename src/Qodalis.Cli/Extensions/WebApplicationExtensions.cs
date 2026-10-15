@@ -61,7 +61,7 @@ public static class WebApplicationExtensions
             }
 
             var origin = context.Request.Headers.Origin.FirstOrDefault();
-            if (options.AllowedOrigins.Count > 0 && !string.IsNullOrEmpty(origin) && !options.IsOriginAllowed(origin))
+            if (options.AllowedOrigins.Count > 0 && !string.IsNullOrEmpty(origin) && !options.IsOriginAllowed(origin, context.Request))
             {
                 logger.LogWarning("WebSocket upgrade rejected for {Path}: origin not allowed", path);
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;

@@ -18,7 +18,7 @@ namespace Qodalis.Cli.Plugin.Users.Middleware;
 /// <item>WebSocket: single-use <c>?ticket=</c> from <c>POST /sessions/ws-ticket</c> (bearer tokens are never
 /// accepted in query strings); in adapter mode the adapter may authenticate the upgrade directly.</item>
 /// <item>CSRF: state-changing requests without a bearer token must not carry a disallowed
-/// <c>Origin</c>; in adapter mode they must carry an allowed one.</item>
+/// <c>Origin</c>; in adapter mode they must carry an allowed one. The request's own origin is always allowed.</item>
 /// <item>Sessions with <c>mustChangePassword</c> may only read/end the current session and change their own password.</item>
 /// </list>
 /// </summary>
@@ -79,7 +79,7 @@ public class UsersAuthMiddleware
         if (IsStateChanging(method) && !hasBearer && !rule.IsWebSocket)
         {
             var origin = context.Request.Headers.Origin.FirstOrDefault();
-            var originAllowed = serverOptions.IsOriginAllowed(origin);
+            var originAllowed = serverOptions.IsOriginAllowed(origin, context.Request);
             if (!string.IsNullOrEmpty(origin) && serverOptions.AllowedOrigins.Count > 0 && !originAllowed)
             {
                 await WriteErrorAsync(context, 403, "origin not allowed");

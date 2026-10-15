@@ -237,6 +237,18 @@ public class ShellSecurityTests
         Assert.Contains("403", ex.Message);
     }
 
+    [Fact]
+    public async Task SameOriginUpgrade_PassesOriginCheck()
+    {
+        await using var h = await ShellTestHost.StartAsync(cli =>
+        {
+            cli.SetAllowedOrigins("http://localhost:4300");
+            cli.EnableShell(Base(o => o.AllowAnonymous = true));
+        });
+        using var socket = await ConnectAsync(h.Host, Path, r => r.Headers.Origin = "http://localhost");
+        await ExpectReadyAsync(socket);
+    }
+
     // ------------------------------------------------------------------ C3 limits
 
     [Fact]

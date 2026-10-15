@@ -799,6 +799,52 @@ public class UsersSecurityTests : IAsyncLifetime
         Assert.Equal(201, (int)(await _h.Client.SendAsync(withBearer)).StatusCode);
     }
 
+    [Fact]
+    public async Task StateChange_WithSameOrigin_NotInAllowedOrigins_Succeeds()
+    {
+        // The admin dashboard is served by the server itself, so the browser sends the server's own
+        // origin (TestServer: http://localhost). Same-origin requests are never cross-site.
+        async Task<HttpResponseMessage> Login(string origin)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}/sessions")
+            {
+                Content = new StringContent("{\"username\":\"root\",\"password\":\"root\"}", Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Add("Origin", origin);
+            return await _h.Client.SendAsync(req);
+        }
+
+        Assert.Equal(201, (int)(await Login("http://localhost")).StatusCode);
+        Assert.Equal(201, (int)(await Login("HTTP://LocalHost:80")).StatusCode);
+
+        // A different scheme or port is a different origin and still rejected.
+        await AssertErrorAsync(await Login("http://localhost:8046"), 403);
+        await AssertErrorAsync(await Login("https://localhost"), 403);
+        await AssertErrorAsync(await Login("http://evil.test"), 403);
+    }
+
+    [Fact]
+    public void IsSameOrigin_HonoursRequestHostAndNormalizesDefaultPorts()
+    {
+        var ctx = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        ctx.Request.Scheme = "http";
+        ctx.Request.Host = new Microsoft.AspNetCore.Http.HostString("localhost:8046");
+        var options = new CliServerOptions();
+        options.AllowedOrigins.Add(AppOrigin);
+
+        Assert.True(options.IsOriginAllowed("http://localhost:8046", ctx.Request));
+        Assert.True(options.IsOriginAllowed("http://LOCALHOST:8046/", ctx.Request));
+        Assert.True(options.IsOriginAllowed(AppOrigin, ctx.Request));
+        Assert.False(options.IsOriginAllowed("http://localhost:8047", ctx.Request));
+        Assert.False(options.IsOriginAllowed("null", ctx.Request));
+        Assert.False(options.IsOriginAllowed(null, ctx.Request));
+
+        ctx.Request.Scheme = "https";
+        ctx.Request.Host = new Microsoft.AspNetCore.Http.HostString("example.com");
+        Assert.True(CliServerOptions.IsSameOrigin("https://example.com:443", ctx.Request));
+        Assert.False(CliServerOptions.IsSameOrigin("http://example.com", ctx.Request));
+    }
+
     // =========================================================================
     // B10 — admin dashboard
     // =========================================================================

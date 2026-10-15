@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace Qodalis.Cli.Security;
 
 /// <summary>
@@ -27,6 +29,40 @@ public sealed class CliServerOptions
     /// <see cref="CliPrincipal"/> except the public routes (fail closed).
     /// </summary>
     public bool RequireAuthentication { get; set; }
+
+    /// <summary>
+    /// True when <paramref name="origin"/> is the request's own origin (same-origin requests, such as
+    /// the bundled admin dashboard, are never cross-site and are always allowed) or is listed in
+    /// <see cref="AllowedOrigins"/>.
+    /// </summary>
+    public bool IsOriginAllowed(string? origin, HttpRequest request)
+        => IsSameOrigin(origin, request) || IsOriginAllowed(origin);
+
+    /// <summary>
+    /// True when <paramref name="origin"/> equals <c>Request.Scheme://Request.Host</c> (honours
+    /// forwarded headers when the host configured <c>ForwardedHeaders</c>). Scheme and host are compared
+    /// case-insensitively and default ports (http:80, https:443) are normalized.
+    /// </summary>
+    public static bool IsSameOrigin(string? origin, HttpRequest request)
+    {
+        if (string.IsNullOrEmpty(origin) || !request.Host.HasValue || string.IsNullOrEmpty(request.Scheme))
+            return false;
+        if (!Uri.TryCreate(origin.TrimEnd('/'), UriKind.Absolute, out var o)) return false;
+        if (o.AbsolutePath != "/" || !string.IsNullOrEmpty(o.Query) || !string.IsNullOrEmpty(o.Fragment)) return false;
+
+        var scheme = request.Scheme.ToLowerInvariant() switch
+        {
+            "ws" => "http",
+            "wss" => "https",
+            var s => s,
+        };
+        if (!Uri.TryCreate($"{scheme}://{request.Host.ToUriComponent()}", UriKind.Absolute, out var self))
+            return false;
+
+        return string.Equals(o.Scheme, self.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(o.IdnHost, self.IdnHost, StringComparison.OrdinalIgnoreCase)
+            && o.Port == self.Port;
+    }
 
     /// <summary>True when <paramref name="origin"/> is listed in <see cref="AllowedOrigins"/>.</summary>
     public bool IsOriginAllowed(string? origin)
