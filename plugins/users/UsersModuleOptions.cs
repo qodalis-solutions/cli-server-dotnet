@@ -67,8 +67,21 @@ public class UsersModuleOptions
     /// </summary>
     public int MaxAttemptsPerIpPerMinute { get; set; } = 20;
 
-    /// <summary>Trust <c>X-Forwarded-For</c> for the client IP (only behind a trusted reverse proxy). Defaults to false.</summary>
+    /// <summary>
+    /// Trust <c>X-Forwarded-For</c> for the client IP (only behind a trusted reverse proxy). When on, the
+    /// client IP is the entry <see cref="TrustedProxyHops"/> positions from the right of the header (the one
+    /// appended by the outermost trusted proxy); when off, the header is ignored and the connection's remote
+    /// address is used. Defaults to false.
+    /// </summary>
     public bool TrustProxy { get; set; }
+
+    /// <summary>
+    /// Number of trusted reverse proxies in front of the server, used when <see cref="TrustProxy"/> is on.
+    /// The client IP is the <c>X-Forwarded-For</c> entry at index <c>count - TrustedProxyHops</c> (with 1, the
+    /// rightmost entry); the leftmost entry when the header has fewer entries, and the remote address when it
+    /// is absent or empty. Defaults to 1.
+    /// </summary>
+    public int TrustedProxyHops { get; set; } = 1;
 
     /// <summary>Maximum concurrent PBKDF2 computations. Defaults to 4.</summary>
     public int PasswordHashConcurrency { get; set; } = 4;

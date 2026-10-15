@@ -14,6 +14,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Extensions;
+using Qodalis.Cli.Plugin.Users;
 using Qodalis.Cli.Plugin.Users.Authorization;
 using Qodalis.Cli.Plugin.Users.Services;
 using Qodalis.Cli.Plugin.Users.Stores;
@@ -600,13 +601,32 @@ public class UsersSecurityTests : IAsyncLifetime
             {
                 Content = new StringContent($"{{\"username\":\"nobody{n++}\",\"password\":\"x\"}}", Encoding.UTF8, "application/json"),
             };
-            req.Headers.Add("X-Forwarded-For", ip + ", 10.9.9.9");
+            // The trusted proxy appends the real client (rightmost); the leftmost entry is client-controlled.
+            req.Headers.Add("X-Forwarded-For", $"203.0.113.{n}, {ip}");
             return (int)(await host.Client.SendAsync(req)).StatusCode;
         }
 
         for (var i = 0; i < 20; i++) await Attempt("10.0.0.1");
         Assert.Equal(429, await Attempt("10.0.0.1"));
         Assert.NotEqual(429, await Attempt("10.0.0.2"));
+    }
+
+    [Theory]
+    [InlineData(false, 1, "1.1.1.1, 2.2.2.2", "9.9.9.9")]
+    [InlineData(true, 1, "1.1.1.1, 2.2.2.2", "2.2.2.2")]
+    [InlineData(true, 1, " 1.1.1.1 ,  2.2.2.2 ", "2.2.2.2")]
+    [InlineData(true, 2, "1.1.1.1, 2.2.2.2, 3.3.3.3", "2.2.2.2")]
+    [InlineData(true, 3, "1.1.1.1, 2.2.2.2", "1.1.1.1")]
+    [InlineData(true, 1, "1.1.1.1", "1.1.1.1")]
+    [InlineData(true, 1, "", "9.9.9.9")]
+    [InlineData(true, 1, null, "9.9.9.9")]
+    public void ClientIp_UsesTrustedProxyHopsFromTheRight(bool trustProxy, int hops, string? header, string expected)
+    {
+        var limiter = new IpRateLimiter(new UsersModuleOptions { TrustProxy = trustProxy, TrustedProxyHops = hops });
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("9.9.9.9");
+        if (header != null) context.Request.Headers["X-Forwarded-For"] = header;
+        Assert.Equal(expected, limiter.ClientIp(context));
     }
 
     [Fact]

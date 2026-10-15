@@ -23,16 +23,23 @@ public sealed class IpRateLimiter
     }
 
     /// <summary>
-    /// Client IP: the first <c>X-Forwarded-For</c> entry when <see cref="UsersModuleOptions.TrustProxy"/>
-    /// is on, otherwise the connection's remote address.
+    /// Client IP. When <see cref="UsersModuleOptions.TrustProxy"/> is on, the <c>X-Forwarded-For</c> entry
+    /// at index <c>count - TrustedProxyHops</c> (the one appended by the outermost trusted proxy; the
+    /// leftmost entries are client-controlled), or the leftmost entry when there are fewer entries.
+    /// Otherwise, or when the header is absent or empty, the connection's remote address.
     /// </summary>
     public string ClientIp(HttpContext context)
     {
         if (_options.TrustProxy)
         {
             var forwarded = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-            var first = forwarded?.Split(',')[0].Trim();
-            if (!string.IsNullOrEmpty(first)) return first;
+            if (!string.IsNullOrWhiteSpace(forwarded))
+            {
+                var entries = forwarded.Split(',').Select(e => e.Trim()).ToArray();
+                var hops = Math.Max(1, _options.TrustedProxyHops);
+                var ip = entries[Math.Max(0, entries.Length - hops)];
+                if (!string.IsNullOrEmpty(ip)) return ip;
+            }
         }
         return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
