@@ -62,9 +62,9 @@ public sealed class CliShellSessionHandle : IDisposable
     public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
 
     /// <summary>Raised when the registry asks this shell to close (code, reason).</summary>
-    internal Action<int, string>? OnTerminate { get; set; }
+    internal Action<int, string, string?>? OnTerminate { get; set; }
 
-    internal void Terminate(int code, string reason) => OnTerminate?.Invoke(code, reason);
+    internal void Terminate(int code, string reason, string? auditReason = null) => OnTerminate?.Invoke(code, reason, auditReason);
 
     internal void FlagRecheck() => Interlocked.Exchange(ref _recheck, 1);
 
@@ -130,6 +130,14 @@ public sealed class CliShellSessionRegistry : ICliShellSessions
         List<CliShellSessionHandle> bound;
         lock (_gate) bound = _sessions.Where(s => s.Principal != null).ToList();
         foreach (var s in bound) s.FlagRecheck();
+    }
+
+    /// <summary>Closes every open shell with <paramref name="code"/> (e.g. 1001 on server shutdown).</summary>
+    public void TerminateAll(int code, string reason)
+    {
+        List<CliShellSessionHandle> all;
+        lock (_gate) all = [.. _sessions];
+        foreach (var s in all) s.Terminate(code, reason);
     }
 
     private void TerminateWhere(Func<CliShellSessionHandle, bool> predicate, string reason)

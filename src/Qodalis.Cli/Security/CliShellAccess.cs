@@ -74,6 +74,7 @@ public static class CliShellAccess
     public static string ResolveMode(CliShellOptions options, bool usersMode)
     {
         if (usersMode) return CliShellAuthModes.Users;
+        // AllowAnonymous is ignored once a token or authorize callback is configured.
         if (!string.IsNullOrEmpty(options.Token)) return CliShellAuthModes.Token;
         if (options.Authorize != null) return CliShellAuthModes.Custom;
         if (options.AllowAnonymous) return CliShellAuthModes.Anonymous;
@@ -101,7 +102,7 @@ public static class CliShellAccess
             {
                 var failure = context.Items.TryGetValue(CliAuthFailure.ItemKey, out var f) ? f as CliAuthFailure : null;
                 return failure?.StatusCode == StatusCodes.Status403Forbidden
-                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden, Truncate(failure.Message))
+                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden, Forbidden)
                     : CliShellAccessResult.Deny(mode, CliShellCloseCodes.Unauthorized, LoginRequired);
             }
             if (!principal.Can(CliRoutePolicy.ShellExecute))
@@ -163,7 +164,4 @@ public static class CliShellAccess
         var b = SHA256.HashData(Encoding.UTF8.GetBytes(expected));
         return CryptographicOperations.FixedTimeEquals(a, b);
     }
-
-    /// <summary>WebSocket close reasons are limited to 123 UTF-8 bytes.</summary>
-    internal static string Truncate(string reason) => reason.Length > 100 ? reason[..100] : reason;
 }

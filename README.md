@@ -487,8 +487,10 @@ cli.AddUsers(o => { /* ... */ });
 An open shell belongs to the session that opened it: logout, idle/absolute expiry, admin revoke (kick), the user
 being disabled or deleted, or losing `shell:execute` (re-checked every `SessionCheckInterval`, ≤ 60 s, and
 immediately on user/group changes) closes it with `4401 session ended` and kills the process tree. Shell input
-counts as session activity. The audit log records `shell_opened` / `shell_closed` with `userId`, `actorId` and
+counts as session activity (at most one touch per 30 s); re-checks alone never extend the session. The audit log records `shell_opened` / `shell_closed` with `userId`, `actorId` and
 `metadata: { mode: interactive|command, sessionId, durationMs, exitCode, reason }` — never the command or stdin.
+`reason` is `exited` (only then `exitCode`), `closed` (client), `session ended`, `permission removed`,
+`shell timed out`, `server shutdown` or `error`. Server shutdown closes open shells with `1001`.
 
 **Without the users plugin** use token mode (or `Authorize`):
 
@@ -499,6 +501,10 @@ cli.EnableShell(o =>
     // o.Authorize = ctx => ValueTask.FromResult(IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress!));
 });
 ```
+
+The bundled `Qodalis.Cli.Server` host does exactly this: set `QCLI_SHELL_TOKEN=<secret>` (or `Shell:Token` in
+`appsettings.json`) to enable its shell; without a token it stays locked in every environment.
+`AllowAnonymous` is ignored once `Token` or `Authorize` is set.
 
 In the web-cli client, give the server entry `headers: { Authorization: 'Bearer <token>' }`; browsers cannot set
 WebSocket headers, so the client forwards it as `_header_Authorization` (prefer TLS; ASP.NET Core request logging
@@ -522,9 +528,10 @@ and mode (no command text).
 The child gets a minimal environment — `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `COLUMNS`, `LINES`, `SHELL` plus
 `EnvironmentAllow`/`EnvironmentSet` — never the full server environment (connection strings and secrets stay out).
 
-Rejections are readable by browsers: the upgrade is accepted, then closed with `4401` (login required / session
-ended / locked), `4403` (missing `shell:execute`, bad token, `Authorize` false or throwing), `4404` (shell disabled),
-`4429` (limit), `4408` (timeout). Only a disallowed `Origin` is still rejected with HTTP 403.
+Rejections are readable by browsers: the upgrade is accepted, then closed with a code and reason:
+`4401 "login required"` (no ticket/token), `4401 "session ended"`, `4401 "shell access is not configured"` (locked),
+`4403 "forbidden"` (missing `shell:execute`, wrong token, `Authorize` false or throwing), `4404 "shell disabled"`,
+`4408 "shell timed out"`, `4429 "too many shell sessions"`. Only a disallowed `Origin` is still rejected with HTTP 403.
 
 The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/qcli/versions` discovery endpoint.
 

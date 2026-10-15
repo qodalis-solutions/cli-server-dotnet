@@ -52,6 +52,7 @@ public class ShellSecurityTests
         await using var h = await ShellTestHost.StartAsync(cli => cli.EnableShell());
         var close = await CloseOfAsync(h.Host, Cmd("echo hi"));
         Assert.Equal(4401, close.Code);
+        Assert.Equal("shell access is not configured", close.Reason);
         Assert.False(close.GotReady);
         Assert.Contains(h.Logs.Messages, m => m.Contains("locked", StringComparison.OrdinalIgnoreCase) && m.Contains("Token"));
 
@@ -83,10 +84,12 @@ public class ShellSecurityTests
 
         var missing = await CloseOfAsync(h.Host, Cmd("echo no"));
         Assert.Equal(4401, missing.Code);
+        Assert.Equal("login required", missing.Reason);
         Assert.False(missing.GotReady);
 
         var wrong = await CloseOfAsync(h.Host, Cmd("echo no"), Bearer("s3cret-shell-tokeX"));
         Assert.Equal(4403, wrong.Code);
+        Assert.Equal("forbidden", wrong.Reason);
         Assert.False(wrong.GotReady);
 
         var basic = await CloseOfAsync(h.Host, Cmd("echo no"), r => r.Headers.Authorization = $"Basic {Secret}");
@@ -181,6 +184,47 @@ public class ShellSecurityTests
     }
 
     [Fact]
+    public async Task AllowAnonymous_IsIgnoredOnceTokenOrAuthorizeIsSet()
+    {
+        await using (var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(Base(o =>
+        {
+            o.Token = Secret;
+            o.AllowAnonymous = true;
+        }))))
+        {
+            Assert.Equal("token", (await h.CapabilitiesAsync()).GetProperty("shellAuth").GetString());
+            Assert.Equal(4401, (await CloseOfAsync(h.Host, Cmd("echo no"))).Code);
+            Assert.DoesNotContain(h.Logs.Messages, m => m.Contains("without authentication"));
+        }
+
+        await using (var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(Base(o =>
+        {
+            o.Authorize = _ => ValueTask.FromResult(false);
+            o.AllowAnonymous = true;
+        }))))
+        {
+            Assert.Equal("custom", (await h.CapabilitiesAsync()).GetProperty("shellAuth").GetString());
+            Assert.Equal(4403, (await CloseOfAsync(h.Host, Cmd("echo no"))).Code);
+        }
+    }
+
+    [Fact]
+    public async Task ServerShutdown_ClosesOpenShellsWith1001()
+    {
+        var h = await ShellTestHost.StartAsync(cli => cli.EnableShell(Base(o => o.AllowAnonymous = true)));
+        var socket = await ConnectAsync(h.Host, Path);
+        await ExpectReadyAsync(socket);
+
+        var reading = ReadUntilCloseAsync(socket, 10000);
+        var stopping = h.DisposeAsync().AsTask();
+        var close = await reading;
+        await stopping;
+        Assert.Equal(1001, close.Code);
+        Assert.Equal("server shutdown", close.Reason);
+        Assert.Contains(h.Logs.Messages, m => m.StartsWith("Shell session closed") && m.Contains("reason=server shutdown"));
+    }
+
+    [Fact]
     public async Task OriginRejection_StaysHttp403()
     {
         await using var h = await ShellTestHost.StartAsync(cli =>
@@ -264,6 +308,7 @@ public class ShellSecurityTests
         Assert.Equal(4408, close.Code);
         Assert.Equal("shell timed out", close.Reason);
         await WaitUntilAsync(() => h.Host.Services.GetService<ICliShellSessions>()!.Count == 0);
+        await WaitUntilAsync(() => h.Logs.Messages.Any(m => m.StartsWith("Shell session closed") && m.Contains("reason=shell timed out")));
     }
 
     [Fact]
@@ -458,6 +503,37 @@ public class ShellUsersModeTests
 
         var close = await ReadUntilCloseAsync(socket, 10000);
         Assert.Equal(4401, close.Code);
+        Assert.Equal("session ended", close.Reason);
+
+        // Audit distinguishes the cause.
+        var closed = await LatestShellClosedAsync(h, root);
+        Assert.Equal("permission removed", closed.GetProperty("metadata").GetProperty("reason").GetString());
+        Assert.False(closed.GetProperty("metadata").TryGetProperty("exitCode", out _));
+    }
+
+    [Fact]
+    public async Task MissingShellExecute_ClosesWith4403Forbidden()
+    {
+        await using var h = await StartAsync();
+        var root = await h.RootTokenAsync();
+        var plain = await h.UserWithPermissionsAsync(root, "no-shell", "commands:execute");
+        var close = await CloseOfAsync(h.Host, $"{Path}?ticket={await h.TicketAsync(plain)}");
+        Assert.Equal(4403, close.Code);
+        Assert.Equal("forbidden", close.Reason);
+        Assert.Equal("login required", (await CloseOfAsync(h.Host, Path)).Reason);
+    }
+
+    private static async Task<JsonElement> LatestShellClosedAsync(UsersTestHost h, string token)
+    {
+        JsonElement closed = default;
+        await ShellSecurityTests.WaitUntilAsync(() =>
+        {
+            var list = UsersTestHost.ReadJsonAsync(h.GetAsync("audit?event=shell_closed", token).Result).Result;
+            if (list.GetArrayLength() == 0) return false;
+            closed = list[0];
+            return true;
+        });
+        return closed;
     }
 
     [Fact]
@@ -492,17 +568,19 @@ public class ShellUsersModeTests
         var root = await h.RootTokenAsync();
         var socket = await OpenAsync(h, root);
 
-        // 20 minutes of shell use with no HTTP request: the 30 minute idle timeout must not fire.
-        for (var i = 0; i < 4; i++)
-        {
-            h.Time.Advance(TimeSpan.FromMinutes(5));
-            await SendStdinAsync(socket, ":\n");
-            await Task.Delay(450); // > check interval: the re-check slides lastActivity
-        }
+        // Shell input with no HTTP request touches the session (the first touch is immediate,
+        // later ones at most every 30 s): 20 + 20 minutes stays within the 30 minute idle timeout.
+        h.Time.Advance(TimeSpan.FromMinutes(20));
+        await SendStdinAsync(socket, ":\n");
+        await Task.Delay(500); // > check interval: the re-check touches lastActivity
         h.Time.Advance(TimeSpan.FromMinutes(20));
         await Task.Delay(500);
         Assert.Equal(WebSocketState.Open, socket.State);
-        socket.Abort();
+
+        // Re-checks alone never extend the session.
+        h.Time.Advance(TimeSpan.FromMinutes(20));
+        var close = await ReadUntilCloseAsync(socket, 10000);
+        Assert.Equal(4401, close.Code);
     }
 
     [Fact]

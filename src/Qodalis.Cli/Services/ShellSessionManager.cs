@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Security;
 
@@ -36,12 +37,15 @@ public class ShellSessionManager : IShellSessionManager
     /// <param name="logger">The logger instance.</param>
     /// <param name="serverOptions">Server options (shell options are read from <see cref="CliServerOptions.Shell"/>).</param>
     /// <param name="registry">Registry of open shells (limits and session binding).</param>
+    /// <param name="lifetime">When present, open shells are closed with 1001 on server shutdown.</param>
     public ShellSessionManager(ILogger<ShellSessionManager> logger, CliServerOptions? serverOptions = null,
-        CliShellSessionRegistry? registry = null)
+        CliShellSessionRegistry? registry = null, IHostApplicationLifetime? lifetime = null)
     {
         _logger = logger;
         _options = serverOptions?.Shell ?? new CliShellOptions();
         _registry = registry ?? new CliShellSessionRegistry();
+        lifetime?.ApplicationStopping.Register(() =>
+            _registry.TerminateAll((int)WebSocketCloseStatus.EndpointUnavailable, ShellEndReasons.ServerShutdown));
     }
 
     /// <summary>Accepts nothing: closes an already accepted socket with a code and short reason.</summary>
@@ -69,6 +73,8 @@ public class ShellSessionManager : IShellSessionManager
         public DateTimeOffset LastStdin => new(Interlocked.Read(ref _lastStdinTicks), TimeSpan.Zero);
         public int CloseCode { get; private set; } = (int)WebSocketCloseStatus.NormalClosure;
         public string? EndReason { get; private set; }
+        public string? AuditReason { get; private set; }
+        public bool Failed { get; set; }
         public bool Terminated => Volatile.Read(ref _terminated) == 1;
 
         public void Stdin()
@@ -79,11 +85,12 @@ public class ShellSessionManager : IShellSessionManager
 
         public bool TakeStdinSinceCheck() => Interlocked.Exchange(ref _stdinSinceCheck, 0) == 1;
 
-        public bool TryTerminate(int code, string reason)
+        public bool TryTerminate(int code, string reason, string? auditReason)
         {
             if (Interlocked.Exchange(ref _terminated, 1) == 1) return false;
             CloseCode = code;
             EndReason = reason;
+            AuditReason = auditReason ?? reason;
             return true;
         }
     }
@@ -119,9 +126,9 @@ public class ShellSessionManager : IShellSessionManager
         var opened = false;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        void Terminate(int code, string reason)
+        void Terminate(int code, string reason, string? auditReason)
         {
-            if (!state.TryTerminate(code, reason)) return;
+            if (!state.TryTerminate(code, reason, auditReason)) return;
             try { cts.Cancel(); } catch (ObjectDisposedException) { }
             try
             {
@@ -259,6 +266,7 @@ public class ShellSessionManager : IShellSessionManager
         catch (Exception ex)
         {
             _logger.LogError(ex, "Shell session error");
+            state.Failed = true;
             try
             {
                 await SendJsonAsync(webSocket, new
@@ -290,7 +298,8 @@ public class ShellSessionManager : IShellSessionManager
 
             if (opened)
             {
-                var reason = state.EndReason ?? (exitCode != null ? "exited" : "closed");
+                var reason = state.AuditReason
+                    ?? (state.Failed ? ShellEndReasons.Error : exitCode != null ? ShellEndReasons.Exited : ShellEndReasons.Closed);
                 var durationMs = started.ElapsedMilliseconds;
                 _logger.LogInformation(
                     "Shell session closed (auth={AuthMode}, mode={Mode}, remote={Remote}, user={User}, durationMs={DurationMs}, exitCode={ExitCode}, reason={Reason})",
@@ -336,7 +345,7 @@ public class ShellSessionManager : IShellSessionManager
     /// and when the registry requests it).
     /// </summary>
     private async Task WatchdogAsync(CliShellSessionHandle handle, ShellSessionRequest request, SessionState state,
-        Stopwatch started, Action<int, string> terminate, CancellationToken cancellationToken)
+        Stopwatch started, Action<int, string, string?> terminate, CancellationToken cancellationToken)
     {
         var idle = _options.IdleTimeout is { } i && i > TimeSpan.Zero ? i : (TimeSpan?)null;
         var max = _options.MaxDuration is { } m && m > TimeSpan.Zero ? m : (TimeSpan?)null;
@@ -351,6 +360,7 @@ public class ShellSessionManager : IShellSessionManager
 
         var principal = request.Principal;
         var lastCheck = Stopwatch.StartNew();
+        Stopwatch? lastTouch = null; // stdin touches the session at most once per TouchInterval
 
         try
         {
@@ -360,13 +370,13 @@ public class ShellSessionManager : IShellSessionManager
 
                 if (idle != null && DateTimeOffset.UtcNow - state.LastStdin >= idle.Value)
                 {
-                    terminate(CliShellCloseCodes.Timeout, "shell timed out");
+                    terminate(CliShellCloseCodes.Timeout, ShellEndReasons.TimedOut, null);
                     return;
                 }
 
                 if (max != null && started.Elapsed >= max.Value)
                 {
-                    terminate(CliShellCloseCodes.Timeout, "shell timed out");
+                    terminate(CliShellCloseCodes.Timeout, ShellEndReasons.TimedOut, null);
                     return;
                 }
 
@@ -376,7 +386,9 @@ public class ShellSessionManager : IShellSessionManager
                     CliPrincipal? current;
                     try
                     {
-                        current = await request.AuthBridge!.RevalidateAsync(principal!, state.TakeStdinSinceCheck());
+                        var touch = (lastTouch == null || lastTouch.Elapsed >= TouchInterval) && state.TakeStdinSinceCheck();
+                        if (touch) lastTouch = Stopwatch.StartNew();
+                        current = await request.AuthBridge!.RevalidateAsync(principal!, touch);
                     }
                     catch (Exception ex)
                     {
@@ -384,9 +396,14 @@ public class ShellSessionManager : IShellSessionManager
                         current = null;
                     }
 
-                    if (current == null || !current.Can(CliRoutePolicy.ShellExecute))
+                    if (current == null)
                     {
-                        terminate(CliShellCloseCodes.Unauthorized, "session ended");
+                        terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, null);
+                        return;
+                    }
+                    if (!current.Can(CliRoutePolicy.ShellExecute))
+                    {
+                        terminate(CliShellCloseCodes.Unauthorized, ShellEndReasons.SessionEnded, ShellEndReasons.PermissionRemoved);
                         return;
                     }
 
@@ -397,6 +414,9 @@ public class ShellSessionManager : IShellSessionManager
         }
         catch (OperationCanceledException) { }
     }
+
+    /// <summary>Minimum time between two session touches caused by shell input.</summary>
+    internal static readonly TimeSpan TouchInterval = TimeSpan.FromSeconds(30);
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 
@@ -597,4 +617,19 @@ public class ShellSessionManager : IShellSessionManager
     {
         return "'" + arg.Replace("'", "'\\''") + "'";
     }
+}
+
+/// <summary>
+/// Canonical <c>shell_closed</c> audit reasons (web-cli spec C7). The close reason sent to the
+/// client is <c>session ended</c> for both <see cref="SessionEnded"/> and <see cref="PermissionRemoved"/>.
+/// </summary>
+public static class ShellEndReasons
+{
+    public const string Exited = "exited";
+    public const string Closed = "closed";
+    public const string SessionEnded = "session ended";
+    public const string PermissionRemoved = "permission removed";
+    public const string TimedOut = "shell timed out";
+    public const string ServerShutdown = "server shutdown";
+    public const string Error = "error";
 }
