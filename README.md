@@ -1023,12 +1023,15 @@ cli.AddMcp(o => o.Token = builder.Configuration["Mcp:Token"]);
 claude mcp add --transport http qcli http://localhost:8046/api/qcli/mcp --header "Authorization: Bearer <token>"
 ```
 
-**(b) Through the `@qodalis/cli-mcp` package**, which signs in for you and stores the token:
+**(b) Through the [`@qodalis/mcp-cli`](https://github.com/qodalis-solutions/mcp-cli) bridge**, a local MCP server
+configured with environment variables:
 
 ```bash
-npx -y @qodalis/cli-mcp login --server http://localhost:8046
-claude mcp add qcli -- npx -y @qodalis/cli-mcp --server http://localhost:8046
+claude mcp add qcli -e QCLI_URL=http://localhost:8046 -e QCLI_TOKEN=<token> -- npx -y @qodalis/mcp-cli
 ```
+
+Use `QCLI_USER` / `QCLI_PASSWORD` instead of `QCLI_TOKEN` to sign in with a user, and `QCLI_READ_ONLY=true` to
+expose only read-only tools.
 
 Then run `claude mcp list` (or `/mcp` inside Claude Code) to check that `qcli` is connected, and ask Claude
 to use it ("list the qcli tools", "run echo hello through qcli").

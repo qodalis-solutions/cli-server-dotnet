@@ -1305,6 +1305,13 @@ public class McpProviderPermissionTests : IAsyncLifetime
         Assert.Equal("forbidden: origin not allowed", await UsersTestHost.AssertErrorAsync(res, 403));
         res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), token: "qcli_pat_invalid", origin: "http://evil.example");
         await UsersTestHost.AssertErrorAsync(res, 403);
+        // Authenticated (valid session and API token) with a foreign origin: 403 too.
+        res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), _root, "https://evil.example");
+        Assert.Equal("forbidden: origin not allowed", await UsersTestHost.AssertErrorAsync(res, 403));
+        var apiToken = (await UsersTestHost.ReadJsonAsync(await _h.PostAsync("tokens", _root, new { name = "origin" })))
+            .GetProperty("token").GetString()!;
+        res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), apiToken, "https://evil.example");
+        await UsersTestHost.AssertErrorAsync(res, 403);
 
         var get = await _h.Client.SendAsync(new HttpRequestMessage(HttpMethod.Get, Mcp.Path));
         Assert.Equal(405, (int)get.StatusCode);

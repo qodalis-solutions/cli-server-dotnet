@@ -9,9 +9,12 @@ namespace Qodalis.Cli.Plugin.Users.Stores;
 public class InMemoryApiTokenStore : IApiTokenStore
 {
     private readonly ConcurrentDictionary<string, ApiToken> _tokens = new();
+    private readonly ConcurrentDictionary<string, long> _order = new();
+    private long _sequence;
 
     public Task<ApiToken> CreateTokenAsync(ApiToken token)
     {
+        _order[token.Id] = Interlocked.Increment(ref _sequence);
         _tokens[token.Id] = token.Clone();
         return Task.FromResult(token.Clone());
     }
@@ -26,19 +29,24 @@ public class InMemoryApiTokenStore : IApiTokenStore
         Task.FromResult(_tokens.Values
             .Where(t => userId == null || t.UserId == userId)
             .OrderBy(t => t.CreatedAt)
+            .ThenBy(t => _order.GetValueOrDefault(t.Id))
             .Select(t => t.Clone())
             .ToList());
 
     public Task DeleteTokenAsync(string id)
     {
         _tokens.TryRemove(id, out _);
+        _order.TryRemove(id, out _);
         return Task.CompletedTask;
     }
 
     public Task DeleteUserTokensAsync(string userId)
     {
         foreach (var kvp in _tokens.Where(kvp => kvp.Value.UserId == userId).ToList())
+        {
             _tokens.TryRemove(kvp.Key, out _);
+            _order.TryRemove(kvp.Key, out _);
+        }
         return Task.CompletedTask;
     }
 
