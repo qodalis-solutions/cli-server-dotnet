@@ -339,9 +339,11 @@ public class ShellSecurityTests
         await socket.SendAsync("not json"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
         await socket.SendAsync("{\"data\":\"x\"}"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
 
-        // A stdin message larger than the server's receive buffer (a paste), sent in two frames.
-        var paste = string.Concat(Enumerable.Repeat(": 0123456789abcdef\n", 600)) + "echo big-$((40+2))\nexit\n";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "stdin", data = paste }));
+        // A stdin message larger than the server's receive buffer, sent in two frames. The size comes
+        // from JSON whitespace so the PTY only receives a short line (no tty input-queue limits).
+        var json = JsonSerializer.Serialize(new { type = "stdin", data = "echo big-$((40+2))\nexit\n" });
+        json = json[..^1] + new string(' ', 12000) + "}";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
         Assert.True(bytes.Length > 8192);
         var half = bytes.Length / 2;
         await socket.SendAsync(bytes.AsMemory(0, half), WebSocketMessageType.Text, false, CancellationToken.None);
