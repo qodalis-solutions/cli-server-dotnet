@@ -3,40 +3,134 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
 /// <summary>
 /// Manages interactive shell sessions over WebSocket, spawning a PTY process and bridging I/O.
+/// Enforces <see cref="CliShellOptions"/>: concurrency limits (4429), idle timeout and maximum
+/// duration (4408), session binding in users mode (4401 when the session ends or loses
+/// <c>shell:execute</c>) and a minimal child environment.
 /// </summary>
 public class ShellSessionManager : IShellSessionManager
 {
+    /// <summary>Environment variables always passed from the server (when set).</summary>
+    public static readonly IReadOnlyList<string> BaseEnvironment = ["PATH", "HOME", "USER", "LANG"];
+
+    private static readonly string[] WindowsEnvironment =
+        ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "USERPROFILE"];
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
     private readonly ILogger<ShellSessionManager> _logger;
+    private readonly CliShellOptions _options;
+    private readonly CliShellSessionRegistry _registry;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ShellSessionManager"/>.
     /// </summary>
     /// <param name="logger">The logger instance.</param>
-    public ShellSessionManager(ILogger<ShellSessionManager> logger)
+    /// <param name="serverOptions">Server options (shell options are read from <see cref="CliServerOptions.Shell"/>).</param>
+    /// <param name="registry">Registry of open shells (limits and session binding).</param>
+    public ShellSessionManager(ILogger<ShellSessionManager> logger, CliServerOptions? serverOptions = null,
+        CliShellSessionRegistry? registry = null)
     {
         _logger = logger;
+        _options = serverOptions?.Shell ?? new CliShellOptions();
+        _registry = registry ?? new CliShellSessionRegistry();
+    }
+
+    /// <summary>Accepts nothing: closes an already accepted socket with a code and short reason.</summary>
+    internal static async Task CloseWithAsync(WebSocket webSocket, int code, string reason)
+    {
+        if (webSocket.State is not (WebSocketState.Open or WebSocketState.CloseReceived)) return;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await webSocket.CloseAsync((WebSocketCloseStatus)code, reason, cts.Token);
+        }
+        catch (Exception)
+        {
+            // client gone
+        }
+    }
+
+    /// <summary>Mutable per-session state shared by the I/O loops and the watchdog.</summary>
+    private sealed class SessionState
+    {
+        private long _lastStdinTicks = DateTimeOffset.UtcNow.UtcTicks;
+        private int _stdinSinceCheck;
+        private int _terminated;
+
+        public DateTimeOffset LastStdin => new(Interlocked.Read(ref _lastStdinTicks), TimeSpan.Zero);
+        public int CloseCode { get; private set; } = (int)WebSocketCloseStatus.NormalClosure;
+        public string? EndReason { get; private set; }
+        public bool Terminated => Volatile.Read(ref _terminated) == 1;
+
+        public void Stdin()
+        {
+            Interlocked.Exchange(ref _lastStdinTicks, DateTimeOffset.UtcNow.UtcTicks);
+            Interlocked.Exchange(ref _stdinSinceCheck, 1);
+        }
+
+        public bool TakeStdinSinceCheck() => Interlocked.Exchange(ref _stdinSinceCheck, 0) == 1;
+
+        public bool TryTerminate(int code, string reason)
+        {
+            if (Interlocked.Exchange(ref _terminated, 1) == 1) return false;
+            CloseCode = code;
+            EndReason = reason;
+            return true;
+        }
     }
 
     /// <inheritdoc />
     public async Task HandleShellSessionAsync(
         WebSocket webSocket,
-        int cols,
-        int rows,
-        string? command,
+        ShellSessionRequest request,
         CancellationToken cancellationToken)
     {
-        var (shell, shellArgs) = GetShellInfo(command);
+        var bound = request.Principal != null && request.AuthBridge != null;
+        var limitKey = request.Principal != null
+            ? "user:" + request.Principal.UserId
+            : "addr:" + (request.RemoteAddress ?? "unknown");
+        var sessionMode = request.Command == null ? "interactive" : "command";
+
+        var handle = _registry.TryRegister(limitKey, _options.MaxSessionsPerUser, _options.MaxSessions,
+            request.AuthMode, request.Principal, request.RemoteAddress);
+        if (handle == null)
+        {
+            _logger.LogWarning("Shell session refused: too many shell sessions (auth={AuthMode}, remote={Remote})",
+                request.AuthMode, request.RemoteAddress);
+            await CloseWithAsync(webSocket, CliShellCloseCodes.TooManySessions, "too many shell sessions");
+            return;
+        }
+
+        var cols = request.Cols > 0 ? request.Cols : 80;
+        var rows = request.Rows > 0 ? request.Rows : 24;
+        var (shell, shellArgs) = GetShellInfo(request.Command);
         Process? process = null;
+        var state = new SessionState();
+        var started = Stopwatch.StartNew();
+        var opened = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        void Terminate(int code, string reason)
+        {
+            if (!state.TryTerminate(code, reason)) return;
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            try
+            {
+                if (process is { HasExited: false }) process.Kill(entireProcessTree: true);
+            }
+            catch (Exception) { }
+        }
+
+        handle.OnTerminate = Terminate;
 
         try
         {
@@ -54,13 +148,8 @@ public class ShellSessionManager : IShellSessionManager
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = GetWorkingDirectory(),
-                Environment =
-                {
-                    ["TERM"] = "xterm-256color",
-                    ["COLUMNS"] = cols.ToString(),
-                    ["LINES"] = rows.ToString(),
-                },
             };
+            BuildEnvironment(psi.Environment, shell, cols, rows);
 
             if (OperatingSystem.IsMacOS())
             {
@@ -92,19 +181,16 @@ public class ShellSessionManager : IShellSessionManager
                 EnableRaisingEvents = true,
             };
 
-            // Copy existing environment variables
-            foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
-            {
-                if (entry.Key is string key && entry.Value is string value
-                    && !process.StartInfo.Environment.ContainsKey(key))
-                {
-                    process.StartInfo.Environment[key] = value;
-                }
-            }
-
             process.Start();
+            opened = true;
 
-            _logger.LogInformation("Shell session started (shell={Shell}, cols={Cols}, rows={Rows})", Path.GetFileName(shell), cols, rows);
+            // Never log or audit the command text.
+            _logger.LogInformation(
+                "Shell session opened (auth={AuthMode}, mode={Mode}, remote={Remote}, user={User}, shell={Shell})",
+                request.AuthMode, sessionMode, request.RemoteAddress, request.Principal?.UserName, Path.GetFileName(shell));
+            if (bound)
+                await AuditAsync(request, new CliShellAuditEvent(CliShellAuditEvent.Opened, request.Principal!,
+                    sessionMode, request.RemoteAddress));
 
             var os = Environment.OSVersion.Platform switch
             {
@@ -120,9 +206,9 @@ public class ShellSessionManager : IShellSessionManager
                 os,
             }, cancellationToken);
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var outputTask = ReadProcessOutputAsync(process, webSocket, cts.Token);
-            var inputTask = ReadWebSocketInputAsync(webSocket, process, cts.Token);
+            var inputTask = ReadWebSocketInputAsync(webSocket, process, state, cts.Token);
+            var watchdogTask = WatchdogAsync(handle, request, state, started, Terminate, cts.Token);
 
             // Wait for the process to exit (don't send exit message yet)
             var processExitTask = process.WaitForExitAsync(cts.Token);
@@ -142,7 +228,7 @@ public class ShellSessionManager : IShellSessionManager
             }
 
             // Process exited — drain remaining stdout before sending exit message
-            if (processExitTask.IsCompletedSuccessfully)
+            if (processExitTask.IsCompletedSuccessfully && !state.Terminated)
             {
                 try
                 {
@@ -164,7 +250,7 @@ public class ShellSessionManager : IShellSessionManager
 
             try
             {
-                await Task.WhenAll(outputTask, inputTask)
+                await Task.WhenAll(outputTask, inputTask, watchdogTask)
                     .WaitAsync(TimeSpan.FromSeconds(2));
             }
             catch (OperationCanceledException) { }
@@ -185,20 +271,40 @@ public class ShellSessionManager : IShellSessionManager
         }
         finally
         {
+            handle.OnTerminate = null;
+            handle.Dispose();
+
+            int? exitCode = null;
             if (process != null)
             {
                 try
                 {
                     if (!process.HasExited)
                         process.Kill(entireProcessTree: true);
+                    else if (!state.Terminated)
+                        exitCode = process.ExitCode;
                 }
                 catch (Exception killEx) { _logger.LogDebug(killEx, "Failed to kill shell process"); }
                 process.Dispose();
-
-                _logger.LogInformation("Shell session ended");
             }
 
-            if (webSocket.State == WebSocketState.Open)
+            if (opened)
+            {
+                var reason = state.EndReason ?? (exitCode != null ? "exited" : "closed");
+                var durationMs = started.ElapsedMilliseconds;
+                _logger.LogInformation(
+                    "Shell session closed (auth={AuthMode}, mode={Mode}, remote={Remote}, user={User}, durationMs={DurationMs}, exitCode={ExitCode}, reason={Reason})",
+                    request.AuthMode, sessionMode, request.RemoteAddress, request.Principal?.UserName, durationMs, exitCode, reason);
+                if (bound)
+                    await AuditAsync(request, new CliShellAuditEvent(CliShellAuditEvent.Closed, request.Principal!,
+                        sessionMode, request.RemoteAddress, durationMs, exitCode, reason));
+            }
+
+            if (state.Terminated)
+            {
+                await CloseWithAsync(webSocket, state.CloseCode, state.EndReason ?? "closed");
+            }
+            else if (webSocket.State == WebSocketState.Open)
             {
                 try
                 {
@@ -210,6 +316,128 @@ public class ShellSessionManager : IShellSessionManager
                 catch (Exception closeEx) { _logger.LogDebug(closeEx, "Failed to close WebSocket gracefully"); }
             }
         }
+    }
+
+    private async Task AuditAsync(ShellSessionRequest request, CliShellAuditEvent auditEvent)
+    {
+        try
+        {
+            await request.AuthBridge!.AuditShellAsync(auditEvent);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to audit {Event}", auditEvent.Event);
+        }
+    }
+
+    /// <summary>
+    /// Enforces the idle timeout and maximum duration, and in users mode re-validates the bound
+    /// session (periodically, at most every <see cref="CliShellOptions.SessionCheckInterval"/>,
+    /// and when the registry requests it).
+    /// </summary>
+    private async Task WatchdogAsync(CliShellSessionHandle handle, ShellSessionRequest request, SessionState state,
+        Stopwatch started, Action<int, string> terminate, CancellationToken cancellationToken)
+    {
+        var idle = _options.IdleTimeout is { } i && i > TimeSpan.Zero ? i : (TimeSpan?)null;
+        var max = _options.MaxDuration is { } m && m > TimeSpan.Zero ? m : (TimeSpan?)null;
+        var checkInterval = _options.EffectiveSessionCheckInterval;
+        var bound = request.Principal != null && request.AuthBridge != null;
+
+        var tick = TimeSpan.FromSeconds(1);
+        if (idle != null) tick = Min(tick, idle.Value / 4);
+        if (max != null) tick = Min(tick, max.Value / 4);
+        if (bound) tick = Min(tick, checkInterval);
+        if (tick < TimeSpan.FromMilliseconds(25)) tick = TimeSpan.FromMilliseconds(25);
+
+        var principal = request.Principal;
+        var lastCheck = Stopwatch.StartNew();
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(tick, cancellationToken);
+
+                if (idle != null && DateTimeOffset.UtcNow - state.LastStdin >= idle.Value)
+                {
+                    terminate(CliShellCloseCodes.Timeout, "shell timed out");
+                    return;
+                }
+
+                if (max != null && started.Elapsed >= max.Value)
+                {
+                    terminate(CliShellCloseCodes.Timeout, "shell timed out");
+                    return;
+                }
+
+                if (bound && (handle.TakeRecheck() || lastCheck.Elapsed >= checkInterval))
+                {
+                    lastCheck.Restart();
+                    CliPrincipal? current;
+                    try
+                    {
+                        current = await request.AuthBridge!.RevalidateAsync(principal!, state.TakeStdinSinceCheck());
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Shell session re-validation failed; closing the shell");
+                        current = null;
+                    }
+
+                    if (current == null || !current.Can(CliRoutePolicy.ShellExecute))
+                    {
+                        terminate(CliShellCloseCodes.Unauthorized, "session ended");
+                        return;
+                    }
+
+                    principal = current;
+                    handle.Principal = current;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
+
+    /// <summary>
+    /// Minimal child environment (C3): <c>PATH</c>, <c>HOME</c>, <c>USER</c>, <c>LANG</c> from the
+    /// server, then <see cref="CliShellOptions.EnvironmentAllow"/>, then <c>TERM</c>,
+    /// <c>COLUMNS</c>, <c>LINES</c>, <c>SHELL</c>, then <see cref="CliShellOptions.EnvironmentSet"/>.
+    /// Server secrets are not inherited.
+    /// </summary>
+    private void BuildEnvironment(IDictionary<string, string?> env, string shell, int cols, int rows)
+    {
+        env.Clear();
+
+        void CopyFromServer(string name)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (value != null) env[name] = value;
+        }
+
+        foreach (var name in BaseEnvironment) CopyFromServer(name);
+        if (OperatingSystem.IsWindows())
+            foreach (var name in WindowsEnvironment) CopyFromServer(name);
+
+        if (!env.ContainsKey("HOME"))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(home)) env["HOME"] = home;
+        }
+        if (!env.ContainsKey("USER") && !string.IsNullOrEmpty(Environment.UserName))
+            env["USER"] = Environment.UserName;
+
+        foreach (var name in _options.EnvironmentAllow.Where(n => !string.IsNullOrWhiteSpace(n)))
+            CopyFromServer(name.Trim());
+
+        env["TERM"] = "xterm-256color";
+        env["COLUMNS"] = cols.ToString();
+        env["LINES"] = rows.ToString();
+        env["SHELL"] = shell;
+
+        foreach (var (name, value) in _options.EnvironmentSet)
+            env[name] = value;
     }
 
     private async Task ReadProcessOutputAsync(
@@ -239,9 +467,10 @@ public class ShellSessionManager : IShellSessionManager
         catch (IOException) { }
     }
 
-    private async Task ReadWebSocketInputAsync(
+    private static async Task ReadWebSocketInputAsync(
         WebSocket webSocket,
         Process process,
+        SessionState state,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[4096];
@@ -266,6 +495,7 @@ public class ShellSessionManager : IShellSessionManager
                 switch (msgType)
                 {
                     case "stdin":
+                        state.Stdin();
                         var data = doc.RootElement.GetProperty("data").GetString();
                         if (data != null)
                         {
@@ -313,8 +543,15 @@ public class ShellSessionManager : IShellSessionManager
             cancellationToken);
     }
 
-    private static (string shell, string[] args) GetShellInfo(string? command)
+    private (string shell, string[] args) GetShellInfo(string? command)
     {
+        if (!string.IsNullOrWhiteSpace(_options.Shell))
+        {
+            return command != null
+                ? (_options.Shell, OperatingSystem.IsWindows() ? new[] { "-Command", command } : new[] { "-c", command })
+                : (_options.Shell, Array.Empty<string>());
+        }
+
         if (Environment.OSVersion.Platform == PlatformID.Win32NT)
         {
             var shell = "powershell.exe";
@@ -347,8 +584,11 @@ public class ShellSessionManager : IShellSessionManager
         return "/bin/sh";
     }
 
-    private static string GetWorkingDirectory()
+    private string GetWorkingDirectory()
     {
+        if (!string.IsNullOrWhiteSpace(_options.WorkingDirectory))
+            return _options.WorkingDirectory;
+
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return !string.IsNullOrEmpty(home) && Directory.Exists(home) ? home : "/";
     }

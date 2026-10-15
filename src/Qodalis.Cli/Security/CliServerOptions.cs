@@ -11,6 +11,9 @@ public sealed class CliServerOptions
     /// </summary>
     public bool EnableShell { get; set; }
 
+    /// <summary>Shell access, limits and environment (see <see cref="CliShellOptions"/>).</summary>
+    public CliShellOptions Shell { get; } = new();
+
     /// <summary>
     /// Origins allowed for CORS and WebSocket upgrades (e.g. <c>http://localhost:4300</c>;
     /// <c>http://127.0.0.1:*</c> matches any port). Empty = CORS not configured by the library

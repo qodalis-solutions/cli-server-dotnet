@@ -22,6 +22,43 @@ public interface ICliAuthBridge
 
     /// <summary>Ends the session identified by <paramref name="token"/>.</summary>
     Task LogoutAsync(HttpContext context, string token);
+
+    /// <summary>
+    /// Re-validates the session behind <paramref name="principal"/> for a long-lived connection
+    /// (an open shell): returns the principal with its current permissions, or null when the
+    /// session ended (logout, expiry, revocation, user disabled or deleted).
+    /// <paramref name="touch"/> counts the connection's activity as session activity.
+    /// The default keeps the principal unchanged.
+    /// </summary>
+    Task<CliPrincipal?> RevalidateAsync(CliPrincipal principal, bool touch) =>
+        Task.FromResult<CliPrincipal?>(principal);
+
+    /// <summary>
+    /// Records a shell audit event (<c>shell_opened</c> / <c>shell_closed</c>). Never receives the
+    /// command text or stdin. The default does nothing.
+    /// </summary>
+    Task AuditShellAsync(CliShellAuditEvent auditEvent) => Task.CompletedTask;
+}
+
+/// <summary>A shell lifecycle event for <see cref="ICliAuthBridge.AuditShellAsync"/>.</summary>
+/// <param name="Event"><c>shell_opened</c> or <c>shell_closed</c>.</param>
+/// <param name="Principal">The user who owns the shell.</param>
+/// <param name="Mode"><c>interactive</c> or <c>command</c>.</param>
+/// <param name="RemoteAddress">Client address, when known.</param>
+/// <param name="DurationMs">Shell lifetime (close only).</param>
+/// <param name="ExitCode">Process exit code (close only, when the process exited).</param>
+/// <param name="Reason">Why the shell closed (close only).</param>
+public sealed record CliShellAuditEvent(
+    string Event,
+    CliPrincipal Principal,
+    string Mode,
+    string? RemoteAddress,
+    long? DurationMs = null,
+    int? ExitCode = null,
+    string? Reason = null)
+{
+    public const string Opened = "shell_opened";
+    public const string Closed = "shell_closed";
 }
 
 /// <summary>Result of <see cref="ICliAuthBridge.LoginAsync"/>.</summary>

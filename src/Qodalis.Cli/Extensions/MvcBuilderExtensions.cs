@@ -66,6 +66,8 @@ public static class MvcBuilderExtensions
         builder.Services.AddSingleton<ICliEventSocketManager, CliEventSocketManager>();
         builder.Services.AddSingleton<ICliLogSocketManager, CliLogSocketManager>();
         builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();
+        builder.Services.AddSingleton<CliShellSessionRegistry>();
+        builder.Services.AddSingleton<ICliShellSessions>(sp => sp.GetRequiredService<CliShellSessionRegistry>());
         builder.Services.AddSingleton<IShellSessionManager, ShellSessionManager>();
 
         // Register IFileStorageProvider as singleton

@@ -37,10 +37,33 @@ public class CliBuilder
 
     /// <summary>
     /// Enables (or disables) the interactive shell WebSockets. Disabled by default.
+    /// Enabling alone does not grant access: with the users plugin the session needs
+    /// <c>shell:execute</c>; without it configure a token, an authorize callback or
+    /// <c>AllowAnonymous</c> via <see cref="EnableShell(Action{CliShellOptions})"/>,
+    /// otherwise the shell stays locked (every connection is closed with 4401).
     /// </summary>
     public CliBuilder EnableShell(bool enabled = true)
     {
         ServerOptions.EnableShell = enabled;
+        return this;
+    }
+
+    /// <summary>
+    /// Enables the interactive shell and configures its access mode, limits and environment.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.EnableShell(o =&gt;
+    /// {
+    ///     o.Token = builder.Configuration["Shell:Token"];
+    ///     o.IdleTimeout = TimeSpan.FromMinutes(10);
+    /// });
+    /// </code>
+    /// </example>
+    public CliBuilder EnableShell(Action<CliShellOptions> configure)
+    {
+        ServerOptions.EnableShell = true;
+        configure(ServerOptions.Shell);
         return this;
     }
 

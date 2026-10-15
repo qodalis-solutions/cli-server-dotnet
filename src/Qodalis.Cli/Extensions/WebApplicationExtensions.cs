@@ -22,6 +22,8 @@ public static class WebApplicationExtensions
     /// <returns>The application builder for chaining.</returns>
     public static IApplicationBuilder UseCli(this IApplicationBuilder app)
     {
+        LogShellConfiguration(app.ApplicationServices);
+
         app.Use(async (context, next) =>
         {
             var path = context.Request.Path.Value;
@@ -43,8 +45,9 @@ public static class WebApplicationExtensions
             var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Qodalis.Cli.WebSocketMiddleware");
             var options = context.RequestServices.GetService<CliServerOptions>() ?? new CliServerOptions();
+            var isShell = kind is "shell" or "terminal";
 
-            if ((kind == "shell" || kind == "terminal") && !options.EnableShell)
+            if (isShell && !options.EnableShell && !context.WebSockets.IsWebSocketRequest)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
@@ -62,6 +65,12 @@ public static class WebApplicationExtensions
             {
                 logger.LogWarning("WebSocket upgrade rejected for {Path}: origin not allowed", path);
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+
+            if (isShell)
+            {
+                await HandleShellAsync(context, options, logger);
                 return;
             }
 
@@ -92,23 +101,6 @@ public static class WebApplicationExtensions
                     await manager.HandleConnectionAsync(socket, context.RequestAborted, remoteAddress, principal);
                     break;
                 }
-                case "shell":
-                {
-                    var shellManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
-                    var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-                    var query = context.Request.Query;
-                    int.TryParse(query["cols"], out var cols);
-                    int.TryParse(query["rows"], out var rows);
-                    if (cols <= 0) cols = 80;
-                    if (rows <= 0) rows = 24;
-                    var cmd = query["cmd"].FirstOrDefault();
-
-                    // Never log the command itself: it may contain secrets.
-                    logger.LogDebug("Shell WebSocket connection accepted (cols={Cols}, rows={Rows}, mode={Mode})",
-                        cols, rows, cmd == null ? "interactive" : "command");
-                    await shellManager.HandleShellSessionAsync(webSocket, cols, rows, cmd, context.RequestAborted);
-                    break;
-                }
                 case "logs":
                 {
                     var logManager = context.RequestServices.GetRequiredService<ICliLogSocketManager>();
@@ -118,17 +110,81 @@ public static class WebApplicationExtensions
                     await logManager.HandleConnectionAsync(webSocket, levelFilter, context.RequestAborted);
                     break;
                 }
-                default:
-                {
-                    logger.LogDebug("Terminal WebSocket connection accepted");
-                    var terminalManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
-                    var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-                    await terminalManager.HandleShellSessionAsync(webSocket, 80, 24, null, context.RequestAborted);
-                    break;
-                }
             }
         });
 
         return app;
+    }
+
+    /// <summary>
+    /// Shell sockets (C1/C5): the upgrade is accepted and failures are reported with a close code
+    /// (4404 disabled, 4401 login required/locked, 4403 forbidden) since browsers cannot read the
+    /// HTTP status of a failed upgrade. Limits (4429) and timeouts (4408) are enforced by
+    /// <see cref="IShellSessionManager"/>.
+    /// </summary>
+    private static async Task HandleShellAsync(HttpContext context, CliServerOptions options, ILogger logger)
+    {
+        var remoteAddress = context.Connection.RemoteIpAddress?.ToString();
+
+        if (!options.EnableShell)
+        {
+            var disabled = await context.WebSockets.AcceptWebSocketAsync();
+            await ShellSessionManager.CloseWithAsync(disabled, CliShellCloseCodes.Disabled, CliShellAccess.ShellDisabled);
+            return;
+        }
+
+        var bridge = context.RequestServices.GetService<ICliAuthBridge>();
+        var access = await CliShellAccess.AuthorizeAsync(context, options.Shell, bridge != null, logger);
+        var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+
+        if (!access.Allowed)
+        {
+            // Never log the presented token or the command.
+            logger.LogInformation("Shell connection refused (auth={AuthMode}, remote={Remote}, code={Code}, reason={Reason})",
+                access.Mode, remoteAddress, access.CloseCode, access.Reason);
+            await ShellSessionManager.CloseWithAsync(webSocket, access.CloseCode, access.Reason);
+            return;
+        }
+
+        var query = context.Request.Query;
+        int.TryParse(query["cols"], out var cols);
+        int.TryParse(query["rows"], out var rows);
+
+        var shellManager = context.RequestServices.GetRequiredService<IShellSessionManager>();
+        await shellManager.HandleShellSessionAsync(webSocket, new ShellSessionRequest
+        {
+            Cols = cols > 0 ? cols : 80,
+            Rows = rows > 0 ? rows : 24,
+            Command = query["cmd"].FirstOrDefault(),
+            AuthMode = access.Mode,
+            Principal = access.Principal,
+            AuthBridge = access.Principal != null ? bridge : null,
+            RemoteAddress = remoteAddress,
+        }, context.RequestAborted);
+    }
+
+    /// <summary>Startup diagnostics: ERROR when the shell is locked, WARNING when anonymous.</summary>
+    private static void LogShellConfiguration(IServiceProvider services)
+    {
+        var options = services.GetService<CliServerOptions>();
+        if (options is not { EnableShell: true }) return;
+
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("Qodalis.Cli.Shell");
+        var mode = CliShellAccess.ResolveMode(options.Shell, services.GetService<ICliAuthBridge>() != null);
+        switch (mode)
+        {
+            case CliShellAuthModes.Locked:
+                logger.LogError(
+                    "The shell is enabled but locked: no access mode is configured, every shell connection will be refused (4401). " +
+                    "Install the users plugin (shell:execute permission), or configure cli.EnableShell(o => o.Token = \"...\"), " +
+                    "o.Authorize = ctx => ..., or (unsafe) o.AllowAnonymous = true.");
+                break;
+            case CliShellAuthModes.Anonymous:
+                logger.LogWarning("WARNING: shell is enabled without authentication (AllowAnonymous): anyone who can reach this server gets a shell.");
+                break;
+            default:
+                logger.LogInformation("Shell enabled (auth={AuthMode})", mode);
+                break;
+        }
     }
 }
