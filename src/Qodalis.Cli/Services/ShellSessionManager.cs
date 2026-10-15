@@ -63,6 +63,24 @@ public class ShellSessionManager : IShellSessionManager
         }
     }
 
+    /// <summary>
+    /// Sends a close frame without waiting for the reply, so it can run while the
+    /// input loop still has a ReceiveAsync outstanding.
+    /// </summary>
+    private static async Task SendCloseFrameAsync(WebSocket webSocket, int code, string reason)
+    {
+        if (webSocket.State is not (WebSocketState.Open or WebSocketState.CloseReceived)) return;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await webSocket.CloseOutputAsync((WebSocketCloseStatus)code, reason, cts.Token);
+        }
+        catch (Exception)
+        {
+            // client gone
+        }
+    }
+
     /// <summary>Mutable per-session state shared by the I/O loops and the watchdog.</summary>
     private sealed class SessionState
     {
@@ -129,12 +147,19 @@ public class ShellSessionManager : IShellSessionManager
         void Terminate(int code, string reason, string? auditReason)
         {
             if (!state.TryTerminate(code, reason, auditReason)) return;
-            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            // Kill the process: the session loop then ends normally and sends the close
+            // code before cancelling (cancelling first would abort the socket without one).
+            // Cancel shortly after as a fallback in case nothing else unblocks the loop.
             try
             {
                 if (process is { HasExited: false }) process.Kill(entireProcessTree: true);
             }
             catch (Exception) { }
+            try { cts.CancelAfter(TimeSpan.FromSeconds(3)); } catch (ObjectDisposedException) { }
+            if (process == null)
+            {
+                try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            }
         }
 
         handle.OnTerminate = Terminate;
@@ -252,6 +277,13 @@ public class ShellSessionManager : IShellSessionManager
                     }, CancellationToken.None);
                 }
             }
+
+            // Send the close frame BEFORE cancelling: cancelling the pending ReceiveAsync
+            // aborts a Kestrel WebSocket, after which no close code reaches the client
+            await SendCloseFrameAsync(
+                webSocket,
+                state.Terminated ? state.CloseCode : (int)WebSocketCloseStatus.NormalClosure,
+                state.Terminated ? state.EndReason ?? "closed" : "Shell session ended");
 
             cts.Cancel();
 
