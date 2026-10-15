@@ -40,9 +40,11 @@ public class ShellSessionManager : IShellSessionManager
 
         try
         {
+            // script -c takes one command line: quote every argument so a one-shot
+            // command ("echo hi") reaches the shell as a single -c argument
             var shellCommand = shellArgs.Length > 0
-                ? $"{shell} {string.Join(" ", shellArgs)}"
-                : shell;
+                ? $"{EscapeShellArg(shell)} {string.Join(" ", shellArgs.Select(EscapeShellArg))}"
+                : EscapeShellArg(shell);
 
             var psi = new ProcessStartInfo
             {
@@ -128,8 +130,19 @@ public class ShellSessionManager : IShellSessionManager
             // Stop when process exits, output ends, or WebSocket input closes
             await Task.WhenAny(outputTask, inputTask, processExitTask);
 
+            // Output ended (EOF) usually means the process is exiting: give it a moment
+            // so the client still gets the exit message (one-shot commands)
+            if (outputTask.IsCompleted && !processExitTask.IsCompleted)
+            {
+                try
+                {
+                    await processExitTask.WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch { }
+            }
+
             // Process exited — drain remaining stdout before sending exit message
-            if (processExitTask.IsCompleted)
+            if (processExitTask.IsCompletedSuccessfully)
             {
                 try
                 {

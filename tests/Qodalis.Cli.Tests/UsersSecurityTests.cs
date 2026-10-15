@@ -316,6 +316,30 @@ public class UsersSecurityTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Shell_OneShotCommand_StreamsOutputAndExit()
+    {
+        await using var host = await UsersTestHost.StartAsync(configureCli: cli => cli.EnableShell());
+        var root = await host.RootTokenAsync();
+        var socket = await host.ConnectWebSocketAsync(
+            $"/ws/v1/qcli/shell?cols=80&rows=24&cmd={Uri.EscapeDataString("echo one-shot-ok")}&ticket={await host.TicketAsync(root)}");
+
+        var stdout = new StringBuilder();
+        int? exitCode = null;
+        for (var i = 0; i < 50 && exitCode == null; i++)
+        {
+            var msg = JsonSerializer.Deserialize<JsonElement>(await ReceiveTextAsync(socket, 10000));
+            switch (msg.GetProperty("type").GetString())
+            {
+                case "stdout": stdout.Append(msg.GetProperty("data").GetString()); break;
+                case "exit": exitCode = msg.GetProperty("code").GetInt32(); break;
+            }
+        }
+
+        Assert.Contains("one-shot-ok", stdout.ToString());
+        Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
     public async Task LogsSocket_RequiresLogsRead()
     {
         var plain = await UserAsync("log-less");
