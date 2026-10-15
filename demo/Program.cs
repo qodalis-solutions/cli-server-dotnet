@@ -15,6 +15,7 @@ using Qodalis.Cli.Plugin.DataExplorer.Mssql;
 using Qodalis.Cli.Plugin.DataExplorer.Redis;
 using Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
 using Qodalis.Cli.Plugin.Aws;
+using Qodalis.Cli.Plugin.Users.Extensions;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -24,20 +25,33 @@ using Qodalis.Cli.Plugin.Aws;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCors(options =>
+// CORS and WebSocket origins are restricted to the local dev front-ends
+// (configured below with cli.SetAllowedOrigins; extra origins via QCLI_ALLOWED_ORIGINS, comma-separated).
+var allowedOrigins = new List<string>
 {
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
+    "http://localhost:4200", "http://localhost:4300", "http://localhost:4301",
+    "http://localhost:4302", "http://localhost:4303",
+    "http://127.0.0.1:4200", "http://127.0.0.1:4300", "http://127.0.0.1:4301",
+    "http://127.0.0.1:4302", "http://127.0.0.1:4303",
+};
+allowedOrigins.AddRange((Environment.GetEnvironmentVariable("QCLI_ALLOWED_ORIGINS") ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
 builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
+        cli.SetAllowedOrigins(allowedOrigins.ToArray());
+        // The demo exposes the interactive shell explicitly (library default: disabled).
+        // The users plugin is installed (below), so the shell runs in "users" mode: a WebSocket
+        // ticket of a session holding shell:execute (root/admins). Shells close when the session
+        // ends or loses the permission; limits, idle timeout and a minimal environment apply.
+        cli.EnableShell(o =>
+        {
+            o.IdleTimeout = TimeSpan.FromMinutes(15);
+            o.MaxSessionsPerUser = 3;
+        });
+
         cli.AddProcessor<CliEchoCommandProcessor>();
         cli.AddProcessor<CliStatusCommandProcessor>();
         cli.AddProcessor<CliTimeCommandProcessor>();
@@ -85,10 +99,15 @@ builder.Services
         //   Reads/writes to the host file system. AllowedPaths restricts
         //   which directories can be accessed (prevents path traversal).
         //
-        cli.AddFileSystem(o => o.UseOsFileSystem(os =>
-        {
-            os.AllowedPaths = new List<string> { "/tmp", "/app", "/home" };
-        }));
+        // The demo uses a sandboxed in-memory file system — it never exposes the host's real files.
+        cli.AddFileSystem(o => o.UseInMemory());
+        //
+        // To expose host directories instead (only behind authentication, never the real /home or /app):
+        //
+        // cli.AddFileSystem(o => o.UseOsFileSystem(os =>
+        // {
+        //     os.AllowedPaths = new List<string> { "/srv/qcli-sandbox" };
+        // }));
         //
         // Option 3: JSON file storage
         //   Persists all files into a single JSON file on disk.
@@ -247,6 +266,9 @@ builder.Services
             });
         }
 
+        // Demo credentials root/root (a warning is logged). Without DefaultAdminPassword a random
+        // password is generated, logged once, and must be changed on first login.
+        cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
     })
     .AddJsonOptions(options =>
@@ -270,6 +292,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseHttpsRedirection();
+app.UseQodalisUsers();
 app.UseQodalisAdmin();
 app.UseAuthorization();
 app.MapControllers();

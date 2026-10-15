@@ -1,5 +1,8 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Admin.Auth;
 
@@ -42,8 +45,8 @@ public class AdminAuthMiddleware
             return;
         }
 
-        // Skip auth for login endpoint
-        if (path.Contains("/auth/login", StringComparison.OrdinalIgnoreCase))
+        // Skip auth for the login endpoint (exact match only)
+        if (string.Equals(path.TrimEnd('/'), "/api/v1/qcli/auth/login", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug("Path {Path} is the login endpoint, skipping auth", path);
             await _next(context);
@@ -55,6 +58,45 @@ public class AdminAuthMiddleware
         if (!IsAdminRoute(path))
         {
             _logger.LogDebug("Path {Path} is not a protected admin route, skipping auth", path);
+            await _next(context);
+            return;
+        }
+
+        // When the users plugin is installed, authenticate through it and require admin:access.
+        var bridge = context.RequestServices.GetService<ICliAuthBridge>();
+        if (bridge != null)
+        {
+            CliPrincipal? user;
+            try
+            {
+                user = await bridge.AuthenticateAsync(context);
+            }
+            catch (CliAuthException ex)
+            {
+                context.Response.StatusCode = ex.StatusCode;
+                await context.Response.WriteAsJsonAsync(new { error = ex.Message, code = "FORBIDDEN" });
+                return;
+            }
+
+            if (user == null)
+            {
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsJsonAsync(new { error = "Missing or invalid authorization header", code = "UNAUTHORIZED" });
+                return;
+            }
+
+            if (!user.Can(CliRoutePolicy.AdminAccess))
+            {
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsJsonAsync(new { error = $"permission denied: {CliRoutePolicy.AdminAccess}", code = "FORBIDDEN" });
+                return;
+            }
+
+            context.Items["AdminUser"] = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Name, user.UserName),
+                new Claim("authenticated_at", DateTimeOffset.UtcNow.ToString("o")),
+            ], "qcli-users"));
             await _next(context);
             return;
         }

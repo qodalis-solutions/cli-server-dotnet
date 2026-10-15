@@ -4,6 +4,7 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
@@ -28,6 +29,55 @@ public class CliBuilder
     /// Returns all registered modules.
     /// </summary>
     public IReadOnlyList<ICliModule> Modules => _modules;
+
+    /// <summary>
+    /// Server-wide security options (shell, allowed origins, authentication requirement).
+    /// </summary>
+    public CliServerOptions ServerOptions { get; } = new();
+
+    /// <summary>
+    /// Enables (or disables) the interactive shell WebSockets. Disabled by default.
+    /// Enabling alone does not grant access: with the users plugin the session needs
+    /// <c>shell:execute</c>; without it configure a token, an authorize callback or
+    /// <c>AllowAnonymous</c> via <see cref="EnableShell(Action{CliShellOptions})"/>,
+    /// otherwise the shell stays locked (every connection is closed with 4401).
+    /// </summary>
+    public CliBuilder EnableShell(bool enabled = true)
+    {
+        ServerOptions.EnableShell = enabled;
+        return this;
+    }
+
+    /// <summary>
+    /// Enables the interactive shell and configures its access mode, limits and environment.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.EnableShell(o =&gt;
+    /// {
+    ///     o.Token = builder.Configuration["Shell:Token"];
+    ///     o.IdleTimeout = TimeSpan.FromMinutes(10);
+    /// });
+    /// </code>
+    /// </example>
+    public CliBuilder EnableShell(Action<CliShellOptions> configure)
+    {
+        ServerOptions.EnableShell = true;
+        configure(ServerOptions.Shell);
+        return this;
+    }
+
+    /// <summary>
+    /// Restricts CORS and WebSocket upgrades to the given origins (e.g. <c>http://localhost:4300</c>,
+    /// <c>http://127.0.0.1:*</c>). Registers the default CORS policy for <c>app.UseCors()</c>.
+    /// Without it the library configures no CORS.
+    /// </summary>
+    public CliBuilder SetAllowedOrigins(params string[] origins)
+    {
+        ServerOptions.AllowedOrigins.Clear();
+        ServerOptions.AllowedOrigins.AddRange(origins.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()));
+        return this;
+    }
 
     internal CliBuilder(IServiceCollection services)
     {

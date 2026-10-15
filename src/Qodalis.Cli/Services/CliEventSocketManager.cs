@@ -22,15 +22,22 @@ public class CliWebSocketClientInfo
 
     /// <summary>Gets or sets the connection type (e.g., "events").</summary>
     public string Type { get; set; } = "events";
+
+    /// <summary>Gets or sets the authenticated user id, when the server is protected.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? UserId { get; set; }
 }
 
 /// <summary>
 /// Manages WebSocket connections for server-push event broadcasting to connected clients.
+/// Sends to one socket are serialized (broadcasts and user-targeted messages may run concurrently).
+/// Sockets authenticated with a session are bound to it (see <see cref="ICliSessionBoundSockets"/>).
 /// </summary>
 public class CliEventSocketManager : ICliEventSocketManager
 {
-    private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, SerializedWebSocketSender> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
+    private readonly ConcurrentDictionary<string, Qodalis.Cli.Security.CliPrincipal> _bound = new();
     private readonly ILogger<CliEventSocketManager> _logger;
 
     /// <summary>
@@ -43,24 +50,28 @@ public class CliEventSocketManager : ICliEventSocketManager
     }
 
     /// <inheritdoc />
-    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null)
+    public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null,
+        Qodalis.Cli.Security.CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
-        _clients.TryAdd(id, socket);
+        var sender = new SerializedWebSocketSender(socket);
+        _clients.TryAdd(id, sender);
         _clientInfo.TryAdd(id, new CliWebSocketClientInfo
         {
             Id = id,
             ConnectedAt = DateTime.UtcNow.ToString("o"),
             RemoteAddress = remoteAddress ?? "unknown",
-            Type = "events"
+            Type = "events",
+            UserId = principal?.UserId,
         });
+        if (SessionBoundSockets.IsBound(principal)) _bound.TryAdd(id, principal!);
 
         _logger.LogInformation("Event WebSocket client connected (id={ClientId})", id);
 
         try
         {
             // Send connected event
-            await SendAsync(socket, new { type = "connected" }, cancellationToken);
+            await sender.SendTextAsync(Serialize(new { type = "connected" }), cancellationToken);
 
             // Keep alive — wait for client to close or cancellation
             var buffer = new byte[256];
@@ -84,8 +95,10 @@ public class CliEventSocketManager : ICliEventSocketManager
         }
         finally
         {
+            _bound.TryRemove(id, out _);
             _clients.TryRemove(id, out _);
             _clientInfo.TryRemove(id, out _);
+            sender.Dispose();
             _logger.LogInformation("Event WebSocket client disconnected (id={ClientId})", id);
         }
     }
@@ -94,14 +107,31 @@ public class CliEventSocketManager : ICliEventSocketManager
     public async Task BroadcastMessageAsync(string message)
     {
         var bytes = Encoding.UTF8.GetBytes(message);
-        var segment = new ArraySegment<byte>(bytes);
         var tasks = new List<Task>();
 
-        foreach (var (_, socket) in _clients)
+        foreach (var (_, sender) in _clients)
         {
-            if (socket.State == WebSocketState.Open)
+            if (sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
+                tasks.Add(sender.SendTextAsync(bytes));
+            }
+        }
+
+        await Task.WhenAll(tasks);
+    }
+
+    /// <inheritdoc />
+    public async Task SendToUserAsync(string userId, string message)
+    {
+        var bytes = Encoding.UTF8.GetBytes(message);
+        var tasks = new List<Task>();
+
+        foreach (var (id, sender) in _clients)
+        {
+            if (sender.Socket.State == WebSocketState.Open &&
+                _clientInfo.TryGetValue(id, out var info) && info.UserId == userId)
+            {
+                tasks.Add(sender.SendTextAsync(bytes));
             }
         }
 
@@ -112,14 +142,14 @@ public class CliEventSocketManager : ICliEventSocketManager
     public async Task BroadcastDisconnectAsync()
     {
         _logger.LogInformation("Broadcasting disconnect to {Count} event clients", _clients.Count);
-        var message = new { type = "disconnect" };
+        var bytes = Serialize(new { type = "disconnect" });
         var tasks = new List<Task>();
 
-        foreach (var (id, socket) in _clients)
+        foreach (var (id, sender) in _clients)
         {
-            if (socket.State == WebSocketState.Open)
+            if (sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(SendAndCloseAsync(socket, message));
+                tasks.Add(SendAndCloseAsync(sender, bytes));
             }
 
             _clients.TryRemove(id, out _);
@@ -128,21 +158,31 @@ public class CliEventSocketManager : ICliEventSocketManager
         await Task.WhenAll(tasks);
     }
 
-    private static async Task SendAsync(WebSocket socket, object message, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task CloseEndedSessionsAsync(Func<Qodalis.Cli.Security.CliPrincipal, Task<bool>> isSessionActive)
     {
-        var json = JsonSerializer.Serialize(message);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
+        await Task.WhenAll(_bound.ToArray().Select(async entry =>
+        {
+            if (await SessionBoundSockets.IsActiveAsync(entry.Value, isSessionActive, _logger)) return;
+            if (!_bound.TryRemove(entry.Key, out _)) return;
+
+            // Stop delivering to it, then close after any send in progress.
+            _clientInfo.TryRemove(entry.Key, out _);
+            if (_clients.TryRemove(entry.Key, out var sender))
+            {
+                _logger.LogInformation("Closing event WebSocket client of an ended session (id={ClientId})", entry.Key);
+                await SessionBoundSockets.CloseAsync(sender, _logger);
+            }
+        }));
     }
 
-    private static async Task SendAndCloseAsync(WebSocket socket, object message)
+    private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+
+    private static async Task SendAndCloseAsync(SerializedWebSocketSender sender, byte[] bytes)
     {
         try
         {
-            var json = JsonSerializer.Serialize(message);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None);
+            await sender.SendAndCloseAsync(bytes, "Server shutting down");
         }
         catch
         {
@@ -159,9 +199,10 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <inheritdoc />
     public void Dispose()
     {
-        foreach (var (_, socket) in _clients)
+        foreach (var (_, sender) in _clients)
         {
-            socket.Dispose();
+            sender.Socket.Dispose();
+            sender.Dispose();
         }
 
         _clients.Clear();

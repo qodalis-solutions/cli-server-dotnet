@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -6,6 +7,7 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Extensions;
@@ -48,11 +50,24 @@ public static class MvcBuilderExtensions
             return registry;
         });
 
+        var serverOptions = cliBuilder.ServerOptions;
+        builder.Services.AddSingleton(serverOptions);
+        builder.Services.Configure<MvcOptions>(o => o.Filters.Add(new CliAuthenticationGuardFilter()));
+        if (serverOptions.AllowedOrigins.Count > 0)
+        {
+            builder.Services.AddCors(o => o.AddDefaultPolicy(policy => policy
+                .SetIsOriginAllowed(serverOptions.IsOriginAllowed)
+                .AllowAnyMethod()
+                .AllowAnyHeader()));
+        }
+
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<ICliServerInfoService, CliServerInfoService>();
         builder.Services.AddSingleton<ICliEventSocketManager, CliEventSocketManager>();
         builder.Services.AddSingleton<ICliLogSocketManager, CliLogSocketManager>();
         builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();
+        builder.Services.AddSingleton<CliShellSessionRegistry>();
+        builder.Services.AddSingleton<ICliShellSessions>(sp => sp.GetRequiredService<CliShellSessionRegistry>());
         builder.Services.AddSingleton<IShellSessionManager, ShellSessionManager>();
 
         // Register IFileStorageProvider as singleton

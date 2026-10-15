@@ -22,6 +22,12 @@ A .NET CLI server framework for the [Qodalis CLI](https://github.com/qodalis-sol
 | `Qodalis.Cli.Plugin.FileSystem.EfCore` | Entity Framework Core (any DB) | Microsoft.EntityFrameworkCore |
 | `Qodalis.Cli.Plugin.FileSystem.S3` | Amazon S3 | AWSSDK.S3 |
 
+### Users Plugin
+
+| Package | Description | Dependencies |
+|---|---|---|
+| `Qodalis.Cli.Plugin.Users` | Authentication, users, sessions, groups and audit log API (server side of `@qodalis/cli-users` server mode) | — |
+
 ### Cloud Plugins
 
 | Package | Description | Dependencies |
@@ -46,14 +52,12 @@ using Qodalis.Cli.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCors(options =>
-    options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
-
 builder.Services
     .AddControllers()
     .AddCli(cli =>
     {
+        // CORS + WebSocket Origin allow-list (the library configures no CORS otherwise).
+        cli.SetAllowedOrigins("http://localhost:4300");
         cli.AddProcessor<GreetCommandProcessor>();
         cli.AddProcessor<MathCommandProcessor>();
     })
@@ -447,7 +451,103 @@ The server exposes versioned endpoints:
 | GET | `/api/v1/qcli/capabilities` | Server capabilities (OS, shell, features) |
 | WS | `/ws/v1/qcli/events` | WebSocket server-push event broadcast |
 | WS | `/ws/v1/qcli/logs` | WebSocket log streaming (supports `?level=` filter) |
-| WS | `/ws/v1/qcli/shell` | Interactive PTY shell session |
+| WS | `/ws/v1/qcli/shell` | Interactive PTY shell session (opt-in: `cli.EnableShell()`) |
+
+The interactive shell sockets (`/ws/v1/qcli/shell`, `/ws/qcli/shell`, `/ws/v1/qcli`, `/ws/qcli`) are **disabled by default** — see [Shell security](#shell-security). `cli.SetAllowedOrigins(...)` restricts CORS and every WebSocket upgrade to the listed origins (`http://127.0.0.1:*` matches any port).
+
+### Security
+
+Without an authentication plugin the server is open — protect it with the users plugin (`cli.AddUsers()` + `app.UseQodalisUsers()` before `app.UseCli()`), which by default (`ProtectServer = true`) requires a session on every CLI route and socket except login and version discovery. Processors can declare `RequiredPermissions`, enforced on `/execute` in addition to `commands:execute`. See [plugins/users/README.md](plugins/users/README.md) for the permission table and WebSocket tickets.
+
+Same-origin requests (whose `Origin` equals the server's own `scheme://host[:port]`, e.g. the bundled admin dashboard at `/qcli/admin`) always pass the Origin checks (WebSocket upgrades and CSRF), even when that origin is not listed in `SetAllowedOrigins(...)`.
+
+### Shell security
+
+The shell gives OS-level access, so it is off unless enabled, and enabling it does **not** open it:
+exactly one access mode decides who may connect.
+
+| Mode (`shellAuth`) | When | Client sends |
+|---|---|---|
+| `users` | the users plugin is installed (`cli.AddUsers()`) | `?ticket=` of a session holding `shell:execute` |
+| `token` | `o.Token` is set (no users plugin) | `Authorization: Bearer <token>`, or `?_header_Authorization=Bearer%20<token>` (browser clients: the server's configured `headers`) |
+| `custom` | `o.Authorize` is set (no users plugin) | whatever your callback checks (headers, query, `ctx.Connection.RemoteIpAddress`) |
+| `anonymous` | only with `o.AllowAnonymous = true` | nothing — logs a startup WARNING; never use on a reachable network |
+| `locked` | enabled but none of the above | every connection closed with `4401`, startup ERROR log |
+
+With the users plugin, a configured `Token`/`Authorize` is required **in addition** to the session; outside users
+mode, when both are set both must pass (`shellAuth` reports `token`). Tokens are compared in constant time
+(SHA-256 + `CryptographicOperations.FixedTimeEquals`) and never logged. `GET /api/v1/qcli/capabilities` returns
+`shell: true|false` and, when enabled, `shellAuth`.
+
+**With the users plugin** (sessions, permissions, audit):
+
+```csharp
+cli.EnableShell();                 // users mode: ticket + shell:execute
+cli.AddUsers(o => { /* ... */ });
+```
+
+An open shell belongs to the session that opened it: logout, idle/absolute expiry, admin revoke (kick), the user
+being disabled or deleted, or losing `shell:execute` (re-checked once when the shell registers, before the process
+starts, then every `SessionCheckInterval`, ≤ 60 s, and immediately on user/group changes) closes it with `4401 session ended` and kills the process tree. Shell input
+counts as session activity (at most one touch per 30 s); re-checks alone never extend the session. The audit log records `shell_opened` / `shell_closed` with `userId`, `actorId` and
+`metadata: { mode: interactive|command, sessionId, durationMs, exitCode, reason }` — never the command or stdin.
+`reason` is `exited` (only then `exitCode`), `closed` (client), `session ended`, `permission removed`,
+`shell timed out`, `server shutdown` or `error`. Server shutdown closes open shells with `1001`.
+
+**Without the users plugin** use token mode (or `Authorize`):
+
+```csharp
+cli.EnableShell(o =>
+{
+    o.Token = builder.Configuration["Shell:Token"];   // long random secret
+    // o.Authorize = ctx => ValueTask.FromResult(IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress!));
+});
+```
+
+The bundled `Qodalis.Cli.Server` host does exactly this: set `QCLI_SHELL_TOKEN=<secret>` (or `Shell:Token` in
+`appsettings.json`) to enable its shell; without a token it stays locked in every environment.
+`AllowAnonymous` is ignored once `Token` or `Authorize` is set.
+
+In the web-cli client, give the server entry `headers: { Authorization: 'Bearer <token>' }`; browsers cannot set
+WebSocket headers, so the client forwards it as `_header_Authorization` (prefer TLS; ASP.NET Core request logging
+at Information level includes query strings). Each open/close is logged at Information with the remote address
+and mode (no command text).
+
+**Limits, timeouts and environment** (all modes):
+
+| Option | Default | |
+|---|---|---|
+| `MaxSessionsPerUser` | 3 | per user (users mode) or per remote address → close `4429` |
+| `MaxSessions` | 20 | total concurrent shells → `4429` |
+| `IdleTimeout` | 15 min | without stdin → `4408 shell timed out` (null = never) |
+| `MaxDuration` | none | total lifetime → `4408` |
+| `SessionCheckInterval` | 30 s | users mode re-validation (capped at 60 s) |
+| `WorkingDirectory` | server user's home | |
+| `Shell` | detected (`$SHELL`, bash, sh; PowerShell on Windows) | |
+| `EnvironmentAllow` | — | extra server variables passed through |
+| `EnvironmentSet` | — | variables set in the shell (applied last) |
+
+The child gets a minimal environment — `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `COLUMNS`, `LINES`, `SHELL` plus
+`EnvironmentAllow`/`EnvironmentSet` — never the full server environment (connection strings and secrets stay out).
+
+**Process cleanup.** Every shell gets a unique marker in its environment, `QCLI_SHELL_ID=<random 128-bit hex>`,
+set after `EnvironmentAllow`/`EnvironmentSet` (configuration cannot override it) and inherited by everything the
+shell starts. Whenever a shell ends while its process is running (client close, timeout, session end, server
+shutdown), its processes are collected first (Linux: `/proc`, so no `ps` is needed; macOS:
+`ps -A -o pid=,ppid=,pgid=,tty=`) and then signalled `SIGHUP` → `SIGTERM` → (2 s grace) → `SIGKILL`: every
+descendant, including `&` jobs in their own process groups and `setsid`/`nohup` children, every process still on
+the shell's terminal, every process whose environment carries the shell's marker (Linux: `/proc/<pid>/environ`;
+macOS: `ps -A -E -ww`) — which catches daemons that double-forked and left the terminal (`setsid cmd &`) — and
+their process groups (never the server's own). Marked processes are collected again right before `SIGKILL`.
+Limitations: a process escapes only by deliberately unsetting `QCLI_SHELL_ID` or by running as another user
+(its environment is unreadable); on macOS `ps` does not show the environment of Apple system binaries
+(`/bin/sleep`, `/bin/zsh`, …), so there a detached system binary is not found by its marker. Jobs left behind by
+a shell that exited on its own (`nohup cmd & exit`) are not touched. On Windows the process tree is killed directly.
+
+Rejections are readable by browsers: the upgrade is accepted, then closed with a code and reason:
+`4401 "login required"` (no ticket/token), `4401 "session ended"`, `4401 "shell access is not configured"` (locked),
+`4403 "forbidden"` (missing `shell:execute`, wrong token, `Authorize` false or throwing), `4404 "shell disabled"`,
+`4408 "shell timed out"`, `4429 "too many shell sessions"`. Only a disallowed `Origin` is still rejected with HTTP 403.
 
 The Qodalis CLI client auto-negotiates the highest mutually supported version via the `/api/qcli/versions` discovery endpoint.
 
@@ -727,6 +827,23 @@ All commands support `--region` (`-r`) for region override and `--output` (`-o`)
 
 See [`plugins/aws/README.md`](plugins/aws/README.md) for the full command reference.
 
+### Users Plugin
+
+The users plugin adds endpoints under `/api/v1/qcli` for authentication, users, sessions, groups and an audit log, with swappable storage (in-memory by default). It is the server side of the `@qodalis/cli-users` browser plugin's *server mode*.
+
+```csharp
+using Qodalis.Cli.Plugin.Users.Extensions;
+
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.AddUsers(options => options.DefaultAdminPassword = "admin");
+});
+
+app.UseQodalisUsers();
+```
+
+See [`plugins/users/README.md`](plugins/users/README.md) for options, endpoints, custom storage and external auth adapters.
+
 ## Docker
 
 ```bash
@@ -788,6 +905,7 @@ plugins/
   data-explorer-mssql/         # MS SQL Server data explorer provider
   data-explorer-redis/         # Redis data explorer provider
   data-explorer-elasticsearch/ # Elasticsearch data explorer provider
+  users/                       # Users plugin (auth, sessions, groups, audit)
   weather/                     # Weather module (example plugin)
   admin/                       # Admin dashboard and monitoring
   jobs/                        # Job scheduling and management
