@@ -12,16 +12,26 @@ public sealed class CliPrincipal
     public const string ItemKey = "Qodalis.Cli.Principal";
 
     public CliPrincipal(string userId, string userName, IReadOnlyList<string> permissions, string? sessionId = null)
+        : this(userId, userName, permissions, sessionId, null)
+    {
+    }
+
+    /// <summary>Creates a principal authenticated by a session (<paramref name="sessionId"/>) or an API token (<paramref name="tokenId"/>).</summary>
+    public CliPrincipal(string userId, string userName, IReadOnlyList<string> permissions, string? sessionId, string? tokenId)
     {
         UserId = userId;
         UserName = userName;
         Permissions = permissions;
         SessionId = sessionId;
+        TokenId = tokenId;
     }
 
     public string UserId { get; }
     public string UserName { get; }
     public string? SessionId { get; }
+
+    /// <summary>Id of the API token that authenticated the caller (no session), when applicable.</summary>
+    public string? TokenId { get; }
 
     /// <summary>Effective permissions (<c>resource:action</c> with <c>*</c> wildcards).</summary>
     public IReadOnlyList<string> Permissions { get; }

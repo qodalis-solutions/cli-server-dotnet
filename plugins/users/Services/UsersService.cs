@@ -283,6 +283,7 @@ public class UsersService
                 actorId: caller.User.Id);
             await _userStore.DeleteUserAsync(target.Id);
             await _credentialStore.DeleteCredentialsAsync(target.Id);
+            await _auth.DeleteUserApiTokensAsync(target.Id);
             _auth.ClearLockout(target.Id);
 
             await _auth.AuditAsync(AuditEvents.UserDeleted, target.Name, null, caller.User.Name,

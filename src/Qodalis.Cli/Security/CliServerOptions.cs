@@ -31,6 +31,12 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// MCP endpoint options (<c>POST /api/qcli/mcp</c>); <c>null</c> = disabled (default).
+    /// Set with <c>CliBuilder.AddMcp()</c>.
+    /// </summary>
+    public Qodalis.Cli.Mcp.McpOptions? Mcp { get; set; }
+
+    /// <summary>
     /// True when <paramref name="origin"/> is the request's own origin (same-origin requests, such as
     /// the bundled admin dashboard, are never cross-site and are always allowed) or is listed in
     /// <see cref="AllowedOrigins"/>.

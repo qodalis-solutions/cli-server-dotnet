@@ -36,6 +36,7 @@ public static class CliBuilderUsersExtensions
         RegisterStore<ICredentialStore, InMemoryCredentialStore>(services, options, options.CredentialStore);
         RegisterStore<IAuditStore, InMemoryAuditStore>(services, options, options.AuditStore);
         RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
+        RegisterStore<IApiTokenStore, InMemoryApiTokenStore>(services, options, options.ApiTokenStore);
 
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;

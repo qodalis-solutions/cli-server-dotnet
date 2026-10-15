@@ -14,7 +14,7 @@ namespace Qodalis.Cli.Plugin.Users.Middleware;
 /// every CLI server route and WebSocket (see <see cref="CliRoutePolicy"/>). Sets a
 /// <see cref="UsersAuthContext"/> and a core <see cref="CliPrincipal"/> on success.
 /// <list type="bullet">
-/// <item>HTTP: <c>Authorization: Bearer</c> token, or the external adapter.</item>
+/// <item>HTTP: <c>Authorization: Bearer</c> session token or API token (<c>qcli_pat_…</c>), or the external adapter.</item>
 /// <item>WebSocket: single-use <c>?ticket=</c> from <c>POST /sessions/ws-ticket</c> (bearer tokens are never
 /// accepted in query strings); in adapter mode the adapter may authenticate the upgrade directly
 /// (a present Origin must then be allowed or same-origin).</item>
@@ -37,6 +37,7 @@ public class UsersAuthMiddleware
         Base + "/sessions",
         Base + "/groups",
         Base + "/audit",
+        Base + "/tokens",
     ];
 
     public UsersAuthMiddleware(RequestDelegate next, ILogger<UsersAuthMiddleware> logger)
