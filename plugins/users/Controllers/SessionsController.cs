@@ -10,8 +10,8 @@ namespace Qodalis.Cli.Plugin.Users.Controllers;
 /// <list type="bullet">
 /// <item><c>POST   /sessions</c> — login (anonymous, rate limited per IP) → 201 <c>{ token, session }</c></item>
 /// <item><c>POST   /sessions/ws-ticket</c> — single-use WebSocket ticket (30 s)</item>
-/// <item><c>GET    /sessions/current</c> — current session</item>
-/// <item><c>DELETE /sessions/current</c> — logout</item>
+/// <item><c>GET    /sessions/current</c> — current session (404 <c>not a session</c> with an API token)</item>
+/// <item><c>DELETE /sessions/current</c> — logout (404 <c>not a session</c> with an API token)</item>
 /// <item><c>GET    /sessions</c> — list sessions (<c>sessions:read</c>; never includes tokens)</item>
 /// <item><c>DELETE /sessions/{id}</c> — revoke (<c>sessions:revoke</c> or own session)</item>
 /// </list>
@@ -61,10 +61,15 @@ public class SessionsController : UsersControllerBase
     [HttpPost("ws-ticket")]
     public IActionResult CreateWsTicket() => Json(201, _auth.IssueTicket(Auth));
 
-    /// <summary>The current session (live user and effective permissions).</summary>
+    /// <summary>The current session (live user and effective permissions); 404 for API tokens.</summary>
     [HttpGet("current")]
     [UsersAllowPasswordChangeRequired]
-    public IActionResult GetCurrent() => JsonOk(Auth.ToCurrentSession());
+    public IActionResult GetCurrent()
+    {
+        var auth = Auth;
+        if (auth.ApiToken != null) throw UsersApiException.NotFound("not a session");
+        return JsonOk(auth.ToCurrentSession());
+    }
 
     /// <summary>Logout: end the current session.</summary>
     [HttpDelete("current")]
@@ -72,6 +77,7 @@ public class SessionsController : UsersControllerBase
     [UsersAllowPasswordChangeRequired]
     public async Task<IActionResult> Logout()
     {
+        if (Auth.ApiToken != null) throw UsersApiException.NotFound("not a session");
         var session = Auth.Session;
         if (session != null)
             await _auth.LogoutAsync(session);

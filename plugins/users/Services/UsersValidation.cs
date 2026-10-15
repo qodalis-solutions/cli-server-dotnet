@@ -20,7 +20,8 @@ public static partial class UsersValidation
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._@-]*$")]
     private static partial Regex NameRegex();
 
-    [GeneratedRegex(@"^[^\s@]+@[^\s@]+$")]
+    // Email: dot-atom local part (max 64) @ DNS labels ending in a letters-only TLD, or localhost; same rule as web-cli and the other servers.
+    [GeneratedRegex(@"^(?=[^@]{1,64}@)[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:localhost|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63})\z")]
     private static partial Regex EmailRegex();
 
     [GeneratedRegex(@"^(\*|[a-z0-9_.-]+(:([a-z0-9_.-]+|\*))*)$", RegexOptions.IgnoreCase)]
@@ -48,7 +49,7 @@ public static partial class UsersValidation
         return name;
     }
 
-    /// <summary>Email: at most 254 chars, <c>local@domain</c>, no whitespace or control characters.</summary>
+    /// <summary>Email: at most 254 chars, a dot-atom local part and a DNS domain with a letters-only TLD (or <c>localhost</c>), no control characters.</summary>
     public static string Email(string? value)
     {
         var email = value?.Trim();

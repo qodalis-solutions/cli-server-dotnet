@@ -68,6 +68,7 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
     public async Task LogoutAsync(HttpContext context, string token) => await auth.LogoutAsync(token);
 
     /// <summary>
+    /// API-token principals are re-validated against the token store (revoked, expired, user disabled).
     /// Stored sessions are re-validated against the stores (current permissions, expiry, user state).
     /// External-adapter principals are re-validated by running the adapter again on the request it
     /// accepted (the shell upgrade, or the ticket request): no user, another user or an exception
@@ -75,6 +76,11 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
     /// </summary>
     public async Task<CliPrincipal?> RevalidateAsync(CliPrincipal principal, bool touch)
     {
+        if (principal.TokenId != null)
+        {
+            var token = await auth.RevalidateApiTokenAsync(principal.TokenId, principal.UserId);
+            return token == null || token.User.MustChangePassword ? null : token.ToCliPrincipal();
+        }
         if (principal.SessionId == null) return null;
         if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal))
         {

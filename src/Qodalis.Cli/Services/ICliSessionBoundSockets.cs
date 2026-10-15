@@ -6,7 +6,8 @@ namespace Qodalis.Cli.Services;
 /// <summary>
 /// Server-push sockets (events, logs) bound to the authentication session that opened them. When
 /// that session ends (logout, revoke, user disabled/deleted, expiry) the socket is closed with
-/// 4401 <c>session ended</c>. Sockets without a session id are never checked.
+/// 4401 <c>session ended</c>. Sockets opened with an API token are bound to that token the same way.
+/// Sockets without a session or token id are never checked.
 /// </summary>
 public interface ICliSessionBoundSockets
 {
@@ -23,8 +24,8 @@ internal static class SessionBoundSockets
 {
     public const string SessionEndedReason = "session ended";
 
-    /// <summary>Only principals carrying a session id are bound to it.</summary>
-    public static bool IsBound(CliPrincipal? principal) => principal?.SessionId != null;
+    /// <summary>Only principals carrying a session or API token id are bound to it.</summary>
+    public static bool IsBound(CliPrincipal? principal) => principal?.SessionId != null || principal?.TokenId != null;
 
     /// <summary>Runs the check; an exception counts as an ended session.</summary>
     public static async Task<bool> IsActiveAsync(CliPrincipal principal, Func<CliPrincipal, Task<bool>> isSessionActive,

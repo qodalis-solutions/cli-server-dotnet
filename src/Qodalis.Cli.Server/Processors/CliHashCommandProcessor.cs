@@ -12,6 +12,8 @@ public class CliHashCommandProcessor : CliCommandProcessor
     private static readonly string[] SupportedAlgorithms = ["md5", "sha1", "sha256", "sha512"];
 
     public override string Command { get; set; } = "hash";
+
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Computes hash of the input text";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =

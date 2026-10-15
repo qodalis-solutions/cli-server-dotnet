@@ -18,6 +18,16 @@ public sealed class CliAuthenticationGuardFilter : IAsyncActionFilter, IOrderedF
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         var http = context.HttpContext;
+
+        // MCP: the Origin check (403) and the method check (405) run before authentication.
+        var mcp = Qodalis.Cli.Mcp.CliMcpGate.Check(http);
+        if (mcp != null)
+        {
+            if (mcp.Allow != null) http.Response.Headers.Allow = mcp.Allow;
+            context.Result = new JsonResult(new { error = mcp.Error }) { StatusCode = mcp.StatusCode };
+            return;
+        }
+
         var options = http.RequestServices.GetService<CliServerOptions>();
         if (options?.RequireAuthentication == true)
         {

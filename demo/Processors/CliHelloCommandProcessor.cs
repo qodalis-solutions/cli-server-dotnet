@@ -5,6 +5,7 @@ namespace Qodalis.Cli.Demo.Processors;
 public class CliHelloCommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "hello";
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Greets the user";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =

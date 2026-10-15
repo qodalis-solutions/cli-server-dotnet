@@ -61,18 +61,8 @@ public class CliController : ControllerBase
             return StatusCode(401, new { error = "unauthorized" });
 
         // Every processor on the path counts, not only the root and the resolved one
-        var required = new List<string>();
-        var processor = _registry.FindProcessor(command.Command);
-        if (processor?.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
-        foreach (var sub in command.ChainCommands ?? [])
-        {
-            processor = processor?.Processors?.FirstOrDefault(
-                p => string.Equals(p.Command, sub, StringComparison.OrdinalIgnoreCase));
-            if (processor == null) break;
-            if (processor.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
-        }
-
-        var missing = CliPermissionMatcher.Missing(principal.Permissions, required.Distinct(StringComparer.OrdinalIgnoreCase));
+        var required = CliCommandPermissions.RequiredFor(_registry, command.Command, command.ChainCommands);
+        var missing = CliCommandPermissions.Missing(principal, required);
         return missing.Count == 0
             ? null
             : StatusCode(403, new { error = $"permission denied: {string.Join(", ", missing)}" });

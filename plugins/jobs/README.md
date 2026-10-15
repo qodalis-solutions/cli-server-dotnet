@@ -82,6 +82,12 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 
+## MCP tools
+
+When the server's MCP endpoint is enabled (`cli.AddMcp()`), the plugin contributes `jobs_list`, `jobs_get {id}`,
+`jobs_history {id, limit?=20}` (`jobs:read`) and `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`,
+`jobs_cancel` `{id}` (`jobs:manage`; `id` is a job id or a unique job name), backed by the same scheduler as the REST API.
+
 ## Custom Storage
 
 By default, execution history is stored in memory. Provide a custom `ICliJobStorageProvider` for persistence:
