@@ -630,6 +630,17 @@ public class UsersSecurityTests : IAsyncLifetime
     }
 
     [Fact]
+    public void ClientIp_JoinsRepeatedForwardedForHeaders()
+    {
+        // A client-sent line comes first; the proxy adds its own line after it
+        var limiter = new IpRateLimiter(new UsersModuleOptions { TrustProxy = true });
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("9.9.9.9");
+        context.Request.Headers["X-Forwarded-For"] = new Microsoft.Extensions.Primitives.StringValues(["6.6.6.6", "2.2.2.2"]);
+        Assert.Equal("2.2.2.2", limiter.ClientIp(context));
+    }
+
+    [Fact]
     public async Task SelfPasswordChange_GoesThroughLockoutAndAudit()
     {
         await _h.CreateUserAsync(_root, "self-locker");

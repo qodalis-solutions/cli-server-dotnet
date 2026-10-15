@@ -32,7 +32,8 @@ public sealed class IpRateLimiter
     {
         if (_options.TrustProxy)
         {
-            var forwarded = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            // Repeated header lines are one list, in order (a proxy may add its own line)
+            var forwarded = string.Join(",", context.Request.Headers["X-Forwarded-For"].ToArray());
             if (!string.IsNullOrWhiteSpace(forwarded))
             {
                 var entries = forwarded.Split(',').Select(e => e.Trim()).ToArray();
