@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -69,13 +70,31 @@ public class ShellSessionManager : IShellSessionManager
     /// Sends a close frame without waiting for the reply, so it can run while the
     /// input loop still has a ReceiveAsync outstanding.
     /// </summary>
+    /// <summary>
+    /// One send at a time per shell socket: output, the exit message and the close frame can come
+    /// from different tasks, and .NET WebSockets reject overlapping sends.
+    /// </summary>
+    private static readonly ConditionalWeakTable<WebSocket, SemaphoreSlim> SendGates = new();
+
+    private static SemaphoreSlim SendGate(WebSocket webSocket) =>
+        SendGates.GetValue(webSocket, _ => new SemaphoreSlim(1, 1));
+
     private static async Task SendCloseFrameAsync(WebSocket webSocket, int code, string reason)
     {
         if (webSocket.State is not (WebSocketState.Open or WebSocketState.CloseReceived)) return;
+        var gate = SendGate(webSocket);
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            await webSocket.CloseOutputAsync((WebSocketCloseStatus)code, reason, cts.Token);
+            await gate.WaitAsync(cts.Token);
+            try
+            {
+                await webSocket.CloseOutputAsync((WebSocketCloseStatus)code, reason, cts.Token);
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
         catch (Exception)
         {
@@ -649,11 +668,21 @@ public class ShellSessionManager : IShellSessionManager
 
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
-        await webSocket.SendAsync(
-            new ArraySegment<byte>(bytes),
-            WebSocketMessageType.Text,
-            true,
-            cancellationToken);
+        var gate = SendGate(webSocket);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (webSocket.State != WebSocketState.Open) return;
+            await webSocket.SendAsync(
+                new ArraySegment<byte>(bytes),
+                WebSocketMessageType.Text,
+                true,
+                cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private (string shell, string[] args) GetShellInfo(string? command)
