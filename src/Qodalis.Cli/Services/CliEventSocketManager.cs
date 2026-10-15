@@ -30,10 +30,11 @@ public class CliWebSocketClientInfo
 
 /// <summary>
 /// Manages WebSocket connections for server-push event broadcasting to connected clients.
+/// Sends to one socket are serialized (broadcasts and user-targeted messages may run concurrently).
 /// </summary>
 public class CliEventSocketManager : ICliEventSocketManager
 {
-    private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, SerializedWebSocketSender> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
     private readonly ILogger<CliEventSocketManager> _logger;
 
@@ -51,7 +52,8 @@ public class CliEventSocketManager : ICliEventSocketManager
         Qodalis.Cli.Security.CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
-        _clients.TryAdd(id, socket);
+        var sender = new SerializedWebSocketSender(socket);
+        _clients.TryAdd(id, sender);
         _clientInfo.TryAdd(id, new CliWebSocketClientInfo
         {
             Id = id,
@@ -66,7 +68,7 @@ public class CliEventSocketManager : ICliEventSocketManager
         try
         {
             // Send connected event
-            await SendAsync(socket, new { type = "connected" }, cancellationToken);
+            await sender.SendTextAsync(Serialize(new { type = "connected" }), cancellationToken);
 
             // Keep alive — wait for client to close or cancellation
             var buffer = new byte[256];
@@ -92,6 +94,7 @@ public class CliEventSocketManager : ICliEventSocketManager
         {
             _clients.TryRemove(id, out _);
             _clientInfo.TryRemove(id, out _);
+            sender.Dispose();
             _logger.LogInformation("Event WebSocket client disconnected (id={ClientId})", id);
         }
     }
@@ -100,14 +103,13 @@ public class CliEventSocketManager : ICliEventSocketManager
     public async Task BroadcastMessageAsync(string message)
     {
         var bytes = Encoding.UTF8.GetBytes(message);
-        var segment = new ArraySegment<byte>(bytes);
         var tasks = new List<Task>();
 
-        foreach (var (_, socket) in _clients)
+        foreach (var (_, sender) in _clients)
         {
-            if (socket.State == WebSocketState.Open)
+            if (sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
+                tasks.Add(sender.SendTextAsync(bytes));
             }
         }
 
@@ -117,15 +119,15 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <inheritdoc />
     public async Task SendToUserAsync(string userId, string message)
     {
-        var segment = new ArraySegment<byte>(Encoding.UTF8.GetBytes(message));
+        var bytes = Encoding.UTF8.GetBytes(message);
         var tasks = new List<Task>();
 
-        foreach (var (id, socket) in _clients)
+        foreach (var (id, sender) in _clients)
         {
-            if (socket.State == WebSocketState.Open &&
+            if (sender.Socket.State == WebSocketState.Open &&
                 _clientInfo.TryGetValue(id, out var info) && info.UserId == userId)
             {
-                tasks.Add(socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None));
+                tasks.Add(sender.SendTextAsync(bytes));
             }
         }
 
@@ -136,14 +138,14 @@ public class CliEventSocketManager : ICliEventSocketManager
     public async Task BroadcastDisconnectAsync()
     {
         _logger.LogInformation("Broadcasting disconnect to {Count} event clients", _clients.Count);
-        var message = new { type = "disconnect" };
+        var bytes = Serialize(new { type = "disconnect" });
         var tasks = new List<Task>();
 
-        foreach (var (id, socket) in _clients)
+        foreach (var (id, sender) in _clients)
         {
-            if (socket.State == WebSocketState.Open)
+            if (sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(SendAndCloseAsync(socket, message));
+                tasks.Add(SendAndCloseAsync(sender, bytes));
             }
 
             _clients.TryRemove(id, out _);
@@ -152,21 +154,13 @@ public class CliEventSocketManager : ICliEventSocketManager
         await Task.WhenAll(tasks);
     }
 
-    private static async Task SendAsync(WebSocket socket, object message, CancellationToken cancellationToken)
-    {
-        var json = JsonSerializer.Serialize(message);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
-    }
+    private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
-    private static async Task SendAndCloseAsync(WebSocket socket, object message)
+    private static async Task SendAndCloseAsync(SerializedWebSocketSender sender, byte[] bytes)
     {
         try
         {
-            var json = JsonSerializer.Serialize(message);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None);
+            await sender.SendAndCloseAsync(bytes, "Server shutting down");
         }
         catch
         {
@@ -183,9 +177,10 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <inheritdoc />
     public void Dispose()
     {
-        foreach (var (_, socket) in _clients)
+        foreach (var (_, sender) in _clients)
         {
-            socket.Dispose();
+            sender.Socket.Dispose();
+            sender.Dispose();
         }
 
         _clients.Clear();
