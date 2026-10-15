@@ -219,6 +219,15 @@ public class UsersApiTests
     [InlineData("users", "users:read", false)]
     [InlineData("groups:*", "users:read", false)]
     [InlineData("users:read:*", "users:read", true)] // same as cliPermissionMatches
+    // A non-last '*' matches exactly one segment; only a last '*' grants everything below.
+    [InlineData("*:read", "users:read", true)]
+    [InlineData("*:read", "users:delete", false)]
+    [InlineData("*:read", "users:read:x", false)]
+    [InlineData("*:read", "*", false)]
+    [InlineData("users:*:read", "users:x:read", true)]
+    [InlineData("users:*:read", "users:x:delete", false)]
+    [InlineData("users:*:read", "shell:execute", false)]
+    [InlineData("*:*", "users:read:x", true)]
     public void PermissionMatcher_MatchesCliCoreSemantics(string granted, string required, bool expected)
     {
         Assert.Equal(expected, PermissionMatcher.Matches(granted, required));

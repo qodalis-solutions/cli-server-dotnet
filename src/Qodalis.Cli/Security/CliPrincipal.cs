@@ -40,8 +40,9 @@ public static class CliPrincipalHttpContextExtensions
 }
 
 /// <summary>
-/// Permission matching. Permissions are <c>resource:action</c>; a <c>*</c> segment matches that
-/// level and everything below (<c>*</c>, <c>users:*</c>). Case-insensitive. Same semantics as
+/// Permission matching. Permissions are <c>resource:action</c>; a trailing <c>*</c> segment matches
+/// that level and everything below (<c>*</c>, <c>users:*</c>); a <c>*</c> in any other segment matches
+/// exactly one segment (<c>*:read</c> matches <c>users:read</c> only). Case-insensitive. Same semantics as
 /// <c>cliPermissionMatches</c> in <c>@qodalis/cli-core</c>.
 /// </summary>
 public static class CliPermissionMatcher
@@ -52,8 +53,10 @@ public static class CliPermissionMatcher
         var r = required.Trim().ToLowerInvariant().Split(':');
         for (var i = 0; i < g.Length; i++)
         {
-            if (g[i] == "*") return true;
-            if (i >= r.Length || g[i] != r[i]) return false;
+            // Only a trailing '*' grants everything below; elsewhere it matches one segment.
+            if (g[i] == "*" && i == g.Length - 1) return true;
+            if (i >= r.Length) return false;
+            if (g[i] != "*" && g[i] != r[i]) return false;
         }
         return g.Length == r.Length;
     }
