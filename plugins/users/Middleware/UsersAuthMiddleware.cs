@@ -50,6 +50,9 @@ public class UsersAuthMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
         var method = context.Request.Method;
+
+        // MCP: the Origin check (403) and the method check (405) run before authentication.
+        if (await Qodalis.Cli.Mcp.CliMcpGate.TryRejectAsync(context)) return;
         var options = context.RequestServices.GetRequiredService<UsersModuleOptions>();
         var serverOptions = context.RequestServices.GetService<CliServerOptions>() ?? new CliServerOptions();
 

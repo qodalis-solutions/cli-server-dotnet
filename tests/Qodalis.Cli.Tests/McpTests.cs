@@ -1119,3 +1119,201 @@ public class McpUsersTests : IAsyncLifetime
         Assert.Equal("2025-06-18", result.GetProperty("protocolVersion").GetString());
     }
 }
+
+internal sealed class McpRawInputProcessor : CliCommandProcessor
+{
+    public override string Command { get; set; } = "greet";
+    public override string Description { get; set; } = "Optional positional input";
+    public override bool? AcceptsRawInput { get; set; } = true;
+    public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } = [new McpNamedProcessor("sub")];
+
+    public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default) =>
+        Task.FromResult($"hello {(string.IsNullOrEmpty(command.Value) ? "world" : command.Value)}");
+}
+
+public class McpRevisedRulesTests
+{
+    [Fact]
+    public async Task AcceptsRawInput_GivesOptionalValue_AndMakesParentATool()
+    {
+        await using var h = await McpPlainHost.StartAsync(cli =>
+        {
+            cli.AddProcessor(new McpRawInputProcessor());
+            cli.AddMcp();
+        });
+        var tool = Assert.Single(await Mcp.ToolsAsync(h.Client), t => t.GetProperty("name").GetString() == "greet");
+        var schema = tool.GetProperty("inputSchema");
+        Assert.Equal("string", schema.GetProperty("properties").GetProperty("value").GetProperty("type").GetString());
+        Assert.Empty(schema.GetProperty("required").EnumerateArray());
+
+        Assert.Equal("hello world", Mcp.Text(await Mcp.CallAsync(h.Client, "greet")));
+        Assert.Equal("hello bob", Mcp.Text(await Mcp.CallAsync(h.Client, "greet", new { value = "bob" })));
+    }
+
+    [Fact]
+    public async Task ServerVersion_IsThePackageVersion()
+    {
+        await using var h = await McpPlainHost.StartAsync(cli => cli.AddMcp());
+        var result = await Mcp.ResultAsync(h.Client, "initialize", new { protocolVersion = "2025-06-18" });
+        var expected = typeof(CliMcpServer).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion.Split('+')[0];
+        Assert.Equal(expected, result.GetProperty("serverInfo").GetProperty("version").GetString());
+        Assert.StartsWith("1.0.0-beta.", expected);
+    }
+
+    [Fact]
+    public async Task FileSystem_AllowedPathsAreEnforced()
+    {
+        var root = Directory.CreateTempSubdirectory("qcli-mcp-").FullName;
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "ok.txt"), "inside");
+            await using var h = await McpPlainHost.StartAsync(cli =>
+            {
+                cli.AddFileSystem(o => o.AllowedPaths = [root]);
+                cli.AddMcp();
+            });
+            Assert.Equal("inside", Mcp.Text(await Mcp.CallAsync(h.Client, "fs_read", new { path = Path.Combine(root, "ok.txt") })));
+
+            var outside = await Mcp.CallAsync(h.Client, "fs_read", new { path = "/etc/hosts" });
+            Assert.True(outside.GetProperty("isError").GetBoolean());
+            var traversal = await Mcp.CallAsync(h.Client, "fs_write", new { path = Path.Combine(root, "..", "escape.txt"), content = "x" });
+            Assert.True(traversal.GetProperty("isError").GetBoolean());
+            Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(root)!, "escape.txt")));
+            var list = await Mcp.CallAsync(h.Client, "fs_list", new { path = "/" });
+            Assert.True(list.GetProperty("isError").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Jobs_AcceptIdOrUniqueName()
+    {
+        await using var h = await McpPlainHost.StartAsync(cli =>
+        {
+            cli.AddJob(new McpNoopJob(), o => { o.Name = "nightly"; o.Interval = TimeSpan.FromHours(1); });
+            cli.AddJob(new McpNoopJob(), o => { o.Name = "dup"; o.Interval = TimeSpan.FromHours(1); });
+            cli.AddJob(new McpNoopJob(), o => { o.Name = "dup"; o.Interval = TimeSpan.FromHours(1); });
+            cli.AddMcp();
+        });
+        var byName = await Mcp.CallAsync(h.Client, "jobs_get", new { id = "Nightly" });
+        Assert.False(byName.GetProperty("isError").GetBoolean());
+        Assert.Equal("nightly", byName.GetProperty("structuredContent").GetProperty("name").GetString());
+        Assert.False((await Mcp.CallAsync(h.Client, "jobs_pause", new { id = "nightly" })).GetProperty("isError").GetBoolean());
+        Assert.False((await Mcp.CallAsync(h.Client, "jobs_history", new { id = "nightly" })).GetProperty("isError").GetBoolean());
+
+        var ambiguous = await Mcp.CallAsync(h.Client, "jobs_get", new { id = "dup" });
+        Assert.True(ambiguous.GetProperty("isError").GetBoolean());
+        Assert.Contains("ambiguous", Mcp.Text(ambiguous));
+    }
+}
+
+/// <summary>Per-provider visibility with the users plugin, and pre-authentication checks.</summary>
+public class McpProviderPermissionTests : IAsyncLifetime
+{
+    private UsersTestHost _h = null!;
+    private string _root = null!;
+
+    public async Task InitializeAsync()
+    {
+        _h = await UsersTestHost.StartAsync(configureCli: cli =>
+        {
+            Mcp.AddTestProcessors(cli);
+            cli.AddFileSystem(o => o.UseInMemory());
+            cli.AddDataExplorerProvider(new FakeDataExplorerProvider(), o => { o.Name = "db"; o.Description = "Test"; });
+            cli.AddJob(new McpNoopJob(), o => { o.Name = "nightly"; o.Interval = TimeSpan.FromHours(1); });
+            cli.AddMcp();
+        });
+        _root = await _h.RootTokenAsync();
+    }
+
+    public async Task DisposeAsync() => await _h.DisposeAsync();
+
+    private static readonly string[] FsRead = ["fs_list", "fs_stat", "fs_read"];
+    private static readonly string[] FsWrite = ["fs_write", "fs_mkdir", "fs_delete"];
+    private static readonly string[] Data = ["data_sources", "data_schema", "data_query"];
+    private static readonly string[] JobsRead = ["jobs_list", "jobs_get", "jobs_history"];
+    private static readonly string[] JobsManage = ["jobs_trigger", "jobs_pause", "jobs_resume", "jobs_stop", "jobs_cancel"];
+
+    private async Task<List<string>> NamesForAsync(string name, params string[] permissions) =>
+        await Mcp.ToolNamesAsync(_h.Client, await _h.UserWithPermissionsAsync(_root, name, ["commands:execute", .. permissions]));
+
+    [Fact]
+    public async Task Admin_SeesEveryProvider()
+    {
+        var names = await Mcp.ToolNamesAsync(_h.Client, _root);
+        foreach (var n in FsRead.Concat(FsWrite).Concat(Data).Concat(JobsRead).Concat(JobsManage).Append("server_info").Append("echo"))
+            Assert.Contains(n, names);
+    }
+
+    [Fact]
+    public async Task CommandsOnly_SeesNoFeatureTools()
+    {
+        var names = await NamesForAsync("cmd-only");
+        Assert.Contains("server_info", names);
+        Assert.Contains("echo", names);
+        foreach (var n in FsRead.Concat(FsWrite).Concat(Data).Concat(JobsRead).Concat(JobsManage))
+            Assert.DoesNotContain(n, names);
+    }
+
+    [Fact]
+    public async Task FilesRead_And_FilesWrite()
+    {
+        var reader = await NamesForAsync("fs-reader", "files:read");
+        foreach (var n in FsRead) Assert.Contains(n, reader);
+        foreach (var n in FsWrite) Assert.DoesNotContain(n, reader);
+
+        var writer = await NamesForAsync("fs-writer", "files:read", "files:write");
+        foreach (var n in FsRead.Concat(FsWrite)) Assert.Contains(n, writer);
+    }
+
+    [Fact]
+    public async Task DataQuery()
+    {
+        var token = await _h.UserWithPermissionsAsync(_root, "analyst", "commands:execute", "data:query");
+        var names = await Mcp.ToolNamesAsync(_h.Client, token);
+        foreach (var n in Data) Assert.Contains(n, names);
+        var query = await Mcp.CallAsync(_h.Client, "data_query", new { source = "db", query = "q" }, token);
+        Assert.False(query.GetProperty("isError").GetBoolean());
+        Assert.Contains("alice", Mcp.Text(query));
+    }
+
+    [Fact]
+    public async Task JobsReadAndManage()
+    {
+        var reader = await _h.UserWithPermissionsAsync(_root, "job-reader", "commands:execute", "jobs:read");
+        var names = await Mcp.ToolNamesAsync(_h.Client, reader);
+        foreach (var n in JobsRead) Assert.Contains(n, names);
+        foreach (var n in JobsManage) Assert.DoesNotContain(n, names);
+        var (code, message) = await Mcp.ErrorAsync(_h.Client, "tools/call", new { name = "jobs_pause", arguments = new { id = "nightly" } }, reader);
+        Assert.Equal(-32602, code);
+        Assert.Equal("Unknown tool: jobs_pause", message);
+
+        var manager = await NamesForAsync("job-manager", "jobs:read", "jobs:manage");
+        foreach (var n in JobsRead.Concat(JobsManage)) Assert.Contains(n, manager);
+    }
+
+    [Fact]
+    public async Task OriginAndMethodChecks_RunBeforeAuthentication()
+    {
+        // No credentials at all: still 403 for a foreign origin and 405 for GET/DELETE.
+        var res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), origin: "http://evil.example");
+        Assert.Equal("forbidden: origin not allowed", await UsersTestHost.AssertErrorAsync(res, 403));
+        res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), token: "qcli_pat_invalid", origin: "http://evil.example");
+        await UsersTestHost.AssertErrorAsync(res, 403);
+
+        var get = await _h.Client.SendAsync(new HttpRequestMessage(HttpMethod.Get, Mcp.Path));
+        Assert.Equal(405, (int)get.StatusCode);
+        Assert.Contains("POST", get.Content.Headers.Allow);
+
+        // Same-origin is fine, and then authentication applies.
+        res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), origin: "http://localhost");
+        await UsersTestHost.AssertErrorAsync(res, 401);
+        res = await Mcp.PostAsync(_h.Client, Mcp.Request("ping"), _root, "http://localhost");
+        Assert.Equal(200, (int)res.StatusCode);
+    }
+}

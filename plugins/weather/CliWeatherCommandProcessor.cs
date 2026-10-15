@@ -14,6 +14,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
 
     /// <inheritdoc />
     public override string Command { get; set; } = "weather";
+    public override bool? AcceptsRawInput { get; set; } = true;
     /// <inheritdoc />
     public override string Description { get; set; } = "Shows weather information for a location";
 
@@ -150,6 +151,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
 internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "current";
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Shows current weather conditions";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
@@ -177,6 +179,7 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
 internal class WeatherForecastProcessor : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "forecast";
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Shows a 3-day weather forecast";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =

@@ -11,7 +11,17 @@ namespace Qodalis.Cli.Mcp;
 /// <summary>Shared JSON helpers of the built-in providers.</summary>
 internal static class McpJson
 {
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>Compact output with the same (relaxed) escaping, for JSON-RPC messages.</summary>
+    public static readonly JsonSerializerOptions Compact = new(JsonSerializerDefaults.Web)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     public static JsonObject? ToObject(object? value) =>
         value == null ? null : JsonSerializer.SerializeToNode(value, value.GetType(), Options) as JsonObject;
@@ -167,7 +177,7 @@ public sealed class FileSystemMcpToolProvider : IMcpToolProvider
         if (!TryDecodeText(bytes, truncated, out var text))
             return McpToolResult.Error($"binary file, {total} bytes");
         if (truncated)
-            text += $"\n[truncated: showing the first {bytes.Length} of {total} bytes]";
+            text += $"\n[truncated: {bytes.Length} of {total} bytes]";
         return McpToolResult.Ok(text);
     }
 

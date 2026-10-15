@@ -31,8 +31,14 @@ public sealed class CliMcpTool
     /// <summary>Every <see cref="ICliCommandProcessor.RequiredPermissions"/> along the chain.</summary>
     public IReadOnlyList<string> RequiredPermissions { get; }
 
-    /// <summary>True when the command takes a positional value (exposed as the <c>value</c> argument).</summary>
-    public bool TakesValue => Processor.ValueRequired == true;
+    /// <summary>
+    /// True when the command takes a positional value (<see cref="ICliCommandProcessor.ValueRequired"/> or
+    /// <see cref="ICliCommandProcessor.AcceptsRawInput"/>), exposed as the <c>value</c> argument.
+    /// </summary>
+    public bool TakesValue => TakesValueOf(Processor);
+
+    internal static bool TakesValueOf(ICliCommandProcessor processor) =>
+        processor.ValueRequired == true || processor.AcceptsRawInput == true;
 
     public string Description => string.IsNullOrWhiteSpace(Processor.Description)
         ? $"Run '{string.Join(' ', Path)}'"
@@ -175,7 +181,7 @@ public sealed class CommandsMcpToolProvider : IMcpToolProvider
 
         var children = processor.Processors?.ToList() ?? [];
         var hasParameters = processor.Parameters?.Any() == true;
-        if (children.Count == 0 || hasParameters || processor.ValueRequired == true)
+        if (children.Count == 0 || hasParameters || CliMcpTool.TakesValueOf(processor))
         {
             var name = ToolName(path);
             if (names.Add(name))

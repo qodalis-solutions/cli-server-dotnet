@@ -23,6 +23,7 @@ public class CliHttpCommandProcessor : CliCommandProcessor
 public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcessor
 {
     public override string Command { get; set; } = "get";
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Performs an HTTP GET request";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
@@ -60,6 +61,7 @@ public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcess
 public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProcessor
 {
     public override string Command { get; set; } = "post";
+    public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Performs an HTTP POST request";
 
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =

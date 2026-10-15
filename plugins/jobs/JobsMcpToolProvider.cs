@@ -13,7 +13,11 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// </summary>
 public sealed class JobsMcpToolProvider : IMcpToolProvider
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     private readonly CliJobScheduler _scheduler;
     private readonly ICliJobStorageProvider _storage;
@@ -28,7 +32,7 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
 
     public Task<IReadOnlyList<McpToolDefinition>> GetToolsAsync(McpToolContext context, CancellationToken cancellationToken)
     {
-        var id = new JsonObject { ["id"] = McpSchema.Property("string", "Job id (see jobs_list)") };
+        var id = new JsonObject { ["id"] = McpSchema.Property("string", "Job id or unique job name (see jobs_list)") };
         IReadOnlyList<McpToolDefinition> tools =
         [
             new()
@@ -55,7 +59,7 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
                 Description = "Show the most recent executions of a job",
                 InputSchema = McpSchema.Object(new JsonObject
                 {
-                    ["id"] = McpSchema.Property("string", "Job id (see jobs_list)"),
+                    ["id"] = McpSchema.Property("string", "Job id or unique job name (see jobs_list)"),
                     ["limit"] = McpSchema.Property("integer", "Maximum number of executions (at most 100)", 20),
                 }, "id"),
                 RequiredPermissions = [CliRoutePolicy.JobsRead],
@@ -78,15 +82,16 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
     {
         Name = name,
         Description = description,
-        InputSchema = McpSchema.Object(new JsonObject { ["id"] = McpSchema.Property("string", "Job id (see jobs_list)") }, "id"),
+        InputSchema = McpSchema.Object(new JsonObject { ["id"] = McpSchema.Property("string", "Job id or unique job name (see jobs_list)") }, "id"),
         RequiredPermissions = [CliRoutePolicy.JobsManage],
         Annotations = annotations,
         CallAsync = async (args, _, ct) =>
         {
-            var jobId = McpSchema.GetString(args, "id")!;
+            var (jobId, error) = Resolve(McpSchema.GetString(args, "id")!);
+            if (error != null) return error;
             try
             {
-                await run(jobId, ct);
+                await run(jobId!, ct);
                 return McpToolResult.Ok($"{done}: {jobId}");
             }
             catch (KeyNotFoundException)
@@ -111,20 +116,37 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
         return McpToolResult.Ok(text, new JsonObject { ["jobs"] = node });
     }
 
-    private McpToolResult Get(string id)
+    /// <summary>Resolves a job id, or a job name matching exactly one job (case-insensitive).</summary>
+    private (string? Id, McpToolResult? Error) Resolve(string idOrName)
     {
-        if (!_scheduler.Jobs.TryGetValue(id, out var reg)) return McpToolResult.Error($"Job not found: {id}");
+        if (_scheduler.Jobs.ContainsKey(idOrName)) return (idOrName, null);
+        var matches = _scheduler.Jobs.Values
+            .Where(r => string.Equals(r.Options.Name, idOrName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return matches.Count switch
+        {
+            1 => (matches[0].Id, null),
+            0 => (null, McpToolResult.Error($"Job not found: {idOrName}")),
+            _ => (null, McpToolResult.Error($"Job name '{idOrName}' is ambiguous: use the job id")),
+        };
+    }
+
+    private McpToolResult Get(string idOrName)
+    {
+        var (id, error) = Resolve(idOrName);
+        if (error != null) return error;
+        var reg = _scheduler.Jobs[id!];
         var node = (JsonObject)JsonSerializer.SerializeToNode(CliJobsController.MapJobDto(reg), Json)!;
         return McpToolResult.Ok(node.ToJsonString(Json), node);
     }
 
     private async Task<McpToolResult> HistoryAsync(JsonObject args, McpToolContext context, CancellationToken ct)
     {
-        var id = McpSchema.GetString(args, "id")!;
-        if (!_scheduler.Jobs.ContainsKey(id)) return McpToolResult.Error($"Job not found: {id}");
+        var (id, error) = Resolve(McpSchema.GetString(args, "id")!);
+        if (error != null) return error;
         var limit = (int)Math.Clamp(McpSchema.GetInt64(args, "limit") ?? 20, 1, 100);
 
-        var (items, total) = await _storage.GetExecutionsAsync(id, limit, 0, null, ct);
+        var (items, total) = await _storage.GetExecutionsAsync(id!, limit, 0, null, ct);
         var executions = items.Select(e => new
         {
             id = e.Id,

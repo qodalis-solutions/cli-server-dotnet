@@ -29,13 +29,29 @@ public sealed partial class CliMcpServer
 
     public const string ServerName = "qodalis-cli-server";
 
+    /// <summary>The server package version (e.g. <c>1.0.0-beta.7</c>), reported by <c>initialize</c> and <c>server_info</c>.</summary>
+    public static readonly string PackageVersion = ResolvePackageVersion();
+
+    private static string ResolvePackageVersion()
+    {
+        var assembly = typeof(CliMcpServer).Assembly;
+        var informational = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)?.InformationalVersion;
+        if (!string.IsNullOrEmpty(informational))
+        {
+            var plus = informational.IndexOf('+');
+            return plus >= 0 ? informational[..plus] : informational;
+        }
+        return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    }
+
     public const int ParseError = -32700;
     public const int InvalidRequest = -32600;
     public const int MethodNotFound = -32601;
     public const int InvalidParams = -32602;
     public const int InternalError = -32603;
 
-    private static readonly JsonSerializerOptions OutputJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions OutputJson = McpJson.Options;
 
     private readonly ICliCommandRegistry _registry;
     private readonly ICliCommandExecutorService _executor;
@@ -254,7 +270,7 @@ public sealed partial class CliMcpServer
                 ? version
                 : SupportedProtocolVersions[0],
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
-            ["serverInfo"] = new JsonObject { ["name"] = ServerName, ["version"] = _serverInfo.ServerVersion },
+            ["serverInfo"] = new JsonObject { ["name"] = ServerName, ["version"] = PackageVersion },
         };
         if (!string.IsNullOrEmpty(Options.Instructions)) result["instructions"] = Options.Instructions;
         return result;
@@ -321,7 +337,7 @@ public sealed partial class CliMcpServer
         var structured = new JsonObject
         {
             ["name"] = ServerName,
-            ["version"] = _serverInfo.ServerVersion,
+            ["version"] = PackageVersion,
             ["capabilities"] = JsonSerializer.SerializeToNode(_serverInfo.GetCapabilities(), _serverInfo.GetCapabilities().GetType(), McpJson.Options),
             ["features"] = new JsonArray(features.Select(f => (JsonNode)f).ToArray()),
             ["commands"] = new JsonArray(_registry.Processors.Select(p => (JsonNode)p.Command).ToArray()),
@@ -434,7 +450,7 @@ public sealed partial class CliMcpServer
     };
 
     private static CliMcpResponse Result(JsonNode? id, JsonNode result) =>
-        new(200, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result }.ToJsonString());
+        new(200, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result }.ToJsonString(McpJson.Compact));
 
     private static CliMcpResponse Error(JsonNode? id, int code, string message) =>
         new(200, new JsonObject
@@ -442,5 +458,5 @@ public sealed partial class CliMcpServer
             ["jsonrpc"] = "2.0",
             ["id"] = id,
             ["error"] = new JsonObject { ["code"] = code, ["message"] = message },
-        }.ToJsonString());
+        }.ToJsonString(McpJson.Compact));
 }

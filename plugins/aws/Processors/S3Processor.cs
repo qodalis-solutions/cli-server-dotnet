@@ -44,6 +44,7 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "ls";
+    public override bool? AcceptsRawInput { get; set; } = true;
 
     /// <inheritdoc />
     public override string Description { get; set; } = "List S3 buckets or objects in a bucket";

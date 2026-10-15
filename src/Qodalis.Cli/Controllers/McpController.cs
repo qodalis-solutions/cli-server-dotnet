@@ -33,7 +33,7 @@ public class McpController : ControllerBase
     public async Task<IActionResult> Post(CancellationToken cancellationToken)
     {
         if (!Enabled) return NotFound(new { error = "not found" });
-        var gate = CheckOrigin();
+        var gate = Gate();
         if (gate != null) return gate;
 
         var principal = HttpContext.GetCliPrincipal();
@@ -68,19 +68,16 @@ public class McpController : ControllerBase
     public IActionResult NotAllowed()
     {
         if (!Enabled) return NotFound(new { error = "not found" });
-        var gate = CheckOrigin();
-        if (gate != null) return gate;
-        Response.Headers.Allow = "POST";
-        return StatusCode(405, new { error = "method not allowed" });
+        return Gate() ?? StatusCode(405, new { error = "method not allowed" });
     }
 
-    /// <summary>DNS-rebinding protection: a present Origin must be allowed or same-origin.</summary>
-    private IActionResult? CheckOrigin()
+    /// <summary>Origin (403) and method (405) checks, shared with the pre-authentication gate.</summary>
+    private IActionResult? Gate()
     {
-        var origin = Request.Headers.Origin.FirstOrDefault();
-        if (!string.IsNullOrEmpty(origin) && !_options.IsOriginAllowed(origin, Request))
-            return StatusCode(403, new { error = "forbidden: origin not allowed" });
-        return null;
+        var rejection = CliMcpGate.Check(HttpContext);
+        if (rejection == null) return null;
+        if (rejection.Allow != null) Response.Headers.Allow = rejection.Allow;
+        return StatusCode(rejection.StatusCode, new { error = rejection.Error });
     }
 
     private string? BearerToken()
