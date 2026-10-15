@@ -221,7 +221,8 @@ public class ShellSecurityTests
         await stopping;
         Assert.Equal(1001, close.Code);
         Assert.Equal("server shutdown", close.Reason);
-        Assert.Contains(h.Logs.Messages, m => m.StartsWith("Shell session closed") && m.Contains("reason=server shutdown"));
+        // Logged after the process tree is collected and signalled, which may finish after the host stopped.
+        await WaitUntilAsync(() => h.Logs.Messages.Any(m => m.StartsWith("Shell session closed") && m.Contains("reason=server shutdown")));
     }
 
     [Fact]
@@ -440,21 +441,55 @@ public class ShellSecurityTests
     /// <summary>
     /// Starts background processes that escape a plain process kill: a job in its own process
     /// group, one in a new session (setsid), one that ignores HUP and TERM, and one whose parent
-    /// subshell exits at once (re-parented, still on the shell's terminal). Returns their PIDs.
+    /// subshell exits at once (re-parented, still on the shell's terminal), and one started the
+    /// util-linux way (<c>setsid cmd &amp;</c> from a job that is a group leader: fork, the parent exits,
+    /// the child calls setsid) — re-parented to init, in a new session, without the terminal, so only
+    /// the shell's environment marker identifies it. Returns their PIDs.
     /// </summary>
-    private static readonly string[] Keys = ["BG", "SS", "TR", "DF"];
+    private static readonly string[] Keys = ["BG", "SS", "TR", "DF", "ES"];
+
+    /// <summary>
+    /// macOS hides the environment of Apple platform binaries (<c>/bin/sleep</c>) from <c>ps -E</c>,
+    /// so the escaping job runs an ad-hoc signed copy of sleep — like any user-installed daemon.
+    /// </summary>
+    private static readonly Lazy<string> MacSleeper = new(() =>
+    {
+        var dir = Directory.CreateTempSubdirectory("qcli-sleeper-");
+        var path = System.IO.Path.Combine(dir.FullName, "qcli-sleep");
+        File.Copy("/bin/sleep", path);
+        var psi = new System.Diagnostics.ProcessStartInfo("codesign", ["-s", "-", "-f", path])
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var codesign = System.Diagnostics.Process.Start(psi)!;
+        codesign.WaitForExit();
+        Assert.Equal(0, codesign.ExitCode);
+        return path;
+    });
+
+    private static string EscapeShellArg(string arg) => "'" + arg.Replace("'", "'\\''") + "'";
 
     private static async Task<int[]> StartBackgroundJobsAsync(WebSocket socket)
     {
+        // -w: util-linux setsid forks (a job leads its group) and waits, so the job stays in the tree.
         var setsid = File.Exists("/usr/bin/setsid") || File.Exists("/bin/setsid")
-            ? "setsid sleep 1001"
+            ? "setsid -w sleep 1001"
             : "perl -e 'use POSIX; POSIX::setsid(); exec @ARGV' sleep 1001";
+        // util-linux setsid forks when the caller leads its process group (always true for a job);
+        // the escaped child prints its own PID. macOS has no setsid(1): the same steps via perl.
+        var escapedSetsid = OperatingSystem.IsLinux()
+            ? "setsid sh -c 'echo \"ES=$$\"; exec sleep 1004' &"
+            : "perl -e 'use POSIX; exit 0 if fork(); POSIX::setsid(); print \"ES=$$\\n\"; exec @ARGV' " +
+              EscapeShellArg(MacSleeper.Value) + " 1004 &";
         await SendStdinAsync(socket,
             "set +H\n" +
             "sleep 1000 & echo \"BG=$!\"\n" +
             setsid + " & echo \"SS=$!\"\n" +
             "sh -c 'trap \"\" HUP TERM; sleep 1002' & echo \"TR=$!\"\n" +
-            "( sleep 1003 & echo \"DF=$!\" )\n");
+            "( sleep 1003 & echo \"DF=$!\" )\n" +
+            escapedSetsid + "\n");
         var output = await ReadStdoutUntilAsync(socket, o =>
             Keys.All(k => System.Text.RegularExpressions.Regex.IsMatch(o, k + @"=\d+")));
         return Keys

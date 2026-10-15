@@ -161,6 +161,7 @@ public class ShellSessionManager : IShellSessionManager
         var (shell, shellArgs) = GetShellInfo(request.Command);
         Process? process = null;
         var state = new SessionState();
+        var marker = ShellProcessTree.NewMarker();
         var started = Stopwatch.StartNew();
         var opened = false;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -171,7 +172,7 @@ public class ShellSessionManager : IShellSessionManager
             // End the process tree: the session loop then ends normally and sends the close
             // code before cancelling (cancelling first would abort the socket without one).
             // Cancel shortly after as a fallback in case nothing else unblocks the loop.
-            if (process != null) ShellProcessTree.Terminate(process, _logger);
+            if (process != null) ShellProcessTree.Terminate(process, marker, _logger);
             try { cts.CancelAfter(TimeSpan.FromSeconds(3)); } catch (ObjectDisposedException) { }
             if (process == null)
             {
@@ -204,7 +205,7 @@ public class ShellSessionManager : IShellSessionManager
                 CreateNoWindow = true,
                 WorkingDirectory = GetWorkingDirectory(),
             };
-            BuildEnvironment(psi.Environment, shell, cols, rows);
+            BuildEnvironment(psi.Environment, shell, cols, rows, marker);
 
             if (OperatingSystem.IsMacOS())
             {
@@ -239,7 +240,7 @@ public class ShellSessionManager : IShellSessionManager
             process.Start();
             opened = true;
             // Ended while starting (Terminate ran before the process existed).
-            if (state.Terminated) ShellProcessTree.Terminate(process, _logger);
+            if (state.Terminated) ShellProcessTree.Terminate(process, marker, _logger);
 
             // Never log or audit the command text.
             _logger.LogInformation(
@@ -349,7 +350,7 @@ public class ShellSessionManager : IShellSessionManager
                 try
                 {
                     if (!process.HasExited)
-                        ShellProcessTree.Terminate(process, _logger);
+                        ShellProcessTree.Terminate(process, marker, _logger);
                     else if (!state.Terminated)
                         exitCode = process.ExitCode;
                 }
@@ -497,10 +498,11 @@ public class ShellSessionManager : IShellSessionManager
     /// <summary>
     /// Minimal child environment (C3): <c>PATH</c>, <c>HOME</c>, <c>USER</c>, <c>LANG</c> from the
     /// server, then <see cref="CliShellOptions.EnvironmentAllow"/>, then <c>TERM</c>,
-    /// <c>COLUMNS</c>, <c>LINES</c>, <c>SHELL</c>, then <see cref="CliShellOptions.EnvironmentSet"/>.
-    /// Server secrets are not inherited.
+    /// <c>COLUMNS</c>, <c>LINES</c>, <c>SHELL</c>, then <see cref="CliShellOptions.EnvironmentSet"/>,
+    /// then the shell's process marker (<see cref="ShellProcessTree.MarkerVariable"/>, set last so the
+    /// configuration cannot override it). Server secrets are not inherited.
     /// </summary>
-    private void BuildEnvironment(IDictionary<string, string?> env, string shell, int cols, int rows)
+    private void BuildEnvironment(IDictionary<string, string?> env, string shell, int cols, int rows, string marker)
     {
         env.Clear();
 
@@ -532,6 +534,10 @@ public class ShellSessionManager : IShellSessionManager
 
         foreach (var (name, value) in _options.EnvironmentSet)
             env[name] = value;
+
+        // Tags every process the shell starts, so cleanup finds daemons that left the tree.
+        env.Remove(ShellProcessTree.MarkerVariable);
+        env[ShellProcessTree.MarkerVariable] = marker;
     }
 
     private async Task ReadProcessOutputAsync(

@@ -530,13 +530,19 @@ and mode (no command text).
 The child gets a minimal environment — `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `COLUMNS`, `LINES`, `SHELL` plus
 `EnvironmentAllow`/`EnvironmentSet` — never the full server environment (connection strings and secrets stay out).
 
-**Process cleanup.** Whenever a shell ends while its process is running (client close, timeout, session end,
-server shutdown), the whole process tree is collected first (`ps -A -o pid=,ppid=,pgid=,tty=`, macOS and Linux) and
-then signalled `SIGHUP` → `SIGTERM` → (2 s grace) → `SIGKILL`: every descendant, including `&` jobs in their own
-process groups and `setsid`/`nohup` children, every process still on the shell's terminal, and their process
-groups. Limitation: a daemon that double-forks and detaches from the terminal (e.g. `setsid` in a child that then
-exits) is re-parented to init and can no longer be traced to the shell; neither can jobs left behind by a shell
-that exited on its own (`nohup cmd & exit`). On Windows the process tree is killed directly.
+**Process cleanup.** Every shell gets a unique marker in its environment, `QCLI_SHELL_ID=<random 128-bit hex>`,
+set after `EnvironmentAllow`/`EnvironmentSet` (configuration cannot override it) and inherited by everything the
+shell starts. Whenever a shell ends while its process is running (client close, timeout, session end, server
+shutdown), its processes are collected first (Linux: `/proc`, so no `ps` is needed; macOS:
+`ps -A -o pid=,ppid=,pgid=,tty=`) and then signalled `SIGHUP` → `SIGTERM` → (2 s grace) → `SIGKILL`: every
+descendant, including `&` jobs in their own process groups and `setsid`/`nohup` children, every process still on
+the shell's terminal, every process whose environment carries the shell's marker (Linux: `/proc/<pid>/environ`;
+macOS: `ps -A -E -ww`) — which catches daemons that double-forked and left the terminal (`setsid cmd &`) — and
+their process groups (never the server's own). Marked processes are collected again right before `SIGKILL`.
+Limitations: a process escapes only by deliberately unsetting `QCLI_SHELL_ID` or by running as another user
+(its environment is unreadable); on macOS `ps` does not show the environment of Apple system binaries
+(`/bin/sleep`, `/bin/zsh`, …), so there a detached system binary is not found by its marker. Jobs left behind by
+a shell that exited on its own (`nohup cmd & exit`) are not touched. On Windows the process tree is killed directly.
 
 Rejections are readable by browsers: the upgrade is accepted, then closed with a code and reason:
 `4401 "login required"` (no ticket/token), `4401 "session ended"`, `4401 "shell access is not configured"` (locked),
