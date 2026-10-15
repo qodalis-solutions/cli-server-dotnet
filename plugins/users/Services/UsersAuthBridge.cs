@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Security;
@@ -9,7 +10,8 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// <see cref="ICliAuthBridge"/> backed by the users plugin, so other plugins (e.g. the admin
 /// dashboard) authenticate through users, sessions, lockout and audit.
 /// </summary>
-public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IExternalAuthAdapter? adapter = null) : ICliAuthBridge
+public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IExternalAuthAdapter? adapter = null,
+    IServiceProvider? services = null) : ICliAuthBridge
 {
     public async Task<CliAuthLogin> LoginAsync(HttpContext context, string username, string password)
     {
@@ -67,12 +69,23 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
 
     /// <summary>
     /// Stored sessions are re-validated against the stores (current permissions, expiry, user state).
-    /// External-adapter principals cannot be re-validated without a request and are kept.
+    /// External-adapter principals are re-validated by running the adapter again on the request it
+    /// accepted (the shell upgrade, or the ticket request): no user, another user or an exception
+    /// ends the session. Adapter principals without a recorded request cannot be re-validated (null).
     /// </summary>
     public async Task<CliPrincipal?> RevalidateAsync(CliPrincipal principal, bool touch)
     {
         if (principal.SessionId == null) return null;
-        if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal)) return principal;
+        if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal))
+        {
+            if (adapter == null) return null;
+            using var scope = services?.CreateScope();
+            var external = await auth.RevalidateExternalAsync(principal, adapter, scope?.ServiceProvider);
+            if (external?.ExternalRequest == null) return null;
+            var current = external.ToCliPrincipal();
+            auth.BindExternalRequest(current, external.ExternalRequest);
+            return current;
+        }
         var ctx = await auth.RevalidateSessionAsync(principal.SessionId, touch);
         return ctx?.ToCliPrincipal();
     }

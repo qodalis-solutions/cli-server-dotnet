@@ -30,6 +30,12 @@ public sealed class UsersAuthContext
     /// <summary>The adapter result (external mode), used to bind WebSocket tickets.</summary>
     public ExternalAuthResult? ExternalResult { get; init; }
 
+    /// <summary>
+    /// The request the adapter accepted (external mode), used to re-validate long-lived connections
+    /// (open shells) by running the adapter again.
+    /// </summary>
+    public ExternalRequestSnapshot? ExternalRequest { get; init; }
+
     public bool Can(string permission) => PermissionMatcher.HasPermission(Permissions, permission);
 
     public bool IsSelf(User other) => other.Id == User.Id;

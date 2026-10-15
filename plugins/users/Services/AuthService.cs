@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -32,6 +33,7 @@ public class AuthService
     private readonly ICliShellSessions? _shells;
     private readonly ConcurrentDictionary<string, LockoutState> _lockouts = new();
     private readonly ConcurrentDictionary<string, WsTicket> _tickets = new();
+    private readonly ConditionalWeakTable<CliPrincipal, ExternalRequestSnapshot> _externalRequests = new();
     private readonly SemaphoreSlim _hashGate;
 
     private const int MaxTrackedLockouts = 10_000;
@@ -63,7 +65,8 @@ public class AuthService
         public long LockedUntil;
     }
 
-    private sealed record WsTicket(string? SessionId, ExternalAuthResult? External, long ExpiresAt);
+    private sealed record WsTicket(string? SessionId, ExternalAuthResult? External, ExternalRequestSnapshot? ExternalRequest,
+        long ExpiresAt);
 
     public AuthService(
         IUserStore userStore,
@@ -416,8 +419,12 @@ public class AuthService
         };
     }
 
-    /// <summary>Builds the auth context for a request authenticated by an external adapter.</summary>
-    public async Task<UsersAuthContext> AuthenticateExternalAsync(ExternalAuthResult result)
+    /// <summary>
+    /// Builds the auth context for a request authenticated by an external adapter.
+    /// <paramref name="request"/> is the request the adapter accepted (kept for re-validation).
+    /// </summary>
+    public async Task<UsersAuthContext> AuthenticateExternalAsync(ExternalAuthResult result,
+        ExternalRequestSnapshot? request = null)
     {
         var source = result.User;
         var groups = new List<string>(source.Groups ?? []);
@@ -439,6 +446,7 @@ public class AuthService
             ExpiresAt = now + SessionTimeoutMs,
             IsExternal = true,
             ExternalResult = result,
+            ExternalRequest = request,
         };
     }
 
@@ -452,7 +460,9 @@ public class AuthService
         if (adapter != null)
         {
             var result = adapter.Authenticate(context);
-            return result?.User == null ? null : await AuthenticateExternalAsync(result);
+            return result?.User == null
+                ? null
+                : await AuthenticateExternalAsync(result, ExternalRequestSnapshot.Capture(context));
         }
 
         var token = BearerToken(context);
@@ -484,7 +494,7 @@ public class AuthService
         }
 
         var ticket = GenerateToken();
-        _tickets[HashToken(ticket)] = new WsTicket(auth.Session?.Id, auth.ExternalResult,
+        _tickets[HashToken(ticket)] = new WsTicket(auth.Session?.Id, auth.ExternalResult, auth.ExternalRequest,
             now + TicketLifetimeSeconds * 1000L);
         return new WsTicketResponse { Ticket = ticket, ExpiresIn = TicketLifetimeSeconds };
     }
@@ -499,8 +509,9 @@ public class AuthService
         if (!_tickets.TryRemove(HashToken(ticket), out var entry)) return null;
         if (entry.ExpiresAt <= Now()) return null;
 
+        // External mode: the ticket keeps the request the adapter accepted when it was issued.
         if (entry.External != null)
-            return await AuthenticateExternalAsync(entry.External);
+            return await AuthenticateExternalAsync(entry.External, entry.ExternalRequest);
 
         if (entry.SessionId == null) return null;
         var session = await _sessionStore.GetSessionByIdAsync(entry.SessionId);
@@ -621,6 +632,38 @@ public class AuthService
             LastActivity = session.LastActivity,
             ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
         };
+    }
+
+    /// <summary>
+    /// Remembers the request behind an external-adapter <paramref name="principal"/> so a long-lived
+    /// connection (an open shell) can be re-validated with <see cref="RevalidateExternalAsync"/>.
+    /// </summary>
+    public void BindExternalRequest(CliPrincipal principal, ExternalRequestSnapshot request) =>
+        _externalRequests.AddOrUpdate(principal, request);
+
+    /// <summary>
+    /// Re-validates an external-adapter principal by running <paramref name="adapter"/> again on the
+    /// request it originally accepted (see <see cref="BindExternalRequest"/>). Null when no request is
+    /// known, the adapter returns no user, a different user, or throws.
+    /// </summary>
+    public async Task<UsersAuthContext?> RevalidateExternalAsync(CliPrincipal principal, IExternalAuthAdapter adapter,
+        IServiceProvider? services = null)
+    {
+        if (!_externalRequests.TryGetValue(principal, out var request)) return null;
+
+        ExternalAuthResult? result;
+        try
+        {
+            result = adapter.Authenticate(await request.ToAuthenticatedHttpContextAsync(services));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "External auth adapter failed while re-validating user {UserId}", principal.UserId);
+            return null;
+        }
+        if (result?.User == null || result.User.Id != principal.UserId) return null;
+
+        return await AuthenticateExternalAsync(result, request);
     }
 
     /// <summary>Deletes sessions idle for longer than the session timeout.</summary>

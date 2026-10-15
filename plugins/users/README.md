@@ -160,6 +160,16 @@ cli.AddUsers(options =>
 });
 ```
 
+**Shells opened by adapter users** are bound like stored sessions (spec C2): at registration and at every
+re-check (`SessionCheckInterval`, and on user/group changes) the adapter is run again on a snapshot of the
+request it accepted — the shell upgrade, or the `POST /sessions/ws-ticket` request when a ticket was used. The
+snapshot holds only request data (method, URL, headers including cookies, remote address); the original
+`HttpContext` with its features and items is gone. Adapters used with shells must therefore authenticate from
+headers or cookies — directly, or through the host's default ASP.NET Core authentication scheme, which is run on
+the snapshot so `ctx.User` is set as in the example above. `null`, a different user or an exception closes the
+shell with `4401 session ended`; a user without `shell:execute` closes it with `4401 session ended` too (audit
+reason `permission removed`).
+
 ## Client
 
 Point the browser plugin at this server:

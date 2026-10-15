@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Tests.Helpers;
 using static Qodalis.Cli.Tests.Helpers.UsersTestHost;
@@ -255,6 +257,170 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
             AdapterUser("http://localhost"));
         Assert.True(shell.GotReady);
         Assert.Contains("same-ok", shell.Stdout);
+    }
+
+    // =========================================================================
+    // Shell session binding (C2): adapter principals are re-validated through the adapter
+    // =========================================================================
+
+    /// <summary>What the host application currently says about each user (changes during a test).</summary>
+    private sealed class HostAuthState
+    {
+        public System.Collections.Concurrent.ConcurrentDictionary<string, string> Users { get; } = new();
+        public int Calls;
+    }
+
+    private static Task<UsersTestHost> StartShellHostAsync(HostAuthState state) =>
+        UsersTestHost.StartAsync(options => options.UseExternalAuth(context =>
+        {
+            Interlocked.Increment(ref state.Calls);
+            var user = context.Request.Headers["X-Test-User"].FirstOrDefault();
+            if (string.IsNullOrEmpty(user) || !state.Users.TryGetValue(user, out var status) || status == "gone")
+                return null;
+            if (status == "throw") throw new InvalidOperationException("host auth unavailable");
+            return new ExternalAuthResult
+            {
+                User = new User { Id = $"ext-{user}", Name = user, Email = $"{user}@external.com" },
+                IsAdmin = status == "admin", // admin: '*' (shell:execute); otherwise no permissions
+            };
+        }), configureCli: cli => cli.EnableShell(o =>
+        {
+            o.Shell = "/bin/sh";
+            o.IdleTimeout = null;
+            o.SessionCheckInterval = TimeSpan.FromMilliseconds(200);
+        }));
+
+    private static async Task<System.Net.WebSockets.WebSocket> OpenAdapterShellAsync(UsersTestHost h, string user)
+    {
+        var socket = await ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/shell", r => r.Headers["X-Test-User"] = user);
+        await ShellTestClient.ExpectReadyAsync(socket);
+        return socket;
+    }
+
+    [Fact]
+    public async Task AdapterShell_StaysOpenAcrossPeriodicRechecks()
+    {
+        var state = new HostAuthState();
+        state.Users["alice"] = "admin";
+        await using var h = await StartShellHostAsync(state);
+        var socket = await OpenAdapterShellAsync(h, "alice");
+
+        var before = Volatile.Read(ref state.Calls);
+        await Task.Delay(1000); // several re-checks
+        Assert.Equal(System.Net.WebSockets.WebSocketState.Open, socket.State);
+        Assert.True(Volatile.Read(ref state.Calls) > before, "the adapter should be consulted by the re-checks");
+        socket.Abort();
+    }
+
+    [Theory]
+    [InlineData("gone", "session ended")]
+    [InlineData("throw", "session ended")]
+    [InlineData("user", "permission removed")]
+    public async Task AdapterShell_ClosesWhenTheHostNoLongerAuthenticates(string status, string auditReason)
+    {
+        var state = new HostAuthState();
+        state.Users["alice"] = "admin";
+        state.Users["auditor"] = "admin";
+        await using var h = await StartShellHostAsync(state);
+        var socket = await OpenAdapterShellAsync(h, "alice");
+
+        state.Users["alice"] = status;
+        var close = await ShellTestClient.ReadUntilCloseAsync(socket, 10000);
+        Assert.Equal(4401, close.Code);
+        Assert.Equal("session ended", close.Reason);
+
+        JsonElement closed = default;
+        await ShellSecurityTests.WaitUntilAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, $"{Base}/audit?event=shell_closed");
+            req.Headers.Add("X-Test-User", "auditor");
+            var list = ReadJsonAsync(h.Client.SendAsync(req).Result).Result;
+            if (list.GetArrayLength() == 0) return false;
+            closed = list[0];
+            return true;
+        });
+        Assert.Equal(auditReason, closed.GetProperty("metadata").GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task AdapterShell_OpenedWithTicket_IsRevalidatedWithTheTicketRequest()
+    {
+        var state = new HostAuthState();
+        state.Users["alice"] = "admin";
+        await using var h = await StartShellHostAsync(state);
+
+        var ticketRequest = new HttpRequestMessage(HttpMethod.Post, $"{Base}/sessions/ws-ticket");
+        ticketRequest.Headers.Add("X-Test-User", "alice");
+        ticketRequest.Headers.Add("Origin", "http://localhost"); // same-origin (CSRF check)
+        var ticket = (await ReadJsonAsync(await h.Client.SendAsync(ticketRequest))).GetProperty("ticket").GetString();
+
+        // The upgrade itself carries no host credentials (only the ticket).
+        var socket = await ShellTestClient.ConnectAsync(h.Host, $"/ws/v1/qcli/shell?ticket={ticket}");
+        await ShellTestClient.ExpectReadyAsync(socket);
+        await Task.Delay(600);
+        Assert.Equal(System.Net.WebSockets.WebSocketState.Open, socket.State);
+
+        state.Users["alice"] = "gone";
+        Assert.Equal(4401, (await ShellTestClient.ReadUntilCloseAsync(socket, 10000)).Code);
+    }
+
+    /// <summary>Host authentication (ASP.NET Core scheme) the adapter reads through <c>HttpContext.User</c>.</summary>
+    private sealed class HostHeaderAuthHandler(
+        Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions> options,
+        Microsoft.Extensions.Logging.ILoggerFactory logger, System.Text.Encodings.Web.UrlEncoder encoder, HostAuthState state)
+        : Microsoft.AspNetCore.Authentication.AuthenticationHandler<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions>(
+            options, logger, encoder)
+    {
+        protected override Task<Microsoft.AspNetCore.Authentication.AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var user = Request.Headers["X-Host-User"].FirstOrDefault();
+            if (string.IsNullOrEmpty(user) || !state.Users.TryGetValue(user, out var status) || status == "gone")
+                return Task.FromResult(Microsoft.AspNetCore.Authentication.AuthenticateResult.NoResult());
+            var identity = new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, user)], "Host");
+            return Task.FromResult(Microsoft.AspNetCore.Authentication.AuthenticateResult.Success(
+                new Microsoft.AspNetCore.Authentication.AuthenticationTicket(new System.Security.Claims.ClaimsPrincipal(identity), "Host")));
+        }
+    }
+
+    [Fact]
+    public async Task AdapterShell_UsingHostAuthentication_IsRevalidatedThroughTheScheme()
+    {
+        var state = new HostAuthState();
+        state.Users["alice"] = "admin";
+        await using var h = await UsersTestHost.StartAsync(
+            options => options.UseExternalAuth(context =>
+            {
+                var name = context.User.Identity?.IsAuthenticated == true ? context.User.Identity.Name : null;
+                return name == null
+                    ? null
+                    : new ExternalAuthResult
+                    {
+                        User = new User { Id = $"ext-{name}", Name = name, Email = $"{name}@external.com" },
+                        IsAdmin = true,
+                    };
+            }),
+            configureServices: services =>
+            {
+                services.AddSingleton(state);
+                services.AddAuthentication("Host")
+                    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, HostHeaderAuthHandler>("Host", _ => { });
+            },
+            configureCli: cli => cli.EnableShell(o =>
+            {
+                o.Shell = "/bin/sh";
+                o.IdleTimeout = null;
+                o.SessionCheckInterval = TimeSpan.FromMilliseconds(200);
+            }),
+            configureAuth: app => app.UseAuthentication());
+
+        var socket = await ShellTestClient.ConnectAsync(h.Host, "/ws/v1/qcli/shell", r => r.Headers["X-Host-User"] = "alice");
+        await ShellTestClient.ExpectReadyAsync(socket);
+        await Task.Delay(600);
+        Assert.Equal(System.Net.WebSockets.WebSocketState.Open, socket.State);
+
+        state.Users["alice"] = "gone";
+        Assert.Equal(4401, (await ShellTestClient.ReadUntilCloseAsync(socket, 10000)).Code);
     }
 
     [Fact]

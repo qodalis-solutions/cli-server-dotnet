@@ -112,7 +112,8 @@ public sealed class UsersTestHost : IAsyncDisposable
         Action<CliBuilder>? configureCli = null,
         bool realEventSockets = false,
         Action<IApplicationBuilder>? configureApp = null,
-        Action<IMvcBuilder>? configureMvc = null)
+        Action<IMvcBuilder>? configureMvc = null,
+        Action<IApplicationBuilder>? configureAuth = null)
     {
         var events = new FakeEventSocketManager();
         var time = new ManualTimeProvider();
@@ -150,6 +151,7 @@ public sealed class UsersTestHost : IAsyncDisposable
                     app.UseWebSockets();
                     app.UseRouting();
                     app.UseCors();
+                    configureAuth?.Invoke(app); // host authentication runs before the users middleware
                     if (useMiddleware) app.UseQodalisUsers();
                     app.UseAuthorization();
                     configureApp?.Invoke(app);

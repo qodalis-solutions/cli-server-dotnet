@@ -157,7 +157,11 @@ public class UsersAuthMiddleware
         }
 
         context.SetUsersAuth(auth);
-        context.SetCliPrincipal(auth.ToCliPrincipal());
+        var principal = auth.ToCliPrincipal();
+        // Lets a shell opened by an adapter user be re-validated through the adapter later.
+        if (rule.IsWebSocket && auth.ExternalRequest != null)
+            authService.BindExternalRequest(principal, auth.ExternalRequest);
+        context.SetCliPrincipal(principal);
         await _next(context);
     }
 
