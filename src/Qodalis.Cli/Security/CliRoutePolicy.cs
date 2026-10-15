@@ -27,6 +27,9 @@ public static class CliRoutePolicy
     public const string ShellExecute = "shell:execute";
     public const string AdminAccess = "admin:access";
 
+    /// <summary>The MCP endpoint (Streamable HTTP, stateless).</summary>
+    public const string McpPath = "/api/qcli/mcp";
+
     private static readonly string[] CliPrefixes = ["/api/v1/qcli", "/api/v2/qcli", "/api/qcli", "/api/cli", "/ws/v1/qcli", "/ws/qcli"];
 
     private static readonly string[] PublicGet =
@@ -68,6 +71,9 @@ public static class CliRoutePolicy
         if (HttpMethodsEquals(method, "OPTIONS")) return new(true, true, null, false);
 
         if (path is "/api/v1/qcli/execute" or "/api/v1/qcli/execute/stream") return new(true, false, CommandsExecute, false);
+        // MCP: POST needs commands:execute (tools are further filtered per command); GET/DELETE only answer 405.
+        if (path == McpPath)
+            return HttpMethodsEquals(method, "POST") ? new(true, false, CommandsExecute, false) : new(true, true, null, false);
         if (IsUnder(path, "/api/qcli/fs"))
         {
             var action = path.Length > "/api/qcli/fs/".Length ? path["/api/qcli/fs/".Length..].Split('/')[0] : string.Empty;

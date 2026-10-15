@@ -89,3 +89,22 @@ public interface IGroupStore
 
     Task DeleteGroupAsync(string name);
 }
+
+/// <summary>
+/// Storage interface for API tokens. Tokens are looked up by the SHA-256 hash (lower-case hex)
+/// of the raw token; raw tokens are never passed to the store.
+/// </summary>
+public interface IApiTokenStore
+{
+    Task<ApiToken> CreateTokenAsync(ApiToken token);
+    Task<ApiToken?> GetTokenByHashAsync(string tokenHash);
+    Task<ApiToken?> GetTokenAsync(string id);
+
+    /// <summary>Every token, or only the tokens of <paramref name="userId"/>, oldest first.</summary>
+    Task<List<ApiToken>> GetTokensAsync(string? userId = null);
+    Task DeleteTokenAsync(string id);
+    Task DeleteUserTokensAsync(string userId);
+
+    /// <summary>Sets the token's last use to <paramref name="lastUsedAt"/> (epoch ms).</summary>
+    Task UpdateLastUsedAsync(string id, long lastUsedAt);
+}

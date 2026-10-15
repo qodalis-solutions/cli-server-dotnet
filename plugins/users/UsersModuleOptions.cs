@@ -35,6 +35,15 @@ public class UsersModuleOptions
     /// <summary>Custom group store instance. Prefer <see cref="SetGroupStore{T}"/>.</summary>
     public IGroupStore? GroupStore { get; set; }
 
+    /// <summary>Custom API token store instance. Prefer <see cref="SetApiTokenStore{T}"/>.</summary>
+    public IApiTokenStore? ApiTokenStore { get; set; }
+
+    /// <summary>
+    /// Allows API tokens that never expire (<c>expiresInDays: null</c>). Defaults to <c>false</c>
+    /// (tokens expire after 1-365 days, 90 by default).
+    /// </summary>
+    public bool AllowNonExpiringTokens { get; set; }
+
     /// <summary>Idle session timeout in milliseconds. Defaults to 30 minutes.</summary>
     public long? SessionTimeoutMs { get; set; }
 
@@ -155,6 +164,12 @@ public class UsersModuleOptions
 
     /// <summary>Registers a factory for the group store.</summary>
     public UsersModuleOptions SetGroupStore(Func<IServiceProvider, IGroupStore> factory) => SetStore(factory);
+
+    /// <summary>Registers <typeparamref name="T"/> (constructed via DI, singleton) as the API token store.</summary>
+    public UsersModuleOptions SetApiTokenStore<T>() where T : class, IApiTokenStore => SetStore<IApiTokenStore, T>();
+
+    /// <summary>Registers a factory for the API token store.</summary>
+    public UsersModuleOptions SetApiTokenStore(Func<IServiceProvider, IApiTokenStore> factory) => SetStore(factory);
 
     private UsersModuleOptions SetStore<TService, TImpl>() where TService : class where TImpl : class, TService
     {

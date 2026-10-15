@@ -1,8 +1,10 @@
+using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Regex = System.Text.RegularExpressions.Regex;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,9 +19,9 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// Authentication core: password hashing (bounded concurrency), login/logout, atomic lockout,
 /// request authentication (hashed tokens, idle + absolute expiry, live user resolution),
 /// WebSocket tickets, effective permissions, session revocation (user-scoped
-/// <c>session-kicked</c>) and audit logging.
+/// <c>session-kicked</c>), API tokens and audit logging.
 /// </summary>
-public class AuthService
+public partial class AuthService
 {
     private readonly IUserStore _userStore;
     private readonly ISessionStore _sessionStore;
@@ -32,6 +34,8 @@ public class AuthService
     private readonly ILogger<AuthService> _logger;
     private readonly ICliShellSessions? _shells;
     private readonly ICliLogSocketManager? _logs;
+    private readonly IApiTokenStore _apiTokens;
+    private readonly SemaphoreSlim _tokenGate = new(1, 1);
     private readonly ConcurrentDictionary<string, LockoutState> _lockouts = new();
     private readonly ConcurrentDictionary<string, WsTicket> _tickets = new();
     private readonly ConditionalWeakTable<CliPrincipal, ExternalRequestSnapshot> _externalRequests = new();
@@ -77,7 +81,30 @@ public class AuthService
     }
 
     private sealed record WsTicket(string? SessionId, ExternalAuthResult? External, ExternalRequestSnapshot? ExternalRequest,
-        long ExpiresAt);
+        long ExpiresAt, string? ApiTokenId = null, string? UserId = null);
+
+    /// <summary>Prefix of API tokens (<c>qcli_pat_</c> + 32 random bytes, base64url without padding).</summary>
+    public const string ApiTokenPrefix = "qcli_pat_";
+
+    /// <summary>Maximum number of (non-expired) API tokens per user.</summary>
+    public const int MaxApiTokensPerUser = 20;
+
+    /// <summary>Default API token lifetime in days.</summary>
+    public const int DefaultApiTokenExpiryDays = 90;
+
+    /// <summary>Maximum API token lifetime in days.</summary>
+    public const int MaxApiTokenExpiryDays = 365;
+
+    /// <summary><c>lastUsedAt</c> is updated at most once per this interval.</summary>
+    public const long ApiTokenLastUsedIntervalMs = 60_000;
+
+    private const long DayMs = 24L * 60 * 60 * 1000;
+
+    public const string ApiTokensCannotCreateTokensMessage = "forbidden: API tokens cannot create tokens";
+    public const string ApiTokensCannotChangePasswordsMessage = "forbidden: API tokens cannot change passwords";
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9._ -]{1,64}$")]
+    private static partial Regex ApiTokenNameRegex();
 
     public AuthService(
         IUserStore userStore,
@@ -90,7 +117,8 @@ public class AuthService
         TimeProvider? timeProvider = null,
         ILogger<AuthService>? logger = null,
         ICliShellSessions? shellSessions = null,
-        ICliLogSocketManager? logSocketManager = null)
+        ICliLogSocketManager? logSocketManager = null,
+        IApiTokenStore? apiTokenStore = null)
     {
         _userStore = userStore;
         _sessionStore = sessionStore;
@@ -103,6 +131,7 @@ public class AuthService
         _logger = logger ?? NullLogger<AuthService>.Instance;
         _shells = shellSessions;
         _logs = logSocketManager;
+        _apiTokens = apiTokenStore ?? new InMemoryApiTokenStore();
         _hashGate = new SemaphoreSlim(Math.Max(1, _options.PasswordHashConcurrency));
     }
 
@@ -415,6 +444,8 @@ public class AuthService
     /// </summary>
     public async Task<UsersAuthContext> AuthenticateTokenAsync(string token)
     {
+        if (IsApiToken(token)) return await AuthenticateApiTokenAsync(token);
+
         var session = await _sessionStore.GetSessionAsync(HashToken(token))
             ?? throw UsersApiException.Unauthorized("invalid or expired token");
         return await AuthenticateSessionAsync(session);
@@ -534,7 +565,7 @@ public class AuthService
 
         var ticket = GenerateToken();
         _tickets[HashToken(ticket)] = new WsTicket(auth.Session?.Id, auth.ExternalResult, auth.ExternalRequest,
-            now + TicketLifetimeSeconds * 1000L);
+            now + TicketLifetimeSeconds * 1000L, auth.ApiToken?.Id, auth.User.Id);
         return new WsTicketResponse { Ticket = ticket, ExpiresIn = TicketLifetimeSeconds };
     }
 
@@ -551,6 +582,10 @@ public class AuthService
         // External mode: the ticket keeps the request the adapter accepted when it was issued.
         if (entry.External != null)
             return await AuthenticateExternalAsync(entry.External, entry.ExternalRequest);
+
+        // API token identity: re-validated against the token store (revoked/expired → no socket).
+        if (entry.ApiTokenId != null)
+            return await RevalidateApiTokenAsync(entry.ApiTokenId, entry.UserId);
 
         if (entry.SessionId == null) return null;
         var session = await _sessionStore.GetSessionByIdAsync(entry.SessionId);
@@ -646,6 +681,8 @@ public class AuthService
     /// </summary>
     public async Task<bool> IsSocketSessionActiveAsync(CliPrincipal principal)
     {
+        if (principal.TokenId != null)
+            return await RevalidateApiTokenAsync(principal.TokenId, principal.UserId) != null;
         if (principal.SessionId == null) return false;
         if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal)) return true;
 
@@ -753,6 +790,214 @@ public class AuthService
         await _sessionStore.DeleteIdleSessionsAsync(Now() - SessionTimeoutMs);
         await CloseEndedSessionSocketsAsync();
     }
+
+
+    // -------------------------------------------------------------------------
+    // API tokens
+    // -------------------------------------------------------------------------
+
+    /// <summary>True when <paramref name="token"/> has the API token format (<c>qcli_pat_…</c>).</summary>
+    public static bool IsApiToken(string? token) =>
+        token != null && token.StartsWith(ApiTokenPrefix, StringComparison.Ordinal);
+
+    /// <summary>Generates a new raw API token: <c>qcli_pat_</c> + 32 random bytes, base64url without padding.</summary>
+    public static string GenerateApiToken() =>
+        ApiTokenPrefix + Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>
+    /// Effective permissions of a token: the user's live permissions, narrowed to the scope entries
+    /// the user still holds when the token is scoped.
+    /// </summary>
+    public static List<string> ScopePermissions(List<string> userPermissions, List<string>? scope) =>
+        scope == null
+            ? userPermissions
+            : scope.Where(p => PermissionMatcher.HasPermission(userPermissions, p)).ToList();
+
+    /// <summary>Validates a stored token: not expired, live user present and enabled (401 otherwise).</summary>
+    private async Task<UsersAuthContext> ValidateApiTokenAsync(ApiToken token)
+    {
+        var now = Now();
+        if (token.IsExpired(now))
+            throw UsersApiException.Unauthorized("invalid or expired token");
+
+        var user = await _userStore.GetUserAsync(token.UserId);
+        if (user == null || user.Id != token.UserId || user.Disabled)
+            throw UsersApiException.Unauthorized("invalid or expired token");
+
+        return new UsersAuthContext
+        {
+            User = user,
+            Permissions = ScopePermissions(await GetEffectivePermissionsAsync(user), token.Permissions),
+            Session = null,
+            SessionId = $"api-token-{token.Id}",
+            ApiToken = token,
+            LoginTime = token.CreatedAt,
+            LastActivity = now,
+            ExpiresAt = token.ExpiresAt ?? 0,
+        };
+    }
+
+    /// <summary>Authenticates a raw API token (looked up by its hash) and records its use. Throws 401 on failure.</summary>
+    public async Task<UsersAuthContext> AuthenticateApiTokenAsync(string token)
+    {
+        var stored = await _apiTokens.GetTokenByHashAsync(HashToken(token))
+            ?? throw UsersApiException.Unauthorized("invalid or expired token");
+        var ctx = await ValidateApiTokenAsync(stored);
+
+        var now = Now();
+        if (stored.LastUsedAt == null || now - stored.LastUsedAt.Value >= ApiTokenLastUsedIntervalMs)
+        {
+            await _apiTokens.UpdateLastUsedAsync(stored.Id, now);
+            stored.LastUsedAt = now;
+        }
+        return ctx;
+    }
+
+    /// <summary>
+    /// Re-validates a token identity (long-lived sockets): null when the token was revoked or expired,
+    /// or its user is missing or disabled.
+    /// </summary>
+    public async Task<UsersAuthContext?> RevalidateApiTokenAsync(string tokenId, string? userId = null)
+    {
+        var token = await _apiTokens.GetTokenAsync(tokenId);
+        if (token == null || (userId != null && token.UserId != userId)) return null;
+        try
+        {
+            return await ValidateApiTokenAsync(token);
+        }
+        catch (UsersApiException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Tokens of <paramref name="userId"/>, or every token when null, oldest first.</summary>
+    public async Task<List<ApiToken>> ListApiTokensAsync(string? userId) =>
+        (await _apiTokens.GetTokensAsync(userId)).OrderBy(t => t.CreatedAt).ToList();
+
+    /// <summary>API view of a token (never the token or its hash).</summary>
+    public static ApiTokenView ToApiTokenView(ApiToken token, string userName) => new()
+    {
+        Id = token.Id,
+        Name = token.Name,
+        UserId = token.UserId,
+        UserName = userName,
+        CreatedAt = token.CreatedAt,
+        ExpiresAt = token.ExpiresAt,
+        LastUsedAt = token.LastUsedAt,
+        Permissions = token.Permissions == null ? null : [.. token.Permissions],
+    };
+
+    /// <summary>
+    /// Creates an API token for the caller (session only: 403 when authenticated by an API token).
+    /// Validates the name (400; duplicate 409), the expiry (1-365 days, default 90; <c>null</c> only with
+    /// <see cref="UsersModuleOptions.AllowNonExpiringTokens"/>), the 20-token limit (400) and the scope
+    /// (each entry valid, 400, and covered by the caller's permissions, 403). Audits <c>token_created</c>.
+    /// </summary>
+    public async Task<(string Token, ApiToken ApiToken)> CreateApiTokenAsync(UsersAuthContext caller, CreateApiTokenRequest request)
+    {
+        if (caller.ApiToken != null)
+            throw UsersApiException.Forbidden(ApiTokensCannotCreateTokensMessage);
+
+        var name = request.Name;
+        if (name == null || !ApiTokenNameRegex().IsMatch(name))
+            throw UsersApiException.BadRequest("name must be 1-64 characters of [A-Za-z0-9._ -]");
+
+        var now = Now();
+        long? expiresAt;
+        switch (request.ExpiresInDays.ValueKind)
+        {
+            case JsonValueKind.Undefined:
+                expiresAt = now + DefaultApiTokenExpiryDays * DayMs;
+                break;
+            case JsonValueKind.Null:
+                if (!_options.AllowNonExpiringTokens)
+                    throw UsersApiException.BadRequest("non-expiring tokens are not allowed");
+                expiresAt = null;
+                break;
+            default:
+                if (request.ExpiresInDays.ValueKind != JsonValueKind.Number ||
+                    !request.ExpiresInDays.TryGetInt32(out var days) || days < 1 || days > MaxApiTokenExpiryDays)
+                    throw UsersApiException.BadRequest($"expiresInDays must be an integer between 1 and {MaxApiTokenExpiryDays}");
+                expiresAt = now + days * DayMs;
+                break;
+        }
+
+        List<string>? permissions = null;
+        if (request.Permissions != null)
+        {
+            permissions = UsersValidation.Permissions(request.Permissions)!;
+            foreach (var p in permissions)
+            {
+                if (!PermissionMatcher.HasPermission(caller.Permissions, p))
+                    throw UsersApiException.Forbidden($"forbidden: cannot grant {p}");
+            }
+        }
+
+        await _tokenGate.WaitAsync();
+        try
+        {
+            var existing = await _apiTokens.GetTokensAsync(caller.User.Id);
+            if (existing.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw UsersApiException.Conflict($"token '{name}' already exists");
+            if (existing.Count(t => !t.IsExpired(now)) >= MaxApiTokensPerUser)
+                throw UsersApiException.BadRequest($"a user may have at most {MaxApiTokensPerUser} tokens");
+
+            var token = GenerateApiToken();
+            var apiToken = await _apiTokens.CreateTokenAsync(new ApiToken
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserId = caller.User.Id,
+                Name = name,
+                TokenHash = HashToken(token),
+                CreatedAt = now,
+                ExpiresAt = expiresAt,
+                Permissions = permissions,
+            });
+
+            await AuditAsync(AuditEvents.TokenCreated, caller.User.Name, $"{apiToken.Name} ({apiToken.Id})",
+                caller.User.Name, new AuditMetadata { TokenId = apiToken.Id, TokenName = apiToken.Name },
+                caller.User.Id, caller.User.Id);
+            return (token, apiToken);
+        }
+        finally
+        {
+            _tokenGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Revokes a token: its owner, or a caller with <paramref name="canRevokeAny"/> (<c>tokens:revoke</c>).
+    /// Unknown tokens and other users' tokens without the permission → 404. Audits <c>token_revoked</c>
+    /// and closes the sockets opened with the token (4401).
+    /// </summary>
+    public async Task RevokeApiTokenAsync(UsersAuthContext caller, string id, bool canRevokeAny)
+    {
+        var token = await _apiTokens.GetTokenAsync(id);
+        if (token == null || (token.UserId != caller.User.Id && !canRevokeAny))
+            throw UsersApiException.NotFound("token not found");
+
+        await _apiTokens.DeleteTokenAsync(token.Id);
+        var ownerName = token.UserId == caller.User.Id
+            ? caller.User.Name
+            : (await _userStore.GetUserAsync(token.UserId))?.Name ?? token.UserId;
+        await AuditAsync(AuditEvents.TokenRevoked, ownerName, $"{token.Name} ({token.Id})", caller.User.Name,
+            new AuditMetadata { TokenId = token.Id, TokenName = token.Name }, token.UserId, caller.User.Id);
+
+        NotifyApiTokensChanged();
+        await CloseEndedSessionSocketsAsync();
+    }
+
+    /// <summary>Deletes every token of a user (user deletion) and closes the sockets opened with them.</summary>
+    public async Task DeleteUserApiTokensAsync(string userId)
+    {
+        await _apiTokens.DeleteUserTokensAsync(userId);
+        NotifyApiTokensChanged();
+        await CloseEndedSessionSocketsAsync();
+    }
+
+    /// <summary>Open shells re-validate their identity (token shells close when the token ended).</summary>
+    private void NotifyApiTokensChanged() => _shells?.RequestRecheck();
 
     // -------------------------------------------------------------------------
     // Audit

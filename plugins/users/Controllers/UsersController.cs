@@ -57,13 +57,15 @@ public class UsersController : UsersControllerBase
         return NoContent();
     }
 
-    /// <summary>Change a password. Self (with current password) or <c>users:update</c>.</summary>
+    /// <summary>Change a password. Self (with current password) or <c>users:update</c>; never with an API token (403).</summary>
     [HttpPut("{idOrName}/password")]
     [UsersCredentialEndpoint]
     [UsersAllowPasswordChangeRequired]
     public async Task<IActionResult> ChangePassword([FromRoute] string idOrName, [FromBody] PasswordChangeRequest request)
     {
         var caller = Auth;
+        if (caller.ApiToken != null)
+            throw UsersApiException.Forbidden(AuthService.ApiTokensCannotChangePasswordsMessage);
         var target = await _users.FindUserAsync(idOrName);
         if (target != null && caller.IsSelf(target))
             _limiter.Acquire(HttpContext);

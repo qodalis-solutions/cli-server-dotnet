@@ -77,6 +77,16 @@ public class AuditMetadata
     [JsonPropertyName("reason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Reason { get; set; }
+
+    /// <summary>Token events: id of the API token.</summary>
+    [JsonPropertyName("tokenId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TokenId { get; set; }
+
+    /// <summary>Token events: name of the API token.</summary>
+    [JsonPropertyName("tokenName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TokenName { get; set; }
 }
 
 /// <summary>
@@ -102,4 +112,6 @@ public static class AuditEvents
     public const string AuditCleared = "audit_cleared";
     public const string ShellOpened = "shell_opened";
     public const string ShellClosed = "shell_closed";
+    public const string TokenCreated = "token_created";
+    public const string TokenRevoked = "token_revoked";
 }

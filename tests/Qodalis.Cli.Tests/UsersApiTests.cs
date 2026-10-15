@@ -95,7 +95,7 @@ public class UsersApiTests
     {
         var spy = new SpyUserStore();
         var auth = new AuthService(spy, _sessionStore, _credentialStore, _auditStore, _groupStore, timeProvider: _time);
-        var user = await spy.CreateUserAsync(new CreateUserDto { Name = "spy", Email = "s@s.s" });
+        var user = await spy.CreateUserAsync(new CreateUserDto { Name = "spy", Email = "s@s.so" });
         await auth.SetPasswordAsync(user.Id, "pass");
 
         await auth.LoginAsync("spy", "pass");
@@ -109,7 +109,7 @@ public class UsersApiTests
     {
         var options = new UsersModuleOptions { MaxLoginAttempts = 2, LockoutMs = 1000 };
         var auth = new AuthService(_userStore, _sessionStore, _credentialStore, _auditStore, _groupStore, options, null, _time);
-        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "lk", Email = "lk@x" });
+        var user = await _userStore.CreateUserAsync(new CreateUserDto { Name = "lk", Email = "lk@x.io" });
         await auth.SetPasswordAsync(user.Id, "pass");
 
         await Assert.ThrowsAsync<UsersApiException>(() => auth.LoginAsync("lk", "bad"));
@@ -337,8 +337,8 @@ public class UsersApiTests
         var reloaded = await _userStore.GetUserAsync("ALICE");
         Assert.Equal(["users"], reloaded!.Groups);
 
-        var updated = await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Email = "x@y.z", Disabled = true });
-        Assert.Equal("x@y.z", updated.Email);
+        var updated = await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Email = "x@y.zo", Disabled = true });
+        Assert.Equal("x@y.zo", updated.Email);
         Assert.True(updated.Disabled);
 
         await _userStore.DeleteUserAsync(user.Id);

@@ -268,6 +268,10 @@ builder.Services
 
         // Demo credentials root/root (a warning is logged). Without DefaultAdminPassword a random
         // password is generated, logged once, and must be changed on first login.
+        // MCP endpoint (POST /api/qcli/mcp): AI clients use the commands, files, data explorer and jobs
+        // as tools with the caller's permissions (users plugin sessions or API tokens).
+        cli.AddMcp(o => o.Instructions = "Tools of the Qodalis CLI demo server: commands, files, data explorer and jobs.");
+
         cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
     })

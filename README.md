@@ -842,7 +842,241 @@ builder.Services.AddControllers().AddCli(cli =>
 app.UseQodalisUsers();
 ```
 
-See [`plugins/users/README.md`](plugins/users/README.md) for options, endpoints, custom storage and external auth adapters.
+See [`plugins/users/README.md`](plugins/users/README.md) for options, endpoints, API tokens, custom storage and external auth adapters.
+
+## MCP endpoint
+
+The server can expose the whole system to AI clients (Claude Code, Claude Desktop, Cursor, …) through the
+[Model Context Protocol](https://modelcontextprotocol.io): CLI commands, the filesystem API, the data explorer,
+jobs and tools contributed by plugins become MCP tools, each with the same permissions as a CLI user.
+It works with or without the users plugin (which only supplies identities and API tokens).
+
+### Enabling
+
+MCP is off by default. Enable it on the CLI builder:
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.AddMcp(o =>
+    {
+        o.Tools = ["weather_*", "fs_*", "server_info"]; // optional allow-list (trailing * = prefix)
+        o.Exclude = ["fs_delete"];                       // optional deny-list, applied after Tools
+        o.Instructions = "Tools of the ACME ops server."; // optional, returned by initialize
+        // o.Token = "...";                              // only WITHOUT an auth provider (see below)
+    });
+});
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `Enabled` | `true` | Turn the endpoint off without removing the configuration |
+| `Tools` | all | Allow-list of tool names; a trailing `*` matches a prefix |
+| `Exclude` | none | Deny-list, same syntax, applied after `Tools` |
+| `Token` | none | Static bearer token required when the server has **no** authentication provider |
+| `Instructions` | none | Returned by `initialize` |
+
+### Route and transport
+
+`POST /api/qcli/mcp` — MCP *Streamable HTTP*, **stateless** (no `Mcp-Session-Id`) with **JSON responses only**
+(no SSE stream). Each request carries one JSON-RPC 2.0 message: `initialize`, `ping`, `tools/list`,
+`tools/call`; notifications get `202` with an empty body. JSON-RPC errors (`-32700` parse error, `-32600` invalid
+request, `-32601` unknown method, `-32602` invalid params, unknown tool or invalid arguments) use HTTP 200.
+`GET` and `DELETE` answer `405` (`Allow: POST`). When an `Origin` header is present it must be listed in
+`cli.SetAllowedOrigins(...)` or be same-origin, otherwise `403` (DNS-rebinding protection). Both checks run
+before authentication. No particular `Accept` header is required; responses are `application/json`. A JSON
+array (batch) is an invalid request (`-32600`). `serverInfo.version` is the server package version.
+Supported protocol versions: `2025-11-25`, `2025-06-18`, `2025-03-26` (the client's version is echoed when
+supported, otherwise the newest is returned).
+
+### Authentication
+
+- **With the users plugin** (`ProtectServer`): the request is authenticated like every CLI route — a session
+  token or an API token (`Authorization: Bearer qcli_pat_…`, see the users plugin) — and needs
+  `commands:execute`. `401`/`403` are plain HTTP errors with an `{ "error": … }` body. `tools/list` only shows
+  the tools the caller may call; calling any other tool is `Unknown tool`.
+- **Without an authentication provider:** when `Token` is set, `Authorization: Bearer <Token>` is required
+  (constant-time comparison, else `401`); when it is not set the endpoint is as open as `/execute`.
+
+### Tools
+
+Tools are collected on every request, so registrations, enabled features and the caller's permissions are
+always current.
+
+| Provider | Tools | Permission | Annotations |
+|---|---|---|---|
+| server | `server_info` (version, capabilities, enabled features, command names) | — | read-only |
+| commands | one tool per command (below) | `commands:execute` + the processors' `RequiredPermissions` | — |
+| filesystem (`cli.AddFileSystem(...)`) | `fs_list {path}`, `fs_stat {path}`, `fs_read {path, maxBytes?=262144}` | `files:read` | read-only |
+| | `fs_write {path, content}`, `fs_mkdir {path}` | `files:write` | — |
+| | `fs_delete {path, recursive?=false}` | `files:write` | destructive |
+| data explorer (a provider registered) | `data_sources`, `data_schema {source}` | `data:query` | read-only |
+| | `data_query {source, query, parameters?}` | `data:query` | — |
+| jobs (`Qodalis.Cli.Plugin.Jobs`) | `jobs_list`, `jobs_get {id}`, `jobs_history {id, limit?=20}` | `jobs:read` | read-only |
+| | `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel` `{id}` | `jobs:manage` | `jobs_stop`/`jobs_cancel` destructive |
+
+Feature tools use the same services as the HTTP routes (the file storage provider and its allowed paths, the
+data explorer executor with its timeouts and row limits, the job scheduler). Errors become `isError: true`
+results. `fs_read` returns UTF-8 text (longer files end with `[truncated: N of M bytes]`; a binary file is the
+error `binary file, N bytes`). Job tools accept a job id or a unique job name.
+
+**Command tools.** Every root processor and sub-processor becomes a tool when it has no sub-processors, declares
+parameters, or takes a value (`ValueRequired = true`, or `AcceptsRawInput = true` for an optional positional input). The name is the command path joined with `_`
+(`weather`, `weather_current`), lower-cased, other characters than `[a-z0-9_-]` replaced by `-`, at most 64
+characters (on a collision the first one wins and a warning is logged). The description is the processor's
+(fallback `Run '<command path>'`). The input schema has one property per parameter (`string`, `number`,
+`boolean`, `array` of strings; other types → `string`; with `description`, `default` and `required`) plus `value`
+(the positional input; required when `ValueRequired`, optional with `AcceptsRawInput`). A call builds the same command the CLI would send and runs
+it through the same executor as `/execute`; the outputs are rendered as text (tables as `A | B` rows, lists one
+item per line, JSON pretty-printed, key-values as `key: value`), `isError` is `exitCode != 0`, and a single JSON
+object output is also returned as `structuredContent`.
+
+### Adding tools from a plugin
+
+Implement `IMcpToolProvider` and register it with `services.AddMcpToolProvider<T>()`:
+
+```csharp
+using System.Text.Json.Nodes;
+using Qodalis.Cli.Mcp;
+
+public sealed class InventoryMcpTools(IInventory inventory) : IMcpToolProvider
+{
+    public string? Feature => "inventory"; // reported by server_info
+
+    public Task<IReadOnlyList<McpToolDefinition>> GetToolsAsync(McpToolContext context, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<McpToolDefinition>>(
+        [
+            new McpToolDefinition
+            {
+                Name = "inventory_count",
+                Description = "Count the items of a SKU",
+                InputSchema = McpSchema.Object(new JsonObject { ["sku"] = McpSchema.Property("string", "The SKU") }, "sku"),
+                RequiredPermissions = ["inventory:read"],      // checked for list and call when the server is protected
+                Annotations = McpToolAnnotations.ReadOnly,
+                CallAsync = async (args, ctx, token) =>
+                    McpToolResult.Ok($"{await inventory.CountAsync(McpSchema.GetString(args, "sku")!, token)} items"),
+            },
+        ]);
+}
+
+cli.Services.AddMcpToolProvider<InventoryMcpTools>();
+```
+
+Arguments are validated against `InputSchema` before `CallAsync` runs; exceptions become `isError: true` results.
+On a name collision built-in feature tools win, then plugin providers in registration order, then command tools.
+
+### Using the MCP endpoint from an MCP client
+
+These steps connect [Claude Code](https://docs.claude.com/en/docs/claude-code) to a server running on
+`http://localhost:8046` (the demo server: `cd demo && dotnet run`; it enables MCP and seeds `root` / `root`).
+
+#### 1. Enable MCP on the server
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    // ... processors, cli.AddFileSystem(...), data explorer, jobs ...
+    cli.AddMcp();                                   // POST /api/qcli/mcp
+    cli.AddUsers(o => o.DefaultAdminPassword = "root"); // optional: users, sessions, API tokens
+});
+
+var app = builder.Build();
+app.UseWebSockets();
+app.UseQodalisUsers();   // with the users plugin
+app.MapControllers();
+app.UseCli();
+```
+
+#### 2. Get a credential
+
+**With the users plugin** sign in, then create an API token with the session token (the API token is shown only
+once; it expires after 90 days unless `expiresInDays` says otherwise):
+
+```bash
+SESSION=$(curl -s -X POST http://localhost:8046/api/v1/qcli/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"username":"root","password":"root"}' | jq -r .token)
+
+TOKEN=$(curl -s -X POST http://localhost:8046/api/v1/qcli/tokens \
+  -H "Authorization: Bearer $SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"claude-code","expiresInDays":90}' | jq -r .token)
+
+echo "$TOKEN"   # qcli_pat_...
+```
+
+Add `"permissions": ["commands:execute", "files:read"]` to the token body to limit what the token may do.
+In the browser CLI (`@qodalis/cli-users` in server mode) the same is `token create claude-code`.
+
+**Without the users plugin** choose the token yourself and configure it on the server; use it as `$TOKEN` below
+(without `Token` the endpoint is open and needs no header):
+
+```csharp
+cli.AddMcp(o => o.Token = builder.Configuration["Mcp:Token"]);
+```
+
+#### 3. Connect Claude Code
+
+**(a) Directly over HTTP with the API token:**
+
+```bash
+claude mcp add --transport http qcli http://localhost:8046/api/qcli/mcp --header "Authorization: Bearer <token>"
+```
+
+**(b) Through the [`@qodalis/mcp-cli`](https://github.com/qodalis-solutions/mcp-cli) bridge**, a local MCP server
+configured with environment variables:
+
+```bash
+claude mcp add qcli -e QCLI_URL=http://localhost:8046 -e QCLI_TOKEN=<token> -- npx -y @qodalis/mcp-cli
+```
+
+Use `QCLI_USER` / `QCLI_PASSWORD` instead of `QCLI_TOKEN` to sign in with a user, and `QCLI_READ_ONLY=true` to
+expose only read-only tools.
+
+Then run `claude mcp list` (or `/mcp` inside Claude Code) to check that `qcli` is connected, and ask Claude
+to use it ("list the qcli tools", "run echo hello through qcli").
+
+#### 4. Check the endpoint with curl
+
+Each request is one JSON-RPC message; responses are plain JSON:
+
+```bash
+curl -s -X POST http://localhost:8046/api/qcli/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+
+curl -s -X POST http://localhost:8046/api/qcli/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq -r '.result.tools[].name'
+
+curl -s -X POST http://localhost:8046/api/qcli/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"value":"hello from MCP"}}}'
+```
+
+Expected: `initialize` returns `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18",...,"serverInfo":{"name":"qodalis-cli-server",...}}}`,
+`tools/list` prints the tool names (`server_info`, `fs_list`, …, `echo`, `math_add`, …) and `tools/call` returns
+`{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"hello from MCP"}],"isError":false}}`.
+
+#### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `401 {"error":"unauthorized"}` / `invalid or expired token` | Missing `Authorization` header, or the token is unknown, expired or revoked, or its user is disabled. Create a new token (`GET /api/v1/qcli/tokens` lists yours). Without the users plugin: the header must match `Token`. |
+| `403 {"error":"forbidden: origin not allowed"}` | The request has an `Origin` header that is neither same-origin nor in `cli.SetAllowedOrigins(...)`. Command-line clients send no `Origin`; browsers do. |
+| `403 {"error":"permission denied: commands:execute"}` | The user (or the token's scope) lacks `commands:execute`, which the endpoint needs. |
+| `403 {"error":"password change required"}` | The user must change the password first (sign in and `PUT /users/{name}/password`). |
+| A tool is missing from `tools/list` | The caller lacks its permission (e.g. `files:read` for `fs_read`, `data:query`, `jobs:read`/`jobs:manage`, or a processor's `RequiredPermissions`; a token scope narrows them further), the feature is not enabled (`AddFileSystem`, a data source, the jobs plugin), or the `Tools` / `Exclude` lists filter it out. Calling it gives `Unknown tool: <name>`. |
+| `TOKEN` is `null` | The token request failed: `409` when a token with that name already exists (use another name, or revoke it with `DELETE /api/v1/qcli/tokens/{id}`), `400` at 20 tokens, or the sign-in failed. Run the `curl` without `\| jq -r .token` to see the error. |
+| `405` | Only `POST` is supported (no SSE stream, no sessions). |
+| `404` | MCP is not enabled (`cli.AddMcp()`). |
+| `claude mcp list` shows `qcli` as failed | Check the URL and run the curl `initialize` above with the same token. |
 
 ## Docker
 

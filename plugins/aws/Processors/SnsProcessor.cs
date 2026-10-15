@@ -183,6 +183,7 @@ internal class SnsSubscriptionsProcessor : CliCommandProcessor, ICliCommandProce
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "subscriptions";
+    public override bool? AcceptsRawInput { get; set; } = true;
 
     /// <inheritdoc />
     public override string Description { get; set; } = "List SNS subscriptions (optionally filtered by topic ARN)";

@@ -6,6 +6,7 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Logging;
+using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -63,6 +64,7 @@ public static class MvcBuilderExtensions
 
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<ICliServerInfoService, CliServerInfoService>();
+        builder.Services.AddSingleton<CliMcpServer>();
         builder.Services.AddSingleton<ICliEventSocketManager, CliEventSocketManager>();
         builder.Services.AddSingleton<ICliLogSocketManager, CliLogSocketManager>();
         builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();

@@ -24,6 +24,9 @@ public abstract class CliCommandProcessor : ICliCommandProcessor
     public virtual bool? ValueRequired { get; set; }
 
     /// <inheritdoc />
+    public virtual bool? AcceptsRawInput { get; set; }
+
+    /// <inheritdoc />
     public virtual string Version { get; set; } = "1.0.0";
 
     /// <inheritdoc />
