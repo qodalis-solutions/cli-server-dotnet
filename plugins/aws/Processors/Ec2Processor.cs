@@ -1,6 +1,7 @@
 using Amazon.EC2;
 using Amazon.EC2.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -142,7 +143,7 @@ internal class Ec2DescribeProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var instanceId = command.Value?.Trim();
+        var instanceId = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(instanceId))
         {
@@ -248,7 +249,7 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var instanceId = command.Value?.Trim();
+        var instanceId = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(instanceId))
         {
@@ -334,7 +335,7 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var instanceId = command.Value?.Trim();
+        var instanceId = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(instanceId))
         {
@@ -426,7 +427,7 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var instanceId = command.Value?.Trim();
+        var instanceId = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(instanceId))
         {

@@ -1,6 +1,7 @@
 using Amazon.ECS;
 using Amazon.ECS.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 using Task = System.Threading.Tasks.Task;
@@ -143,7 +144,7 @@ internal class EcsServicesProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var cluster = command.Value?.Trim();
+        var cluster = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(cluster))
         {
@@ -249,7 +250,7 @@ internal class EcsTasksProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var cluster = command.Value?.Trim();
+        var cluster = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(cluster))
         {

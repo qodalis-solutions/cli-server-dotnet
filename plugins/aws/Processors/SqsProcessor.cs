@@ -1,6 +1,7 @@
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -134,7 +135,7 @@ internal class SqsSendProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var queueUrl = command.Value?.Trim();
+        var queueUrl = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(queueUrl))
         {
@@ -231,7 +232,7 @@ internal class SqsReceiveProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var queueUrl = command.Value?.Trim();
+        var queueUrl = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(queueUrl))
         {
@@ -337,7 +338,7 @@ internal class SqsPurgeProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var queueUrl = command.Value?.Trim();
+        var queueUrl = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(queueUrl))
         {

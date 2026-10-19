@@ -1324,3 +1324,31 @@ public class McpProviderPermissionTests : IAsyncLifetime
         Assert.Equal(200, (int)res.StatusCode);
     }
 }
+
+public class McpBuildCommandTests
+{
+    private static CliMcpTool Tool(params string[] path) => new("t", path, new McpEchoProcessor(), []);
+
+    [Theory]
+    [InlineData("hello", "echo hello")]
+    [InlineData("hello world", "echo \"hello world\"")]
+    [InlineData("say \"hi\"", "echo 'say \"hi\"'")]
+    [InlineData("it's \"x\"", "echo \"it's \\\"x\\\"\"")]
+    [InlineData("ünï", "echo ünï")]
+    public void RawCommand_IsParseableByTheBrowserRules(string value, string expected)
+    {
+        var command = CliMcpServer.BuildCommand(Tool("echo"), new System.Text.Json.Nodes.JsonObject { ["value"] = value });
+        Assert.Equal(expected, command.RawCommand);
+        Assert.Equal([value], command.Positionals);
+        Assert.Equal(value, command.Value);
+        Assert.Equal([value], Qodalis.Cli.Abstractions.Helpers.CliValueHelpers.SplitShellWords(command.RawCommand).Skip(1));
+    }
+
+    [Fact]
+    public void Positionals_EmptyWithoutValue_AndArgsQuoted()
+    {
+        var command = CliMcpServer.BuildCommand(Tool("echo"), new System.Text.Json.Nodes.JsonObject { ["text"] = "it's" });
+        Assert.Equal("echo --text=\"it's\"", command.RawCommand);
+        Assert.Empty(command.Positionals!);
+    }
+}
