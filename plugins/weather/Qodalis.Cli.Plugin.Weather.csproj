@@ -22,6 +22,9 @@
     <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
   </ItemGroup>
 </Project>

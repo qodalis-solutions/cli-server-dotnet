@@ -1,6 +1,7 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -87,7 +88,7 @@ internal class S3LsProcessor : CliCommandProcessor, ICliCommandProcessor
         var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
         var client = _credentialManager.GetClient<AmazonS3Client>(regionOverride, profileOverride);
 
-        var value = command.Value?.Trim();
+        var value = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(value))
         {
@@ -226,7 +227,7 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var source = command.Value?.Trim();
+        var source = CliValueHelpers.GetPositionalText(command);
         var dest = command.Args.TryGetValue("dest", out var d) ? d.ToString() : null;
 
         if (string.IsNullOrEmpty(source))
@@ -339,7 +340,7 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var value = command.Value?.Trim();
+        var value = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(value))
         {
@@ -434,7 +435,7 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var bucketName = command.Value?.Trim();
+        var bucketName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(bucketName))
         {
@@ -516,7 +517,7 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var bucketName = command.Value?.Trim();
+        var bucketName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(bucketName))
         {
@@ -606,7 +607,7 @@ internal class S3PresignProcessor : CliCommandProcessor, ICliCommandProcessor
     Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var value = command.Value?.Trim();
+        var value = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(value))
         {

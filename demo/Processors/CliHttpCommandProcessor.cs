@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Demo.Processors;
 
@@ -38,7 +39,7 @@ public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcess
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrWhiteSpace(url))
             return "Usage: http get <url>";
 
@@ -47,7 +48,7 @@ public class CliHttpGetProcessor : CliCommandProcessor, ICliStreamCommandProcess
 
     public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrEmpty(url))
         {
             await emit(new { type = "text", value = "Usage: http get <url>" });
@@ -83,7 +84,7 @@ public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProces
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrWhiteSpace(url))
             return "Usage: http post <url> --body '{\"key\":\"value\"}'";
 
@@ -93,7 +94,7 @@ public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProces
 
     public async Task<int> HandleStreamAsync(CliProcessCommand command, Func<object, Task> emit, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrEmpty(url))
         {
             await emit(new { type = "text", value = "Usage: http post <url> --body '{\"key\":\"value\"}'" });

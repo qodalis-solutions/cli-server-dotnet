@@ -15,6 +15,6 @@ public class CliEchoCommandProcessor : CliCommandProcessor
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
         // `echo "a" "b"` prints a b, as the browser's echo does
-        return Task.FromResult(CliValueHelpers.JoinShellWords(command.Value));
+        return Task.FromResult(CliValueHelpers.GetPositionalText(command));
     }
 }

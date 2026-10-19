@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -345,11 +346,7 @@ public sealed partial class CliMcpServer
         return McpToolResult.Ok(McpJson.Pretty(structured), structured);
     }
 
-    [GeneratedRegex(@"^[^\s""'=]+$")]
-    private static partial Regex PlainTokenRegex();
-
-    private static string Quote(string value) =>
-        PlainTokenRegex().IsMatch(value) ? value : JsonSerializer.Serialize(value);
+    private static string Quote(string value) => CliValueHelpers.QuoteShellWord(value);
 
     /// <summary>The command the CLI would send for a tool call (<c>value</c> → positional input when the tool takes one).</summary>
     public static CliProcessCommand BuildCommand(CliMcpTool tool, JsonObject args)
@@ -386,6 +383,7 @@ public sealed partial class CliMcpServer
             Command = tool.Path[0],
             ChainCommands = tool.Path.Skip(1).ToList(),
             RawCommand = string.Join(' ', parts),
+            Positionals = value != null ? [value] : [],
             Args = parameters.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value),
         };
         if (value != null) command.Value = value;

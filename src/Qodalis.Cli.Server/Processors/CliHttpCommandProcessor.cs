@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Server.Processors;
 
@@ -44,7 +45,7 @@ public class CliHttpGetProcessor : CliCommandProcessor
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrWhiteSpace(url))
             return "Usage: http get <url>";
 
@@ -80,7 +81,7 @@ public class CliHttpPostProcessor : CliCommandProcessor
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var url = command.Value;
+        var url = CliValueHelpers.GetPositionals(command).FirstOrDefault();
         if (string.IsNullOrWhiteSpace(url))
             return "Usage: http post <url> --body '{\"key\":\"value\"}'";
 

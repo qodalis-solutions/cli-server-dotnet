@@ -1,6 +1,7 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -126,7 +127,7 @@ internal class DynamoDbDescribeProcessor : CliCommandProcessor, ICliCommandProce
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var tableName = command.Value?.Trim();
+        var tableName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(tableName))
         {
@@ -234,7 +235,7 @@ internal class DynamoDbScanProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var tableName = command.Value?.Trim();
+        var tableName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(tableName))
         {
@@ -360,7 +361,7 @@ internal class DynamoDbQueryProcessor : CliCommandProcessor, ICliCommandProcesso
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var tableName = command.Value?.Trim();
+        var tableName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(tableName))
         {

@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Demo.Processors;
 
@@ -23,7 +24,7 @@ public class CliHelloCommandProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var name = command.Args.TryGetValue("name", out var n) ? n.ToString() : command.Value ?? "World";
+        var name = command.Args.TryGetValue("name", out var n) ? n.ToString() : CliValueHelpers.GetPositionalText(command) is { Length: > 0 } v ? v : "World";
         return Task.FromResult($"Hello, {name}!");
     }
 }

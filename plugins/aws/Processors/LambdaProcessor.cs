@@ -3,6 +3,7 @@ using Amazon.Lambda.Model;
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatchLogs.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -144,7 +145,7 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var functionName = command.Value?.Trim();
+        var functionName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(functionName))
         {
@@ -258,7 +259,7 @@ internal class LambdaLogsProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var functionName = command.Value?.Trim();
+        var functionName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(functionName))
         {
