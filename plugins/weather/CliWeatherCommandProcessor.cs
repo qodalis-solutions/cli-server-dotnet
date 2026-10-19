@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Plugin.Weather;
 
@@ -53,8 +54,9 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         if (command.Args.TryGetValue("location", out var loc))
             return loc.ToString()!;
 
-        if (!string.IsNullOrWhiteSpace(command.Value))
-            return command.Value;
+        var text = CliValueHelpers.GetPositionalText(command);
+        if (!string.IsNullOrWhiteSpace(text))
+            return text;
 
         return "London";
     }

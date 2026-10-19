@@ -3,6 +3,7 @@ using Amazon.CloudWatch.Model;
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatchLogs.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -152,7 +153,7 @@ internal class CloudWatchLogsProcessor : CliCommandProcessor, ICliCommandProcess
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var logGroupName = command.Value?.Trim();
+        var logGroupName = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(logGroupName))
         {
@@ -262,7 +263,7 @@ internal class CloudWatchMetricsProcessor : CliCommandProcessor, ICliCommandProc
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var ns = command.Value?.Trim();
+        var ns = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(ns))
         {

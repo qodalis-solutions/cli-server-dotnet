@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Demo.Processors;
 
@@ -28,7 +29,7 @@ public class CliBase64EncodeProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var text = command.Value;
+        var text = CliValueHelpers.GetPositionalText(command);
         if (string.IsNullOrWhiteSpace(text))
             return Task.FromResult("Usage: base64 encode <text>");
 
@@ -44,7 +45,7 @@ public class CliBase64DecodeProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var text = command.Value;
+        var text = CliValueHelpers.GetPositionalText(command);
         if (string.IsNullOrWhiteSpace(text))
             return Task.FromResult("Usage: base64 decode <base64string>");
 
