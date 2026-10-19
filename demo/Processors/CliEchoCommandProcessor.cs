@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Demo.Processors;
 
@@ -10,6 +11,7 @@ public class CliEchoCommandProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(command.Value ?? "");
+        // `echo "a" "b"` prints a b, as the browser's echo does
+        return Task.FromResult(CliValueHelpers.JoinShellWords(command.Value));
     }
 }
