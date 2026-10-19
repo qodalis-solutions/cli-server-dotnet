@@ -115,6 +115,16 @@ public class CliProcessCommand
     public string? Value { get; set; } = "";
 
     /// <summary>
+    /// Gets or sets the positional arguments after the command and sub-command words, split like a
+    /// shell (quotes removed, backslash escapes applied, flags excluded). Sent by newer browsers;
+    /// <c>null</c> when missing. Read it through
+    /// <see cref="Helpers.CliValueHelpers.GetPositionals(CliProcessCommand)"/>, which falls back to
+    /// splitting <see cref="Value"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("positionals")]
+    public List<string>? Positionals { get; set; }
+
+    /// <summary>
     /// Gets or sets the named arguments parsed from the command input.
     /// </summary>
     public Dictionary<string, object> Args { get; set; } = [];

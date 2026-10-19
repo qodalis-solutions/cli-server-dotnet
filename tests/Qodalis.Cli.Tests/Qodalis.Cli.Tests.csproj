@@ -26,6 +26,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
     <ProjectReference Include="..\..\src\Qodalis.Cli.Abstractions\Qodalis.Cli.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Qodalis.Cli.Server\Qodalis.Cli.Server.csproj" />
+    <ProjectReference Include="..\..\plugins\weather\Qodalis.Cli.Plugin.Weather.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem\Qodalis.Cli.Plugin.FileSystem.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-json\Qodalis.Cli.Plugin.FileSystem.Json.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-sqlite\Qodalis.Cli.Plugin.FileSystem.Sqlite.csproj" />

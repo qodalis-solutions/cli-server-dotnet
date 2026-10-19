@@ -1,9 +1,10 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Server.Processors;
 
 /// <summary>
-/// Command processor that echoes back the input text.
+/// Command processor that echoes back the input text, as a shell's echo prints it.
 /// </summary>
 public class CliEchoCommandProcessor : CliCommandProcessor
 {
@@ -13,6 +14,7 @@ public class CliEchoCommandProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(command.Value ?? "");
+        // `echo "a" "b"` prints a b, as the browser's echo does
+        return Task.FromResult(CliValueHelpers.GetPositionalText(command));
     }
 }

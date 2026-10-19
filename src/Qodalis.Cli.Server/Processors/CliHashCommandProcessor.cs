@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 
 namespace Qodalis.Cli.Server.Processors;
 
@@ -30,7 +31,7 @@ public class CliHashCommandProcessor : CliCommandProcessor
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var text = command.Value;
+        var text = CliValueHelpers.GetPositionalText(command);
         if (string.IsNullOrWhiteSpace(text))
             return Task.FromResult("Usage: hash <text> [--algorithm sha256]");
 

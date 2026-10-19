@@ -1,6 +1,7 @@
 using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Aws.Services;
 using Qodalis.Cli.Services;
 
@@ -135,7 +136,7 @@ internal class SnsPublishProcessor : CliCommandProcessor, ICliCommandProcessor
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var topicArn = command.Value?.Trim();
+        var topicArn = CliValueHelpers.GetPositionalText(command);
 
         if (string.IsNullOrEmpty(topicArn))
         {
@@ -222,7 +223,7 @@ internal class SnsSubscriptionsProcessor : CliCommandProcessor, ICliCommandProce
     async Task<ICliStructuredResponse?> ICliCommandProcessor.HandleStructuredAsync(CliProcessCommand command, CancellationToken ct = default)
     {
         var builder = new CliResponseBuilder();
-        var topicArn = command.Value?.Trim();
+        var topicArn = CliValueHelpers.GetPositionalText(command);
         var regionOverride = command.Args.TryGetValue("region", out var r) ? r.ToString() : null;
         var profileOverride = command.Args.TryGetValue("profile", out var p) ? p.ToString() : null;
         var client = _credentialManager.GetClient<AmazonSimpleNotificationServiceClient>(regionOverride, profileOverride);
