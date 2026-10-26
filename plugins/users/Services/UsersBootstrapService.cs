@@ -8,7 +8,7 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// <summary>
 /// Seeds the built-in groups (<c>admin</c> = <c>*</c>, <c>users</c> = <c>commands:execute</c>) and —
 /// unless external auth is configured — the <c>root</c> user (random password with
-/// <c>mustChangePassword</c> when none is configured), and periodically sweeps idle sessions.
+/// <c>mustChangePassword</c> when none is configured, printed to standard error and never logged), and periodically sweeps idle sessions.
 /// Seeding is idempotent and also awaited by the auth middleware, so requests that arrive
 /// before the hosted service has started still see the seeded state.
 /// </summary>
@@ -77,9 +77,16 @@ public class UsersBootstrapService : IHostedService, IDisposable
         if (string.IsNullOrEmpty(configured))
         {
             await _userStore.UpdateUserAsync(adminUser.Id, new UpdateUserDto { MustChangePassword = true });
+            // The password goes to stderr only: ILogger output is broadcast on /ws/v1/qcli/logs and kept
+            // in the admin plugin's log buffer, where any log reader could pick it up.
+            var output = _options.SecretOutput ?? Console.Error;
+            output.WriteLine(
+                $"[qodalis-cli] Seeded admin user 'root' with generated password: {password} — it must be changed on first login. " +
+                "This is the only time it is shown.");
+            output.Flush();
             _logger.LogWarning(
-                "Seeded admin user 'root' with generated password: {Password} — it must be changed on first login. " +
-                "This is the only time it is shown.", password);
+                "Seeded admin user 'root' with a generated password (printed to standard error, not logged). " +
+                "It must be changed on first login.");
         }
         else
         {
