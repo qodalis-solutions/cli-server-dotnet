@@ -612,6 +612,7 @@ builder.Services
         // OS filesystem with path restrictions
         cli.AddFileSystem(o => o.UseOsFileSystem(os =>
         {
+            // Only paths under these roots are reachable; the roots themselves cannot be deleted or moved.
             os.AllowedPaths = new List<string> { "/tmp", "/app" };
         }));
 

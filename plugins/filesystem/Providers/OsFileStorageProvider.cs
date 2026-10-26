@@ -149,6 +149,7 @@ public class OsFileStorageProvider : IFileStorageProvider
     public Task RemoveAsync(string path, bool recursive = false, CancellationToken ct = default)
     {
         var resolved = ValidatePath(path);
+        EnsureNotAllowedRoot(path, resolved);
 
         if (File.Exists(resolved))
         {
@@ -187,6 +188,7 @@ public class OsFileStorageProvider : IFileStorageProvider
     {
         var resolvedSrc = ValidatePath(src);
         var resolvedDest = ValidatePath(dest);
+        EnsureNotAllowedRoot(src, resolvedSrc);
 
         if (File.Exists(resolvedSrc))
         {
@@ -244,6 +246,51 @@ public class OsFileStorageProvider : IFileStorageProvider
             return fullPath;
 
         throw new FileStoragePermissionError(path);
+    }
+
+    /// <summary>
+    /// Refuses to delete or move an allowed root itself (e.g. <c>rm /tmp</c> with <c>/tmp</c> allowed):
+    /// its contents stay manageable, the root does not. Paths are compared after full normalization
+    /// (<c>.</c>/<c>..</c>, trailing separators) and symlink resolution, so <c>/tmp/./</c>,
+    /// <c>/tmp/x/..</c> or a link pointing at a root are refused too.
+    /// </summary>
+    private void EnsureNotAllowedRoot(string path, string resolved)
+    {
+        var target = RealPath(resolved);
+        foreach (var allowedPath in _options.AllowedPaths)
+        {
+            if (string.Equals(target, RealPath(Path.GetFullPath(allowedPath)), StringComparison.OrdinalIgnoreCase))
+                throw new FileStoragePermissionError(path);
+        }
+    }
+
+    /// <summary>
+    /// Equivalent of <c>realpath</c>: the full path with every existing symlink component resolved and
+    /// trailing separators removed. Components that do not exist are kept as they are.
+    /// </summary>
+    private static string RealPath(string path, int depth = 0)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        if (depth > 32) return full; // symlink loop
+
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        var current = root;
+        var parts = full[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            current = Path.Combine(current, parts[i]);
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            if (!info.Exists || info.LinkTarget == null) continue;
+
+            var target = info.ResolveLinkTarget(returnFinalTarget: true);
+            if (target == null) continue;
+            var rest = string.Join(Path.DirectorySeparatorChar, parts[(i + 1)..]);
+            var resolved = rest.Length == 0 ? target.FullName : Path.Combine(target.FullName, rest);
+            return RealPath(resolved, depth + 1);
+        }
+        return Path.TrimEndingDirectorySeparator(current.Length == 0 ? full : current);
     }
 
     private static string GetPermissions(FileSystemInfo entry)
