@@ -24,6 +24,76 @@ public sealed class CliServerOptions
     public List<string> AllowedOrigins { get; } = [];
 
     /// <summary>
+    /// Host names this server answers to on its CLI routes and WebSockets (DNS-rebinding protection).
+    /// <c>localhost</c>, <c>*.localhost</c> and IP literals are always allowed; entries match exactly
+    /// (case-insensitive, port ignored) or as a wildcard <c>*.example.com</c> (subdomains only);
+    /// <c>"*"</c> disables the check. <c>null</c> (default) = enforce only while the server is unprotected
+    /// (<see cref="RequireAuthentication"/> off), since rebinding cannot carry credentials; once set, the
+    /// check is always enforced. Requests from other hosts answer <c>421 Misdirected Request</c>.
+    /// Complementary to ASP.NET Core's <c>HostFiltering</c> middleware, which covers the whole app when configured.
+    /// </summary>
+    public List<string>? AllowedHosts { get; set; }
+
+    /// <summary>
+    /// True when the Host check applies: <see cref="AllowedHosts"/> was configured, or the server is
+    /// unprotected (<see cref="RequireAuthentication"/> off).
+    /// </summary>
+    public bool EnforcesHostCheck => AllowedHosts != null || !RequireAuthentication;
+
+    /// <summary>
+    /// True when <paramref name="host"/> (a Host header value, with or without port; IPv6 in brackets)
+    /// is <c>localhost</c>/<c>*.localhost</c>, an IP literal, or matches <see cref="AllowedHosts"/>.
+    /// </summary>
+    public bool IsHostAllowed(string? host)
+    {
+        var name = NormalizeHost(host);
+        if (name == null) return false;
+        if (name == "localhost" || name.EndsWith(".localhost", StringComparison.Ordinal)) return true;
+        if (System.Net.IPAddress.TryParse(name, out _)) return true;
+
+        foreach (var entry in AllowedHosts ?? [])
+        {
+            var allowed = entry.Trim().TrimEnd('.').ToLowerInvariant();
+            if (allowed == "*") return true;
+            if (allowed.StartsWith("*.", StringComparison.Ordinal))
+            {
+                if (name.EndsWith(allowed[1..], StringComparison.Ordinal) && name.Length > allowed.Length - 1) return true;
+            }
+            else if (allowed == name)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Lower-cased host name without port, IPv6 brackets or trailing dot; <c>null</c> when empty or malformed.
+    /// </summary>
+    internal static string? NormalizeHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return null;
+        var h = host.Trim().ToLowerInvariant();
+        if (h.StartsWith('['))
+        {
+            var end = h.IndexOf(']');
+            if (end < 0) return null;
+            h = h[1..end];
+        }
+        else
+        {
+            var colon = h.IndexOf(':');
+            if (colon >= 0)
+            {
+                // A bare IPv6 literal (no brackets, several colons) is kept as is.
+                if (h.IndexOf(':', colon + 1) < 0) h = h[..colon];
+            }
+        }
+        h = h.TrimEnd('.');
+        return h.Length == 0 ? null : h;
+    }
+
+    /// <summary>
     /// When true (set by an authentication plugin such as the users plugin with
     /// <c>ProtectServer</c>), every CLI route and socket requires an authenticated
     /// <see cref="CliPrincipal"/> except the public routes (fail closed).

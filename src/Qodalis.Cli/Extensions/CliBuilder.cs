@@ -81,6 +81,18 @@ public class CliBuilder
     }
 
     /// <summary>
+    /// Sets the host names the CLI routes and WebSockets answer to (DNS-rebinding protection), e.g.
+    /// <c>cli.example.com</c> or <c>*.example.com</c>; <c>"*"</c> disables the check. <c>localhost</c>,
+    /// <c>*.localhost</c> and IP literals are always allowed. Once set, the check is enforced even when the
+    /// server is protected by an authentication plugin (see <see cref="CliServerOptions.AllowedHosts"/>).
+    /// </summary>
+    public CliBuilder SetAllowedHosts(params string[] hosts)
+    {
+        ServerOptions.AllowedHosts = hosts.Where(h => !string.IsNullOrWhiteSpace(h)).Select(h => h.Trim()).ToList();
+        return this;
+    }
+
+    /// <summary>
     /// Enables the MCP endpoint (<c>POST /api/qcli/mcp</c>, MCP Streamable HTTP, stateless, JSON responses):
     /// AI clients call the registered commands as tools with the caller's permissions. Off by default.
     /// With the users plugin the endpoint takes session or API tokens (<c>commands:execute</c>); without an

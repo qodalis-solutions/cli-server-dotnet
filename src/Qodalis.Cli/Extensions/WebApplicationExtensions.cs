@@ -15,7 +15,8 @@ public static class WebApplicationExtensions
     /// <summary>
     /// Adds CLI middleware for WebSocket endpoints (events, logs and — when enabled — shell).
     /// Must be called after <c>UseWebSockets()</c>. Upgrades are checked against
-    /// <see cref="CliServerOptions.AllowedOrigins"/> and, when the server is protected, require
+    /// <see cref="CliServerOptions.AllowedOrigins"/>, CLI routes and sockets are checked against
+    /// <see cref="CliServerOptions.AllowedHosts"/> (DNS-rebinding protection, 421) and, when the server is protected, require
     /// a <see cref="CliPrincipal"/> established by the authentication plugin.
     /// </summary>
     /// <param name="app">The application builder.</param>
@@ -23,6 +24,13 @@ public static class WebApplicationExtensions
     public static IApplicationBuilder UseCli(this IApplicationBuilder app)
     {
         LogShellConfiguration(app.ApplicationServices);
+
+        // DNS rebinding: CLI routes and sockets reject requests whose Host is not allowed (421).
+        app.Use(async (context, next) =>
+        {
+            if (await CliHostCheck.TryRejectAsync(context)) return;
+            await next();
+        });
 
         app.Use(async (context, next) =>
         {

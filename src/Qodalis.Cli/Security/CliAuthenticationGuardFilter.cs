@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Qodalis.Cli.Security;
 
 /// <summary>
-/// Global MVC filter: when <see cref="CliServerOptions.RequireAuthentication"/> is on, CLI routes
+/// Global MVC filter: CLI routes whose <c>Host</c> is not allowed answer 421 (<see cref="CliHostCheck"/>); when <see cref="CliServerOptions.RequireAuthentication"/> is on, CLI routes
 /// without an authenticated <see cref="CliPrincipal"/> answer 401 (fail closed even when the
 /// authentication middleware is missing), and the route's permission is enforced (403).
 /// Host routes outside the CLI namespace are not affected.
@@ -18,6 +18,13 @@ public sealed class CliAuthenticationGuardFilter : IAsyncActionFilter, IOrderedF
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         var http = context.HttpContext;
+
+        // DNS rebinding (see CliHostCheck): covers controllers even when UseCli() runs after UseEndpoints().
+        if (CliHostCheck.IsRejected(http))
+        {
+            context.Result = new JsonResult(new { error = CliHostCheck.Error }) { StatusCode = 421 };
+            return;
+        }
 
         // MCP: the Origin check (403) and the method check (405) run before authentication.
         var mcp = Qodalis.Cli.Mcp.CliMcpGate.Check(http);

@@ -461,6 +461,18 @@ Without an authentication plugin the server is open — protect it with the user
 
 Same-origin requests (whose `Origin` equals the server's own `scheme://host[:port]`, e.g. the bundled admin dashboard at `/qcli/admin`) always pass the Origin checks (WebSocket upgrades and CSRF), even when that origin is not listed in `SetAllowedOrigins(...)`.
 
+### Host check (DNS rebinding)
+
+A web page on `attacker.example` can re-resolve its own name to your server's address (DNS rebinding). The browser then treats it as same-origin with the server, so Origin checks pass; only the `Host` header still names the attacker's domain. CLI routes (`/api/v1/qcli/*`, `/api/qcli/*`, MCP) and WebSockets (`/ws/...`) therefore reject requests whose `Host` is not allowed with **`421 Misdirected Request`** (`{"error":"misdirected request: host not allowed"}`).
+
+Always allowed: `localhost`, `*.localhost` and any IP literal (port ignored). Other names must be listed:
+
+```csharp
+cli.SetAllowedHosts("cli.example.com", "*.corp.example"); // "*.x" matches subdomains only; "*" disables the check
+```
+
+By default (no `SetAllowedHosts`) the check is enforced only while the server is **unprotected** (no users plugin, or `ProtectServer = false`), because rebinding cannot carry the victim's credentials to a protected server. Once `SetAllowedHosts(...)` is called, it is enforced always. This is complementary to ASP.NET Core's `HostFiltering` middleware (`AllowedHosts` in `appsettings.json`), which applies to the whole app when configured.
+
 ### Shell security
 
 The shell gives OS-level access, so it is off unless enabled, and enabling it does **not** open it:

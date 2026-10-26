@@ -10,7 +10,7 @@ public sealed record CliMcpRejection(int StatusCode, string Error, string? Allow
 
 /// <summary>
 /// Checks of the MCP endpoint that run <b>before</b> authentication (authentication plugins call it first):
-/// a present <c>Origin</c> must be allowed or same-origin (403, DNS-rebinding protection) and only <c>POST</c>
+/// the <c>Host</c> must be allowed (421, see <see cref="CliHostCheck"/>), a present <c>Origin</c> must be allowed or same-origin (403, DNS-rebinding protection) and only <c>POST</c>
 /// is supported (405 with <c>Allow: POST</c>). Does nothing when MCP is disabled or for other paths.
 /// </summary>
 public static class CliMcpGate
@@ -24,6 +24,10 @@ public static class CliMcpGate
         if (!IsMcpPath(context.Request.Path.Value)) return null;
         var options = context.RequestServices.GetService<CliServerOptions>();
         if (options?.Mcp is not { Enabled: true }) return null;
+
+        // DNS rebinding: a rebound page is same-origin with this server, only its Host gives it away.
+        if (CliHostCheck.IsRejected(context))
+            return new CliMcpRejection(StatusCodes.Status421MisdirectedRequest, CliHostCheck.Error);
 
         var origin = context.Request.Headers.Origin.FirstOrDefault();
         if (!string.IsNullOrEmpty(origin) && !options.IsOriginAllowed(origin, context.Request))
