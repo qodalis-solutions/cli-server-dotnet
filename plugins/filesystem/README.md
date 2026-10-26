@@ -27,6 +27,8 @@ builder.Services.AddControllers().AddCli(cli =>
 });
 ```
 
+Only paths under an allowed root are reachable. The roots themselves cannot be deleted, moved or renamed (`403`, `FileStoragePermissionError`); their contents can. The comparison is made after path normalization and symlink resolution, so `/tmp/`, `/tmp/x/..` or a symlink pointing at a root are refused as well.
+
 ## Providers
 
 | Provider | Package | Description |
