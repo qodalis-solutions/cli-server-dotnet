@@ -461,6 +461,25 @@ Without an authentication plugin the server is open — protect it with the user
 
 Same-origin requests (whose `Origin` equals the server's own `scheme://host[:port]`, e.g. the bundled admin dashboard at `/qcli/admin`) always pass the Origin checks (WebSocket upgrades and CSRF), even when that origin is not listed in `SetAllowedOrigins(...)`.
 
+### Outbound requests (SSRF)
+
+The `http` command refuses destinations that resolve to loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), link-local (`169.254/16` — including cloud metadata at `169.254.169.254` — and `fe80::/10`), CGNAT (`100.64/10`) or unspecified addresses, including IPv4-mapped IPv6 forms. The host is resolved on every connection (redirect hops included) and the connection goes to the vetted address, so DNS rebinding cannot slip past the check. Only `http://` and `https://` URLs are accepted. A refused request prints:
+
+```
+Blocked: <host> resolves to a private or local address (<ip>). Set AllowPrivateNetworks to allow it.
+```
+
+To let it reach internal services (trusted users only):
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.ServerOptions.AllowPrivateNetworks = true;
+});
+```
+
+Processors that make their own outbound calls can reuse the guard with `CliOutboundRequestGuard.CreateHandler(allowPrivateNetworks: false)`.
+
 ### Shell security
 
 The shell gives OS-level access, so it is off unless enabled, and enabling it does **not** open it:
@@ -577,7 +596,7 @@ The `Qodalis.Cli.Server` package and demo include these sample processors:
 | `echo` | Echoes input text |
 | `status` | Server status (uptime, OS, .NET version) |
 | `system` | Detailed system information |
-| `http` | HTTP request operations |
+| `http` | HTTP request operations (private/local destinations refused unless `AllowPrivateNetworks`) |
 | `hash` | Hash computation (MD5, SHA1, SHA256, SHA512) |
 | `base64` | Base64 encode/decode |
 

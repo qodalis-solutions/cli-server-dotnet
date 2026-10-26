@@ -1,5 +1,6 @@
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.Helpers;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Server.Processors;
 
@@ -12,11 +13,22 @@ public class CliHttpCommandProcessor : CliCommandProcessor
     public override string Description { get; set; } = "Makes HTTP requests from the server";
     public override bool? AllowUnlistedCommands { get; set; } = false;
 
-    public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } = new ICliCommandProcessor[]
+    public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
+
+    /// <summary>
+    /// Creates the command. Requests to loopback, private, link-local and CGNAT addresses are refused
+    /// unless <see cref="CliServerOptions.AllowPrivateNetworks"/> is set.
+    /// </summary>
+    /// <param name="options">Server options (resolved from DI); <c>null</c> uses the defaults.</param>
+    public CliHttpCommandProcessor(CliServerOptions? options = null)
     {
-        new CliHttpGetProcessor(),
-        new CliHttpPostProcessor(),
-    };
+        var allowPrivateNetworks = options?.AllowPrivateNetworks ?? false;
+        Processors = new ICliCommandProcessor[]
+        {
+            new CliHttpGetProcessor(allowPrivateNetworks),
+            new CliHttpPostProcessor(allowPrivateNetworks),
+        };
+    }
 
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
@@ -29,6 +41,14 @@ public class CliHttpCommandProcessor : CliCommandProcessor
 /// </summary>
 public class CliHttpGetProcessor : CliCommandProcessor
 {
+    private readonly bool _allowPrivateNetworks;
+
+    /// <summary>Creates the sub-command; <paramref name="allowPrivateNetworks"/> disables the private-network guard.</summary>
+    public CliHttpGetProcessor(bool allowPrivateNetworks = false)
+    {
+        _allowPrivateNetworks = allowPrivateNetworks;
+    }
+
     public override string Command { get; set; } = "get";
     public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Performs an HTTP GET request";
@@ -49,7 +69,7 @@ public class CliHttpGetProcessor : CliCommandProcessor
         if (string.IsNullOrWhiteSpace(url))
             return "Usage: http get <url>";
 
-        return await HttpRequestHelper.SendAsync(url, HttpMethod.Get, null, command.Args.ContainsKey("headers"), cancellationToken);
+        return await HttpRequestHelper.SendAsync(url, HttpMethod.Get, null, command.Args.ContainsKey("headers"), _allowPrivateNetworks, cancellationToken);
     }
 }
 
@@ -58,6 +78,14 @@ public class CliHttpGetProcessor : CliCommandProcessor
 /// </summary>
 public class CliHttpPostProcessor : CliCommandProcessor
 {
+    private readonly bool _allowPrivateNetworks;
+
+    /// <summary>Creates the sub-command; <paramref name="allowPrivateNetworks"/> disables the private-network guard.</summary>
+    public CliHttpPostProcessor(bool allowPrivateNetworks = false)
+    {
+        _allowPrivateNetworks = allowPrivateNetworks;
+    }
+
     public override string Command { get; set; } = "post";
     public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Performs an HTTP POST request";
@@ -86,7 +114,7 @@ public class CliHttpPostProcessor : CliCommandProcessor
             return "Usage: http post <url> --body '{\"key\":\"value\"}'";
 
         var body = command.Args.TryGetValue("body", out var b) ? b?.ToString() : null;
-        return await HttpRequestHelper.SendAsync(url, HttpMethod.Post, body, command.Args.ContainsKey("headers"), cancellationToken);
+        return await HttpRequestHelper.SendAsync(url, HttpMethod.Post, body, command.Args.ContainsKey("headers"), _allowPrivateNetworks, cancellationToken);
     }
 }
 
@@ -95,19 +123,27 @@ public class CliHttpPostProcessor : CliCommandProcessor
 /// </summary>
 internal static class HttpRequestHelper
 {
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(30) };
+    // Guarded client: every connection (redirect hops included) is vetted by CliOutboundRequestGuard.
+    private static readonly HttpClient GuardedClient =
+        new(CliOutboundRequestGuard.CreateHandler(allowPrivateNetworks: false)) { Timeout = TimeSpan.FromSeconds(30) };
+    private static readonly HttpClient UnrestrictedClient =
+        new(CliOutboundRequestGuard.CreateHandler(allowPrivateNetworks: true)) { Timeout = TimeSpan.FromSeconds(30) };
 
-    public static async Task<string> SendAsync(string url, HttpMethod method, string? body, bool showHeaders, CancellationToken cancellationToken)
+    public static async Task<string> SendAsync(string url, HttpMethod method, string? body, bool showHeaders, bool allowPrivateNetworks, CancellationToken cancellationToken)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !CliOutboundRequestGuard.IsAllowedScheme(uri))
+            return "Error: only http:// and https:// URLs are supported";
+
         try
         {
-            var request = new HttpRequestMessage(method, url);
+            var request = new HttpRequestMessage(method, uri);
             if (body != null)
             {
                 request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
             }
 
-            var response = await Client.SendAsync(request, cancellationToken);
+            var client = allowPrivateNetworks ? UnrestrictedClient : GuardedClient;
+            var response = await client.SendAsync(request, cancellationToken);
             var contentType = response.Content.Headers.ContentType?.ToString() ?? "unknown";
             var respBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -141,6 +177,10 @@ internal static class HttpRequestHelper
             lines.Add(respBody.Length > 5000 ? respBody[..5000] + "\n... (truncated)" : respBody);
             return string.Join("\n", lines);
         }
+        catch (HttpRequestException ex) when (FindBlocked(ex) is { } blocked)
+        {
+            return blocked.Message;
+        }
         catch (HttpRequestException ex)
         {
             return $"HTTP Error: {ex.Message}";
@@ -153,5 +193,14 @@ internal static class HttpRequestHelper
         {
             return $"Error: {ex.Message}";
         }
+    }
+
+    private static CliPrivateNetworkBlockedException? FindBlocked(Exception? ex)
+    {
+        for (; ex != null; ex = ex.InnerException)
+        {
+            if (ex is CliPrivateNetworkBlockedException blocked) return blocked;
+        }
+        return null;
     }
 }

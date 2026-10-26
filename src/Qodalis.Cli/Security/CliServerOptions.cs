@@ -31,6 +31,14 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// Lets commands that make outbound HTTP requests for the user (the <c>http</c> command) reach
+    /// loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (169.254/16, fe80::/10,
+    /// including cloud metadata at 169.254.169.254), CGNAT (100.64/10) and unspecified addresses.
+    /// Default <c>false</c>: such requests are refused (see <see cref="CliOutboundRequestGuard"/>).
+    /// </summary>
+    public bool AllowPrivateNetworks { get; set; }
+
+    /// <summary>
     /// MCP endpoint options (<c>POST /api/qcli/mcp</c>); <c>null</c> = disabled (default).
     /// Set with <c>CliBuilder.AddMcp()</c>.
     /// </summary>
