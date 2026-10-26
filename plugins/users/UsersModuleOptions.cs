@@ -49,9 +49,15 @@ public class UsersModuleOptions
 
     /// <summary>
     /// Password for the seeded <c>root</c> user. When not set, a random password is generated,
-    /// logged once with a warning, and root must change it on first login.
+    /// printed once to the process's standard error (never through <c>ILogger</c>, whose output the
+    /// log WebSocket and the admin log buffer expose), and root must change it on first login.
     /// </summary>
     public string? DefaultAdminPassword { get; set; }
+
+    /// <summary>
+    /// Where the generated root password is printed; <c>null</c> = <see cref="Console.Error"/>. Test seam.
+    /// </summary>
+    internal TextWriter? SecretOutput { get; set; }
 
     /// <summary>Default absolute session lifetime (12 hours).</summary>
     public const long DefaultMaxSessionLifetimeMs = 12 * 60 * 60 * 1000;

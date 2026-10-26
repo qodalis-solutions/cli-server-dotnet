@@ -576,13 +576,20 @@ public class UsersSecurityTests : IAsyncLifetime
     public async Task RootWithoutConfiguredPassword_GetsRandomPassword_AndMustChangeIt()
     {
         var logs = new CapturingLoggerProvider();
-        await using var host = await UsersTestHost.StartAsync(o => o.DefaultAdminPassword = null,
+        var stderr = new StringWriter();
+        await using var host = await UsersTestHost.StartAsync(o =>
+            {
+                o.DefaultAdminPassword = null;
+                o.SecretOutput = stderr;
+            },
             configureServices: s => s.AddSingleton<ILoggerProvider>(logs));
 
         await AssertErrorAsync(await host.PostAsync("sessions", null, new { username = "root", password = "root" }), 401);
-        var line = Assert.Single(logs.Messages, m => m.Contains("generated password"));
-        var password = Regex.Match(line, "generated password: (\\S+)").Groups[1].Value;
+        var password = Regex.Match(stderr.ToString(), "generated password: (\\S+)").Groups[1].Value;
         Assert.Equal(16, password.Length);
+        // Never through ILogger (log WebSocket, admin log buffer): only a warning without the secret.
+        Assert.DoesNotContain(logs.Messages, m => m.Contains(password));
+        Assert.Contains(logs.Messages, m => m.Contains("generated password") && m.Contains("standard error"));
 
         var (token, session) = await host.LoginAsync("root", password);
         Assert.True(session.GetProperty("user").GetProperty("mustChangePassword").GetBoolean());
