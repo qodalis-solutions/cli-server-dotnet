@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.DataExplorer.Mongo</RootNamespace>
-    <Version>1.0.0-beta.6</Version>
+    <Version>1.0.0-beta.7</Version>
     <Description>MongoDB data explorer provider plugin for Qodalis CLI Server</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
@@ -25,6 +25,6 @@
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="MongoDB.Driver" Version="2.28.0" />
+    <PackageReference Include="MongoDB.Driver" Version="3.13.0" />
   </ItemGroup>
 </Project>

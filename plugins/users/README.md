@@ -27,7 +27,7 @@ var app = builder.Build();
 app.UseQodalisUsers();
 ```
 
-On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and `users` (`["commands:execute"]`) when missing, and — unless an external auth adapter is configured — a `root` admin user (email `root@localhost`) when the user store is empty. Without `DefaultAdminPassword` a random 16-character password is generated, logged **once** with a warning, and root must change it on first login (`mustChangePassword`); an explicit well-known password (`root`, `admin`, `password`) logs a warning.
+On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and `users` (`["commands:execute"]`) when missing, and — unless an external auth adapter is configured — a `root` admin user (email `root@localhost`) when the user store is empty. Without `DefaultAdminPassword` a random 16-character password is generated and printed **once** to standard error (never through `ILogger`, so it does not reach the `/ws/v1/qcli/logs` stream or the admin log buffer; a warning without the password is logged), and root must change it on first login (`mustChangePassword`); an explicit well-known password (`root`, `admin`, `password`) logs a warning.
 
 `UseQodalisUsers()` must run before `UseCli()`. With `ProtectServer` (default `true`) it protects the **whole CLI server**, not only the users routes; without the middleware every protected route answers `401` (fail closed).
 
@@ -48,7 +48,7 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `ProtectServer` | `bool` | `true` | Require a session (and the permissions below) on every CLI route and socket |
 | `SessionTimeoutMs` | `long?` | `1800000` (30 min) | Idle timeout, checked on every request |
 | `MaxSessionLifetimeMs` | `long` | `43200000` (12 h) | Absolute session lifetime; `expiresAt` = min(idle, absolute) |
-| `DefaultAdminPassword` | `string?` | random (logged once, must change) | Password for the seeded `root` user |
+| `DefaultAdminPassword` | `string?` | random (printed once to stderr, must change) | Password for the seeded `root` user |
 | `MinPasswordLength` / `MaxPasswordLength` | `int` | `8` / `1024` | Password policy |
 | `MaxLoginAttempts` / `LockoutMs` | `int` / `long` | `5` / `300000` | Lockout after consecutive failures within `LockoutMs` (429), also for unknown names; older failures expire |
 | `MaxAttemptsPerIpPerMinute` | `int` | `20` | Per-IP limit on login, verify-password and self password change (429) |
