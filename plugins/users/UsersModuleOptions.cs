@@ -115,6 +115,35 @@ public class UsersModuleOptions
 
     internal Type? AuthAdapterType { get; private set; }
 
+    /// <summary>
+    /// The host application owns the users (e.g. a read-only <see cref="IUserStore"/> over its own accounts):
+    /// creating, updating and deleting users, password changes and group membership changes answer
+    /// <c>501</c> without calling the stores, no <c>root</c> user is seeded, and
+    /// <c>GET /sessions/current</c> reports <c>usersReadOnly: true</c> so clients hide those commands.
+    /// </summary>
+    public bool UsersReadOnly { get; set; }
+
+    /// <summary>
+    /// The host application owns the groups: creating, updating and deleting groups answer <c>501</c>
+    /// without calling the store, the built-in groups are not seeded, and <c>GET /sessions/current</c>
+    /// reports <c>groupsReadOnly: true</c>.
+    /// </summary>
+    public bool GroupsReadOnly { get; set; }
+
+    /// <summary>Sets <see cref="UsersReadOnly"/>.</summary>
+    public UsersModuleOptions ReadOnlyUsers(bool readOnly = true)
+    {
+        UsersReadOnly = readOnly;
+        return this;
+    }
+
+    /// <summary>Sets <see cref="GroupsReadOnly"/>.</summary>
+    public UsersModuleOptions ReadOnlyGroups(bool readOnly = true)
+    {
+        GroupsReadOnly = readOnly;
+        return this;
+    }
+
     /// <summary>Effective idle session timeout.</summary>
     public long EffectiveSessionTimeoutMs => SessionTimeoutMs is > 0 ? SessionTimeoutMs.Value : DefaultSessionTimeoutMs;
 
@@ -132,6 +161,26 @@ public class UsersModuleOptions
     public void UseExternalAuth(Func<HttpContext, ExternalAuthResult?> adapter)
     {
         AuthAdapter = new DelegateAuthAdapter(adapter);
+    }
+
+    /// <summary>
+    /// Sets an asynchronous delegate-based external auth adapter, for hosts that load the user,
+    /// their roles or their state from a database. For requests and socket upgrades the token is the
+    /// request's <see cref="HttpContext.RequestAborted"/>; when an open socket is re-checked on its
+    /// rebuilt request, it is cancelled when the server stops.
+    /// </summary>
+    public UsersModuleOptions UseExternalAuth(Func<HttpContext, CancellationToken, ValueTask<ExternalAuthResult?>> adapter)
+    {
+        AuthAdapter = new DelegateAuthAdapter(adapter);
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="adapter"/> as the external auth adapter.</summary>
+    public UsersModuleOptions UseExternalAuth(IExternalAuthAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        AuthAdapter = adapter;
+        return this;
     }
 
     /// <summary>Uses an external auth adapter constructed through dependency injection.</summary>

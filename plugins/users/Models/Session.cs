@@ -114,4 +114,20 @@ public class CurrentSession
     [JsonPropertyName("expiresAt")]
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public long ExpiresAt { get; set; }
+
+    /// <summary>
+    /// Users are managed by the host application (<see cref="UsersModuleOptions.UsersReadOnly"/>): user
+    /// writes answer 501, so clients hide <c>adduser</c>, <c>usermod</c>, <c>userdel</c>, <c>passwd</c>, ...
+    /// </summary>
+    [JsonPropertyName("usersReadOnly")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool UsersReadOnly { get; set; }
+
+    /// <summary>
+    /// Groups are managed by the host application (<see cref="UsersModuleOptions.GroupsReadOnly"/>): group
+    /// writes answer 501, so clients hide <c>groupadd</c>, <c>groupmod</c>, <c>groupdel</c>.
+    /// </summary>
+    [JsonPropertyName("groupsReadOnly")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool GroupsReadOnly { get; set; }
 }

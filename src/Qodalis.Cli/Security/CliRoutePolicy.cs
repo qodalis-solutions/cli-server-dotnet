@@ -36,6 +36,8 @@ public static class CliRoutePolicy
     [
         "/api/qcli/versions", "/api/cli/versions", "/api/v1/qcli/version", "/api/v1/qcli/capabilities",
         "/api/qcli/health", "/api/v1/qcli/health", "/api/cli/health",
+        // Admin dashboard: which sign-in to show (password form or the host's sign-in).
+        "/api/v1/qcli/auth/mode",
     ];
 
     private static readonly string[] PublicPost = ["/api/v1/qcli/sessions", "/api/v1/qcli/auth/login"];

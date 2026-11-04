@@ -36,6 +36,7 @@ cli.AddAdmin(config =>
     config.JwtExpiry = TimeSpan.FromHours(8);
     config.DashboardPath = "/path/to/dashboard/dist";
     config.Theme.Mode = AdminThemeMode.System; // see "Color scheme" below
+    config.SignInUrl = "https://app.example.com/sign-in"; // see "Sign in with the host app's session"
 });
 ```
 
@@ -49,7 +50,8 @@ cli.AddAdmin(config =>
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/v1/qcli/auth/login` | POST | Authenticate and receive a JWT token |
+| `/api/v1/qcli/auth/mode` | GET | Public. Which sign-in the dashboard shows: `{ "mode": "password" \| "external", "signInUrl": string \| null }` |
+| `/api/v1/qcli/auth/login` | POST | Authenticate and receive a JWT token (501 in external mode) |
 | `/api/v1/qcli/auth/me` | GET | Get current authenticated user info |
 | `/api/v1/qcli/status` | GET | Server status (uptime, memory, features) |
 | `/api/v1/qcli/config` | GET | View server configuration sections |
@@ -61,6 +63,59 @@ cli.AddAdmin(config =>
 ## Authentication
 
 Login is rate-limited to 5 attempts per IP per minute. Successful login returns a JWT token that must be included as a `Bearer` token in subsequent requests to protected admin endpoints.
+
+With the users plugin installed, the dashboard signs in through it (sessions, lockout, audit) and needs the
+`admin:access` permission; the static `QCLI_ADMIN_USERNAME`/`QCLI_ADMIN_PASSWORD` are only used without it.
+
+### Sign in with the host app's session
+
+The full setup (adapter, middleware order, permissions) is in [Use with your app's sign-in](../../README.md#use-with-your-apps-sign-in).
+
+When the users plugin delegates authentication to your application (`UseExternalAuth`), the dashboard runs in
+**external** mode:
+
+- `GET /api/v1/qcli/auth/mode` answers `{ "mode": "external", "signInUrl": "<SignInUrl>" }`. It is public, also on
+  protected servers, so the dashboard can call it before anyone signs in. Otherwise it answers `"password"`.
+- The dashboard hides its username/password form and shows "Sign in at `<signInUrl>`" with a Retry button (or tells
+  users to sign in through the host application when `SignInUrl` is not set). Any 401 leads to that screen.
+- `POST /api/v1/qcli/auth/login` signs no one in: it answers `501` with `code: "EXTERNAL_AUTH"`, a message pointing
+  to the host's sign-in and `signInUrl`. The static admin credentials are never accepted in this mode.
+
+`SignInUrl` must be an absolute `http`/`https` URL or a root-relative path (`/sign-in`); anything else (for example
+`javascript:` or `//host`) fails at startup.
+
+**Handoff.** Send signed-in users to the dashboard with your bearer token in the URL fragment:
+
+```
+/qcli/admin/#token=<host bearer token>
+```
+
+A fragment is never sent to servers or written to access logs. The dashboard reads it on startup, stores it as its
+admin token, removes it from the address bar (`history.replaceState`) and sends it as `Authorization: Bearer …` on
+every API call, where your external auth adapter validates it like any other request from your app.
+
+```csharp
+// Host app: the adapter accepts the app's own JWT.
+cli.AddUsers(users => users.UseExternalAuth(context =>
+{
+    var principal = context.User; // populated by app.UseAuthentication() from the Bearer header
+    if (principal.Identity?.IsAuthenticated != true) return null;
+    return new ExternalAuthResult
+    {
+        User = new User { Id = principal.FindFirst("sub")!.Value, Name = principal.Identity.Name!, Email = principal.FindFirst("email")?.Value ?? "" },
+        IsAdmin = principal.IsInRole("admin"),
+    };
+}));
+cli.AddAdmin(o => o.SignInUrl = "/sign-in?returnUrl=%2Fadmin%2Fconsole");
+```
+
+```ts
+// Host front end: an "Open console" button for a signed-in admin.
+window.location.href = `/qcli/admin/#token=${encodeURIComponent(accessToken)}`;
+```
+
+When the token expires, the next API call answers 401 and the dashboard shows the sign-in screen; after signing in
+again, the host repeats the handoff.
 
 ## Color scheme
 

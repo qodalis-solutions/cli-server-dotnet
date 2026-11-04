@@ -17,6 +17,7 @@ public class AuthController : ControllerBase
     private readonly AdminConfig _config;
     private readonly JwtService _jwtService;
     private readonly ICliAuthBridge? _bridge;
+    private readonly AdminAuthMode? _authMode;
 
     // Rate limiting: track login attempts per IP
     private static readonly ConcurrentDictionary<string, List<DateTime>> _loginAttempts = new();
@@ -42,20 +43,51 @@ public class AuthController : ControllerBase
     /// Initializes a new instance of the <see cref="AuthController"/> class.
     /// </summary>
     /// <param name="bridge">The users-plugin auth bridge, when installed.</param>
-    public AuthController(AdminConfig config, JwtService jwtService, ICliAuthBridge? bridge = null)
+    /// <param name="authMode">Password or external sign-in (registered by <c>AddAdmin</c>).</param>
+    public AuthController(AdminConfig config, JwtService jwtService, ICliAuthBridge? bridge = null,
+        AdminAuthMode? authMode = null)
     {
         _bridge = bridge;
+        _authMode = authMode;
         _config = config;
         _jwtService = jwtService;
     }
 
     /// <summary>
+    /// Which sign-in the dashboard shows. Public. <c>external</c> when the users plugin uses an
+    /// external auth adapter (the host application signs users in and hands its token to the
+    /// dashboard through <c>/qcli/admin/#token=…</c>), otherwise <c>password</c>.
+    /// </summary>
+    [HttpGet("mode")]
+    public IActionResult Mode()
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new
+        {
+            mode = _authMode?.Mode ?? AdminAuthMode.Password,
+            signInUrl = _config.SignInUrl,
+        });
+    }
+
+    /// <summary>
     /// Authenticates an admin user and returns a JWT token. Rate-limited per IP.
+    /// Answers 501 in external sign-in mode: the static admin credentials sign no one in there.
     /// </summary>
     /// <param name="request">The login credentials.</param>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        if (_authMode?.IsExternal == true)
+        {
+            var where = _config.SignInUrl != null ? $" at {_config.SignInUrl}" : " through the host application";
+            return StatusCode(501, new
+            {
+                error = $"Sign-in is managed by the host application. Sign in{where}.",
+                code = "EXTERNAL_AUTH",
+                signInUrl = _config.SignInUrl,
+            });
+        }
+
         // When the users plugin is installed the dashboard authenticates through it
         // (lockout, rate limiting, audit) and requires the admin:access permission;
         // the static admin credentials are only used without the users plugin.
