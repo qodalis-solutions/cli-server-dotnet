@@ -200,6 +200,19 @@ cli.AddUsers(options => options
     .SetSessionStore(sp => new RedisSessionStore(sp.GetRequiredService<IConnectionMultiplexer>())));
 ```
 
+`GET /users` (`listusers --query --skip --take`) calls `IUserStore.QueryUsersAsync(query, skip, take)`. Its default loads every user through `GetUsersAsync` and pages in memory; a store backed by a database should implement it with a query, oldest users first, `query` matching name or email (case-insensitive):
+
+```csharp
+public Task<List<User>> QueryUsersAsync(string? query, int skip, int? take) =>
+    db.Users
+        .Where(u => query == null || EF.Functions.ILike(u.Name, $"%{query}%") || EF.Functions.ILike(u.Email, $"%{query}%"))
+        .OrderBy(u => u.CreatedAt)
+        .Skip(skip)
+        .Take(take ?? int.MaxValue)
+        .Select(u => ToUser(u))
+        .ToListAsync();
+```
+
 ## External auth adapter
 
 If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`), `verify-password` and password changes then answer `501`, no `root` user is seeded (the built-in groups still are), and permissions come from the groups the adapter returns (`IsAdmin` adds `admin`).

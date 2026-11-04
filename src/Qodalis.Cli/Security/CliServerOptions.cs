@@ -31,6 +31,13 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// The most rows a table may return without paging (default 200; 0 = no limit). A larger
+    /// table from a command that does not page (<c>WritePagedTable</c>) is cut to this many rows
+    /// and marked <c>truncated</c>, so a terminal never receives thousands of rows at once.
+    /// </summary>
+    public int MaxTableRows { get; set; } = 200;
+
+    /// <summary>
     /// MCP endpoint options (<c>POST /api/qcli/mcp</c>); <c>null</c> = disabled (default).
     /// Set with <c>CliBuilder.AddMcp()</c>.
     /// </summary>

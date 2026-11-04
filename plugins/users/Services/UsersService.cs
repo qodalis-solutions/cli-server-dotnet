@@ -84,16 +84,7 @@ public class UsersService
         if (skip < 0) throw UsersApiException.BadRequest("skip must be >= 0");
         if (take < 0) throw UsersApiException.BadRequest("take must be >= 0");
 
-        IEnumerable<User> users = await _userStore.GetUsersAsync();
-        if (!string.IsNullOrEmpty(query))
-        {
-            users = users.Where(u =>
-                u.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Contains(query, StringComparison.OrdinalIgnoreCase));
-        }
-        if (skip is > 0) users = users.Skip(skip.Value);
-        if (take.HasValue) users = users.Take(take.Value);
-        return users.ToList();
+        return await _userStore.QueryUsersAsync(query, skip ?? 0, take);
     }
 
     public Task<User?> FindUserAsync(string idOrName) => _userStore.GetUserAsync(idOrName);
