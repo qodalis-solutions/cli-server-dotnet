@@ -338,6 +338,59 @@ claude mcp add qcli -e QCLI_URL=http://localhost:8046 -e QCLI_TOKEN=<token> -- n
 
 Without an authentication plugin the server is open. Install the users plugin (`cli.AddUsers()` and `app.UseQodalisUsers()` before `app.UseCli()`); with its default `ProtectServer = true` every CLI route and socket requires a session, except sign-in and version discovery. See [plugins/users/README.md](plugins/users/README.md).
 
+## Use with your app's sign-in
+
+When your application already signs users in (cookies, JWT, an identity provider), the users plugin can take its users from your app instead of its own logins. The browser terminal, the MCP endpoint and the admin dashboard then all use your session.
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    // Your app's origin: the browser terminal and the dashboard call the API and open sockets from it
+    cli.SetAllowedOrigins("https://app.example.com");
+
+    cli.AddUsers(options => options
+        // Runs on every CLI request and socket upgrade, and again on open sockets (see below)
+        .UseExternalAuth(async (context, cancellationToken) =>
+        {
+            if (context.User.Identity?.IsAuthenticated != true) return null;
+            var account = await accounts.FindAsync(context.User, cancellationToken);
+            if (account is null) return null;
+            return new ExternalAuthResult
+            {
+                User = new User { Id = account.Id, Name = account.Email, Email = account.Email, Disabled = account.Disabled },
+                Permissions = account.CliPermissions,   // e.g. ["commands:execute", "logs:read"]
+                IsAdmin = account.IsAdmin,
+            };
+        })
+        // Your app owns accounts and roles: the CLI's user and group endpoints answer 501
+        .ReadOnlyUsers()
+        .ReadOnlyGroups());
+
+    cli.AddAdmin(o => o.SignInUrl = "https://app.example.com/sign-in");
+});
+
+var app = builder.Build();
+
+app.UseWebSockets();
+app.UseCors();
+app.UseAuthentication();   // your sign-in: sets HttpContext.User for the adapter
+app.UseQodalisUsers();     // after CORS and authentication, before UseAuthorization and UseCli
+app.UseQodalisAdmin();     // after UseWebSockets, before MapControllers
+app.UseAuthorization();
+app.MapControllers();
+app.UseCli();
+```
+
+The order matters: the users middleware reads `HttpContext.User`, so your authentication must run first, and it must run before `UseCli()`, which serves the CLI routes and sockets.
+
+- **The adapter** (`UseExternalAuth`) returns the user for a request, or `null` when it is not signed in. It can be async, so it can load the account, its roles and its disabled state from your database. A user returned with `Disabled = true` is refused.
+- **Permissions:** a command's `RequiredPermissions` are checked against the user's permissions: those in `ExternalAuthResult.Permissions`, those of the groups the user is in (`User.Groups`, from the group store), and every permission when `IsAdmin` is set. Running commands needs `commands:execute`, the logs stream needs `logs:read`.
+- **WebSockets:** the browser cannot send headers on a WebSocket, so clients first get a single-use ticket (`POST /api/v1/qcli/sessions/ws-ticket` with your session) and connect with `?ticket=`; the web CLI does this by itself. Open sockets are checked again through the adapter every `CliShellOptions.SessionCheckInterval` (30 s by default, at most 60 s) and closed with `4401` when the user is gone, disabled, or lost the socket's permission.
+- **Read-only stores:** with `ReadOnlyUsers()` / `ReadOnlyGroups()` the CLI's create, update and delete endpoints answer `501` instead of writing; the session response carries `usersReadOnly` / `groupsReadOnly` so clients can hide those commands.
+- **Admin dashboard:** `AddAdmin` uses the users plugin when present, and with an external adapter the dashboard signs in through your app: `GET /api/v1/qcli/auth/mode` answers `external` with `SignInUrl`, its own username/password form is off, and your app opens it as `/qcli/admin/#token=<your bearer token>` (a URL fragment, never sent to servers or logs). See [plugins/admin/README.md](plugins/admin/README.md#sign-in-with-the-host-apps-session).
+
+Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter).
+
 ## Endpoints
 
 | Method | Path | Description |
