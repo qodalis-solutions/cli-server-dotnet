@@ -33,6 +33,12 @@ public class AdminConfig
     public string? DashboardPath { get; set; }
 
     /// <summary>
+    /// Color scheme of the dashboard: the mode and per-scheme color overrides.
+    /// Served at <c>/qcli/admin/theme.json</c>; values are validated at startup.
+    /// </summary>
+    public AdminTheme Theme { get; set; } = new();
+
+    /// <summary>
     /// Resolves configuration from environment variables, falling back to configured defaults.
     /// </summary>
     internal void ResolveFromEnvironment()
