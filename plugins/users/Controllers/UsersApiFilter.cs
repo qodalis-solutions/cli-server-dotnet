@@ -18,6 +18,24 @@ public sealed class UsersAnonymousAttribute : Attribute;
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class UsersCredentialEndpointAttribute : Attribute;
 
+/// <summary>Stores an action writes to (see <see cref="UsersStoreWriteAttribute"/>).</summary>
+[Flags]
+public enum UsersStores
+{
+    Users = 1,
+    Groups = 2,
+}
+
+/// <summary>
+/// Marks an action as writing to the user and/or group store: it answers 501 when that store is
+/// read-only (<see cref="UsersModuleOptions.UsersReadOnly"/>, <see cref="UsersModuleOptions.GroupsReadOnly"/>).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class UsersStoreWriteAttribute(UsersStores stores) : Attribute
+{
+    public UsersStores Stores { get; } = stores;
+}
+
 /// <summary>Marks an action as allowed while the user must change their password.</summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class UsersAllowPasswordChangeRequiredAttribute : Attribute;
@@ -45,7 +63,7 @@ internal static class UsersJson
 
 /// <summary>
 /// Applied to every users-plugin controller. In order: 501 for credential endpoints in external
-/// mode; 401 when the users middleware did not authenticate the request (fail closed);
+/// mode; 501 for writes to a read-only user or group store; 401 when the users middleware did not authenticate the request (fail closed);
 /// 403 for missing permissions; 400 <c>{error}</c> for model-binding failures; and maps
 /// <see cref="UsersApiException"/> to <c>{error}</c> responses.
 /// Runs before the framework's model-state / content-type filters.
@@ -54,6 +72,8 @@ internal static class UsersJson
 public sealed class UsersApiFilterAttribute : Attribute, IAsyncActionFilter, IOrderedFilter
 {
     public const string ExternalAuthMessage = "Authentication is managed by the host application";
+    public const string UsersReadOnlyMessage = "Users are managed by the host application";
+    public const string GroupsReadOnlyMessage = "Groups are managed by the host application";
 
     public int Order => int.MinValue + 1000;
 
@@ -67,6 +87,21 @@ public sealed class UsersApiFilterAttribute : Attribute, IAsyncActionFilter, IOr
         {
             context.Result = UsersJson.Error(501, ExternalAuthMessage);
             return;
+        }
+
+        if (method?.GetCustomAttributes(typeof(UsersStoreWriteAttribute), false)
+                .Cast<UsersStoreWriteAttribute>().FirstOrDefault() is { } write && options != null)
+        {
+            if (write.Stores.HasFlag(UsersStores.Users) && options.UsersReadOnly)
+            {
+                context.Result = UsersJson.Error(501, UsersReadOnlyMessage);
+                return;
+            }
+            if (write.Stores.HasFlag(UsersStores.Groups) && options.GroupsReadOnly)
+            {
+                context.Result = UsersJson.Error(501, GroupsReadOnlyMessage);
+                return;
+            }
         }
 
         if (method?.IsDefined(typeof(UsersAnonymousAttribute), false) != true)

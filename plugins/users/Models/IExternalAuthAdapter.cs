@@ -50,6 +50,14 @@ public class ExternalAuthResult
     /// (i.e. have access to admin-only endpoints).
     /// </summary>
     public bool IsAdmin { get; set; }
+
+    /// <summary>
+    /// Permissions granted directly by the host application (e.g. <c>logs:read</c>, <c>commands:execute</c>),
+    /// added to those of the user's groups (and of <c>admin</c> with <see cref="IsAdmin"/>). Lets hosts with
+    /// their own roles grant permissions without a group per permission in the group store; group names
+    /// missing from the group store grant nothing.
+    /// </summary>
+    public IReadOnlyCollection<string>? Permissions { get; set; }
 }
 
 /// <summary>

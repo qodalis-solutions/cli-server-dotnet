@@ -64,10 +64,14 @@ public class UsersBootstrapService : IHostedService, IDisposable
 
     private async Task SeedAsync()
     {
-        await EnsureGroupAsync(Group.AdminGroup, "Administrators", ["*"]);
-        await EnsureGroupAsync(Group.UsersGroup, "Default group for new accounts", ["commands:execute"]);
+        // Read-only stores belong to the host application: nothing is seeded into them.
+        if (!_options.GroupsReadOnly)
+        {
+            await EnsureGroupAsync(Group.AdminGroup, "Administrators", ["*"]);
+            await EnsureGroupAsync(Group.UsersGroup, "Default group for new accounts", ["commands:execute"]);
+        }
 
-        if (_options.UsesExternalAuth) return;
+        if (_options.UsesExternalAuth || _options.UsersReadOnly) return;
 
         var users = await _userStore.GetUsersAsync();
         if (users.Count > 0) return;
