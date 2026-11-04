@@ -407,6 +407,18 @@ public sealed partial class CliMcpServer
     /// Renders outputs as plain text: text as-is; tables as header + rows joined with <c> | </c>; lists one
     /// item per line; json pretty-printed; key-value as <c>key: value</c>. Blocks are separated by new lines.
     /// </summary>
+    /// <summary>The line under a paged table: which rows these are, and how to get the next ones.</summary>
+    internal static string DescribePage(CliTablePage page, int rowCount)
+    {
+        var total = page.Total is { } t ? $" of {t}" : "";
+        if (page.Truncated == true)
+            return $"(first {rowCount}{total} rows; the command does not page, narrow it down to see the rest)";
+        if (rowCount == 0)
+            return $"(no rows at skip={page.Skip}{total})";
+        var next = page.HasMore ? $"; next: skip={page.Skip + rowCount}" : "";
+        return $"(rows {page.Skip + 1}-{page.Skip + rowCount}{total}{next})";
+    }
+
     public static string RenderText(IEnumerable<CliServerOutput> outputs)
     {
         var blocks = new List<string>();
@@ -420,6 +432,7 @@ public sealed partial class CliMcpServer
                 case TableOutput table:
                     var lines = new List<string> { string.Join(" | ", table.Headers ?? []) };
                     lines.AddRange((table.Rows ?? []).Select(r => string.Join(" | ", r ?? [])));
+                    if (table.Page is { } page) lines.Add(DescribePage(page, table.Rows?.Length ?? 0));
                     blocks.Add(string.Join('\n', lines));
                     break;
                 case ListOutput list:

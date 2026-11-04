@@ -15,6 +15,19 @@ public interface ICliResponseBuilder
     /// <param name="rows">Table rows.</param>
     void WriteTable(string[] headers, string[][] rows);
 
+    /// <summary>
+    /// Appends some rows of a longer table. The terminal shows which rows they are under it and the
+    /// command for the next ones. Pass <paramref name="total"/> when known; otherwise
+    /// <paramref name="hasMore"/> says whether more rows follow (query one row more than
+    /// <see cref="Abstractions.Helpers.CliPageRequest.Take"/> to find out).
+    /// </summary>
+    /// <param name="headers">Column headers.</param>
+    /// <param name="rows">The rows returned.</param>
+    /// <param name="page">The rows that were asked for (<see cref="Abstractions.Helpers.CliPaging.From"/>).</param>
+    /// <param name="total">All rows, when known.</param>
+    /// <param name="hasMore">Whether more rows follow; defaults to what <paramref name="total"/> implies.</param>
+    void WritePagedTable(string[] headers, string[][] rows, Abstractions.Helpers.CliPageRequest page, long? total = null, bool? hasMore = null);
+
     /// <summary>Appends a list output block.</summary>
     /// <param name="items">The list items.</param>
     /// <param name="ordered">Whether the list is ordered.</param>
