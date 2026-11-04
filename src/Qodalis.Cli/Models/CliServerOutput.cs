@@ -37,6 +37,40 @@ public class TableOutput : CliServerOutput
 
     /// <summary>Gets or sets the table rows, each row being an array of cell values.</summary>
     public required string[][] Rows { get; set; }
+
+    /// <summary>
+    /// Which rows of a longer result these are, when the command pages (<c>--skip</c>, <c>--take</c>);
+    /// the terminal shows it under the table with the command for the next rows.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CliTablePage? Page { get; set; }
+}
+
+/// <summary>
+/// The rows of a <see cref="TableOutput"/> within a longer result:
+/// <c>{ "skip": 50, "take": 50, "total": 1987, "hasMore": true }</c>.
+/// </summary>
+public class CliTablePage
+{
+    /// <summary>Rows skipped before these.</summary>
+    public required int Skip { get; set; }
+
+    /// <summary>Rows asked for.</summary>
+    public required int Take { get; set; }
+
+    /// <summary>All rows, when the command knows it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Total { get; set; }
+
+    /// <summary>Whether more rows follow.</summary>
+    public required bool HasMore { get; set; }
+
+    /// <summary>
+    /// Set when the server cut an unpaged table (see <c>CliServerOptions.MaxTableRows</c>):
+    /// the command does not page, so <c>--skip</c> will not show the rest.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Truncated { get; set; }
 }
 
 /// <summary>

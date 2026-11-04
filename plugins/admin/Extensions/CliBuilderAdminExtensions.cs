@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
@@ -13,6 +14,9 @@ namespace Qodalis.Cli.Plugin.Admin.Extensions;
 
 public static class CliBuilderAdminExtensions
 {
+    /// <summary>Path of the dashboard's color scheme document.</summary>
+    public const string AdminThemePath = "/qcli/admin/theme.json";
+
     /// <summary>
     /// Registers admin dashboard services, controllers, and log buffer into the DI container.
     /// </summary>
@@ -56,8 +60,26 @@ public static class CliBuilderAdminExtensions
         var jwtService = app.ApplicationServices.GetRequiredService<JwtService>();
         app.UseMiddleware<AdminAuthMiddleware>(jwtService);
 
-        // Resolve dashboard file provider: physical path first, then embedded resources
         var config = app.ApplicationServices.GetRequiredService<AdminConfig>();
+
+        // Color scheme, read by the dashboard before its first render. Validated
+        // here so a bad value fails at startup. Public, like the dashboard itself:
+        // the login page uses it too.
+        var themeJson = (config.Theme ?? new AdminTheme()).ToJson();
+        app.Use(async (context, next) =>
+        {
+            if (HttpMethods.IsGet(context.Request.Method)
+                && string.Equals(context.Request.Path.Value, AdminThemePath, StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.ContentType = "application/json; charset=utf-8";
+                context.Response.Headers.CacheControl = "no-cache";
+                await context.Response.WriteAsync(themeJson);
+                return;
+            }
+            await next();
+        });
+
+        // Resolve dashboard file provider: physical path first, then embedded resources
         var env = app.ApplicationServices.GetRequiredService<IWebHostEnvironment>();
         var dashboardDir = DashboardResolver.Resolve(config.DashboardPath, env.ContentRootPath);
 

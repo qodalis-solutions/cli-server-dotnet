@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Models;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
@@ -13,6 +14,7 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     private readonly ICliCommandRegistry _registry;
     private readonly ILogger<CliCommandExecutorService> _logger;
     private readonly IEnumerable<ICliProcessorFilter> _filters;
+    private readonly int _maxTableRows;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliCommandExecutorService"/>.
@@ -20,14 +22,17 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     /// <param name="registry">The command processor registry.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="filters">Optional processor filters for runtime enable/disable checks.</param>
+    /// <param name="serverOptions">Server options; <see cref="CliServerOptions.MaxTableRows"/> caps unpaged tables.</param>
     public CliCommandExecutorService(
         ICliCommandRegistry registry,
         ILogger<CliCommandExecutorService> logger,
-        IEnumerable<ICliProcessorFilter> filters)
+        IEnumerable<ICliProcessorFilter> filters,
+        CliServerOptions? serverOptions = null)
     {
         _registry = registry;
         _logger = logger;
         _filters = filters;
+        _maxTableRows = (serverOptions ?? new CliServerOptions()).MaxTableRows;
     }
 
     /// <inheritdoc />
@@ -75,7 +80,7 @@ public class CliCommandExecutorService : ICliCommandExecutorService
             if (structured is CliServerResponse structuredResponse)
             {
                 _logger.LogInformation("Command completed (structured): {Command}", fullCommand);
-                return structuredResponse;
+                return CliOutputLimits.Apply(structuredResponse, _maxTableRows);
             }
 
             var result = await processor.HandleAsync(command, cancellationToken);

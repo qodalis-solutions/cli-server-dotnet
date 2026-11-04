@@ -195,6 +195,30 @@ public class MathCommandProcessor : CliCommandProcessor
 | `RawCommand` | Original input |
 | `Data` | Arbitrary payload from the client |
 
+### Paging
+
+A command that lists records pages them, so a terminal never gets thousands of rows. Declare `--skip` / `--take`, read them and write the rows with `WritePagedTable`; the web terminal prints `Rows 51–100 of 236 · next: orders --skip 100` under the table.
+
+```csharp
+using Qodalis.Cli.Abstractions.Helpers;
+
+public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } = CliPaging.Parameters();
+
+public async Task<ICliStructuredResponse?> HandleStructuredAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
+{
+    var page = CliPaging.From(command);          // --skip (default 0), --take (default 50, at most 500)
+    var total = await db.Orders.CountAsync(cancellationToken);
+    var rows = await db.Orders.OrderBy(o => o.Id).Skip(page.Skip).Take(page.Take)
+        .Select(o => new[] { o.Id.ToString(), o.Customer }).ToArrayAsync(cancellationToken);
+
+    var builder = new CliResponseBuilder();
+    builder.WritePagedTable(["Id", "Customer"], rows, page, total);   // or hasMore: when the total is costly
+    return builder.Build();
+}
+```
+
+Tables from commands that do not page are cut at `CliServerOptions.MaxTableRows` (default 200, `0` = no limit) and the terminal says rows were left out.
+
 ### Registration
 
 ```csharp
@@ -237,6 +261,7 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `AddProcessor`, `AddProcessorsFromAssembly`, `AddModule` | Registers commands |
 | `AddApplicationPart(Assembly)` | Adds a plugin assembly's controllers |
 | `Services` | The `IServiceCollection`, for plugin registrations |
+| `ServerOptions.MaxTableRows` | Rows an unpaged table may return before it is cut (default 200, `0` = no limit); see [Paging](#paging) |
 
 ### Shell (`CliShellOptions`)
 
