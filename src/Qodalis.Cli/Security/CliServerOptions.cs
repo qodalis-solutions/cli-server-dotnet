@@ -31,6 +31,13 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// True when requests are authenticated by the host application rather than by the CLI's own
+    /// sign-in (set by an authentication plugin, e.g. the users plugin with <c>UseExternalAuth</c>).
+    /// The admin dashboard then signs in through the host (<c>GET /api/v1/qcli/auth/mode</c>).
+    /// </summary>
+    public bool ExternalAuthentication { get; set; }
+
+    /// <summary>
     /// The most rows a table may return without paging (default 200; 0 = no limit). A larger
     /// table from a command that does not page (<c>WritePagedTable</c>) is cut to this many rows
     /// and marked <c>truncated</c>, so a terminal never receives thousands of rows at once.

@@ -1,3 +1,5 @@
+using Qodalis.Cli.Security;
+
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
 /// <summary>
@@ -13,37 +15,20 @@ public sealed class AdminAuthMode
     /// <summary>Mode name for sign-in through the host application.</summary>
     public const string External = "external";
 
-    // The admin plugin does not reference the users plugin, so its options are read by name.
-    private const string UsersOptionsTypeName = "Qodalis.Cli.Plugin.Users.UsersModuleOptions";
-    private const string UsesExternalAuthProperty = "UsesExternalAuth";
-
-    private readonly Lazy<bool> _isExternal;
+    private readonly CliServerOptions _serverOptions;
 
     /// <summary>Initializes a new instance of the <see cref="AdminAuthMode"/> class.</summary>
-    public AdminAuthMode(IServiceProvider services)
+    public AdminAuthMode(CliServerOptions serverOptions)
     {
-        _isExternal = new Lazy<bool>(() => DetectExternal(services));
+        _serverOptions = serverOptions;
     }
 
-    /// <summary>True when the users plugin is configured with an external auth adapter.</summary>
-    public bool IsExternal => _isExternal.Value;
+    /// <summary>
+    /// True when the host application signs users in (<see cref="CliServerOptions.ExternalAuthentication"/>,
+    /// set by the users plugin's <c>UseExternalAuth</c>).
+    /// </summary>
+    public bool IsExternal => _serverOptions.ExternalAuthentication;
 
     /// <summary><see cref="External"/> or <see cref="Password"/>.</summary>
     public string Mode => IsExternal ? External : Password;
-
-    private static bool DetectExternal(IServiceProvider services)
-    {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var type = assembly.GetType(UsersOptionsTypeName, throwOnError: false);
-            if (type == null) continue;
-
-            var options = services.GetService(type);
-            if (options == null) return false;
-
-            return type.GetProperty(UsesExternalAuthProperty)?.GetValue(options) is true;
-        }
-
-        return false;
-    }
 }
