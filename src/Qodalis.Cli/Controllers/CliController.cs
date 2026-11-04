@@ -171,7 +171,7 @@ public class CliController : ControllerBase
                 exitCode = await streamProcessor.HandleStreamAsync(command, async output =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await WriteEvent("output", output);
+                    await WriteEvent("output", output is CliServerOutput block ? CliOutputLimits.Apply(block, _serverOptions.MaxTableRows) : output);
                 }, cancellationToken);
             }
             else

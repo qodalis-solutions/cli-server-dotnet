@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Models;
 
 namespace Qodalis.Cli.Services;
@@ -20,6 +21,23 @@ public class CliResponseBuilder : ICliResponseBuilder
     public void WriteTable(string[] headers, string[][] rows)
     {
         _outputs.Add(new TableOutput { Headers = headers, Rows = rows });
+    }
+
+    /// <inheritdoc />
+    public void WritePagedTable(string[] headers, string[][] rows, CliPageRequest page, long? total = null, bool? hasMore = null)
+    {
+        _outputs.Add(new TableOutput
+        {
+            Headers = headers,
+            Rows = rows,
+            Page = new CliTablePage
+            {
+                Skip = page.Skip,
+                Take = page.Take,
+                Total = total,
+                HasMore = hasMore ?? (total is { } t && page.Skip + rows.Length < t),
+            },
+        });
     }
 
     /// <inheritdoc />
