@@ -27,10 +27,12 @@ public static class CliBuilderAdminExtensions
             var logger = sp.GetRequiredService<ILogger<AdminConfig>>();
             var config = new AdminConfig(logger);
             configure?.Invoke(config);
+            config.Validate();
             config.ResolveFromEnvironment();
             return config;
         });
         builder.Services.AddSingleton<JwtService>();
+        builder.Services.AddSingleton<AdminAuthMode>();
 
         // Register the log ring buffer and wire it into the ASP.NET logging pipeline
         var logBuffer = new LogRingBuffer();

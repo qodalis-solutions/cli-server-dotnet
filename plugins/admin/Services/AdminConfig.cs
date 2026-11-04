@@ -39,6 +39,46 @@ public class AdminConfig
     public AdminTheme Theme { get; set; } = new();
 
     /// <summary>
+    /// Where the host application signs users in, shown by the dashboard in external sign-in mode
+    /// (users plugin with an external auth adapter) and returned by <c>GET /api/v1/qcli/auth/mode</c>.
+    /// An absolute <c>http(s)</c> URL or a root-relative path (<c>/sign-in</c>). Null: the dashboard
+    /// tells users to sign in through the host application.
+    /// </summary>
+    public string? SignInUrl { get; set; }
+
+    /// <summary>
+    /// Validates the options set by the host. Throws <see cref="ArgumentException"/> on an invalid
+    /// <see cref="SignInUrl"/>.
+    /// </summary>
+    internal void Validate()
+    {
+        if (SignInUrl != null && !IsValidSignInUrl(SignInUrl))
+        {
+            throw new ArgumentException(
+                $"AdminConfig.SignInUrl must be an absolute http(s) URL or a root-relative path, got '{SignInUrl}'.",
+                nameof(SignInUrl));
+        }
+    }
+
+    /// <summary>
+    /// True for an absolute <c>http</c>/<c>https</c> URL with a host, or a root-relative path
+    /// (<c>/sign-in</c>; not protocol-relative <c>//host</c>). Rejects other schemes such as
+    /// <c>javascript:</c>, and control characters or whitespace.
+    /// </summary>
+    public static bool IsValidSignInUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+            return false;
+
+        if (value.StartsWith('/'))
+            return value.Length == 1 || (value[1] != '/' && value[1] != '\\');
+
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && !string.IsNullOrEmpty(uri.Host);
+    }
+
+    /// <summary>
     /// Resolves configuration from environment variables, falling back to configured defaults.
     /// </summary>
     internal void ResolveFromEnvironment()
