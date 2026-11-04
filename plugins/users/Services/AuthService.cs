@@ -529,7 +529,7 @@ public partial class AuthService
     {
         if (adapter != null)
         {
-            var result = adapter.Authenticate(context);
+            var result = await adapter.AuthenticateAsync(context, context.RequestAborted);
             return result?.User == null
                 ? null
                 : await AuthenticateExternalAsync(result, ExternalRequestSnapshot.Capture(context));
@@ -762,14 +762,15 @@ public partial class AuthService
     /// known, the adapter returns no user, a different user, or throws.
     /// </summary>
     public async Task<UsersAuthContext?> RevalidateExternalAsync(CliPrincipal principal, IExternalAuthAdapter adapter,
-        IServiceProvider? services = null)
+        IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         if (!_externalRequests.TryGetValue(principal, out var request)) return null;
 
         ExternalAuthResult? result;
         try
         {
-            result = adapter.Authenticate(await request.ToAuthenticatedHttpContextAsync(services));
+            var context = await request.ToAuthenticatedHttpContextAsync(services);
+            result = await adapter.AuthenticateAsync(context, cancellationToken);
         }
         catch (Exception ex)
         {

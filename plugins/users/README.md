@@ -55,7 +55,7 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `TrustProxy` | `bool` | `false` | Use `X-Forwarded-For` for the client IP (only behind a trusted proxy): the entry `TrustedProxyHops` from the right (the one your proxy appended), the leftmost if there are fewer entries, the remote address if absent. When `false` the header is ignored |
 | `TrustedProxyHops` | `int` | `1` | Number of trusted proxies in front of the server (used when `TrustProxy` is on); client IP = entry at index `count - TrustedProxyHops` |
 | `PasswordHashConcurrency` | `int` | `4` | Concurrent PBKDF2 computations |
-| `AuthAdapter` / `UseExternalAuth(...)` / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
+| `AuthAdapter` / `UseExternalAuth(...)` (sync or async delegate, or an instance) / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
 
 ## Permissions
 
@@ -227,6 +227,23 @@ cli.AddUsers(options =>
         return new ExternalAuthResult { User = ToCliUser(principal), IsAdmin = principal.IsInRole("admin") };
     });
 });
+```
+
+The plugin always calls `IExternalAuthAdapter.AuthenticateAsync(HttpContext, CancellationToken)`, so an adapter can
+load the user, their roles or their disabled state from a database. Its default implementation calls the synchronous
+`Authenticate(HttpContext)`, so existing adapters keep working; an adapter implements either one. The delegate
+shortcut has an async form too (the token is `RequestAborted` for requests and upgrades, and is cancelled when the
+server stops for a socket re-check):
+
+```csharp
+options.UseExternalAuth(async (ctx, cancellationToken) =>
+{
+    if (await userAccess.CurrentAsync(ctx, cancellationToken) is not { } current) return null;
+    return new ExternalAuthResult { User = ToCliUser(current), IsAdmin = current.IsAdmin };
+});
+
+// or a DI-constructed adapter implementing AuthenticateAsync
+options.UseExternalAuth<HostAuthAdapter>();
 ```
 
 **Shells opened by adapter users** are bound like stored sessions (spec C2): at registration and at every
