@@ -434,7 +434,51 @@ public class UsersApiTests
         Assert.Same(sessions, provider.GetRequiredService<ISessionStore>());
     }
 
+    [Fact]
+    public async Task ListUsers_PassesQueryAndPageToTheStore()
+    {
+        var store = new PagingUserStore();
+        var users = new UsersService(store, _groupStore, _credentialStore, _auditStore, _authService);
+
+        await users.ListUsersAsync("jo", 20, 10);
+        await users.ListUsersAsync(null, null, null);
+
+        Assert.Equal([("jo", 20, (int?)10), (null, 0, null)], store.Queries);
+        Assert.Equal(0, store.FullLoads);
+    }
+
+    [Fact]
+    public async Task QueryUsers_DefaultFiltersAndPagesInMemory()
+    {
+        foreach (var name in new[] { "qa-1", "qa-2", "qa-3", "dev" })
+            await _userStore.CreateUserAsync(new CreateUserDto { Name = name, Email = $"{name}@x.io" });
+
+        var page = await _userStore.QueryUsersAsync("QA-", 1, 1);
+
+        Assert.Equal(["qa-2"], page.Select(u => u.Name));
+        Assert.Equal(4, (await _userStore.QueryUsersAsync(null, 0, null)).Count);
+    }
+
     public sealed class StoreDependency;
+
+    /// <summary>A store that pages itself, like one backed by a database.</summary>
+    private sealed class PagingUserStore : InMemoryUserStore, IUserStore
+    {
+        public List<(string? Query, int Skip, int? Take)> Queries { get; } = [];
+        public int FullLoads { get; private set; }
+
+        Task<List<User>> IUserStore.GetUsersAsync()
+        {
+            FullLoads++;
+            return GetUsersAsync();
+        }
+
+        Task<List<User>> IUserStore.QueryUsersAsync(string? query, int skip, int? take)
+        {
+            Queries.Add((query, skip, take));
+            return Task.FromResult(new List<User>());
+        }
+    }
 
     public sealed class DiUserStore(StoreDependency dependency) : InMemoryUserStore
     {
