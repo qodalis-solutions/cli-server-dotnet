@@ -68,7 +68,10 @@ public class SessionsController : UsersControllerBase
     {
         var auth = Auth;
         if (auth.ApiToken != null) throw UsersApiException.NotFound("not a session");
-        return JsonOk(auth.ToCurrentSession());
+        var current = auth.ToCurrentSession();
+        current.UsersReadOnly = _auth.Options.UsersReadOnly;
+        current.GroupsReadOnly = _auth.Options.GroupsReadOnly;
+        return JsonOk(current);
     }
 
     /// <summary>Logout: end the current session.</summary>

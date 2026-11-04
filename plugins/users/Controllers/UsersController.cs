@@ -40,16 +40,19 @@ public class UsersController : UsersControllerBase
     /// <summary>Create a user. Requires <c>users:create</c>.</summary>
     [HttpPost]
     [UsersPermission(UsersPermissions.UsersCreate)]
+    [UsersStoreWrite(UsersStores.Users)]
     public async Task<IActionResult> Create([FromBody] CreateUserDto dto) =>
         Json(201, await _users.CreateUserAsync(dto, Auth));
 
     /// <summary>Update a user. Requires <c>users:update</c>; self may change only email and data.</summary>
     [HttpPut("{idOrName}")]
+    [UsersStoreWrite(UsersStores.Users)]
     public async Task<IActionResult> Update([FromRoute] string idOrName, [FromBody] UpdateUserDto dto) =>
         JsonOk(await _users.UpdateUserAsync(idOrName, dto, Auth));
 
     /// <summary>Delete a user (cascades credentials and sessions). Requires <c>users:delete</c>.</summary>
     [HttpDelete("{idOrName}")]
+    [UsersStoreWrite(UsersStores.Users)]
     [UsersPermission(UsersPermissions.UsersDelete)]
     public async Task<IActionResult> Delete([FromRoute] string idOrName)
     {
@@ -59,6 +62,7 @@ public class UsersController : UsersControllerBase
 
     /// <summary>Change a password. Self (with current password) or <c>users:update</c>; never with an API token (403).</summary>
     [HttpPut("{idOrName}/password")]
+    [UsersStoreWrite(UsersStores.Users)]
     [UsersCredentialEndpoint]
     [UsersAllowPasswordChangeRequired]
     public async Task<IActionResult> ChangePassword([FromRoute] string idOrName, [FromBody] PasswordChangeRequest request)

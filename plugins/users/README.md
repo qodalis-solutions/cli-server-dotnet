@@ -55,6 +55,8 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `TrustProxy` | `bool` | `false` | Use `X-Forwarded-For` for the client IP (only behind a trusted proxy): the entry `TrustedProxyHops` from the right (the one your proxy appended), the leftmost if there are fewer entries, the remote address if absent. When `false` the header is ignored |
 | `TrustedProxyHops` | `int` | `1` | Number of trusted proxies in front of the server (used when `TrustProxy` is on); client IP = entry at index `count - TrustedProxyHops` |
 | `PasswordHashConcurrency` | `int` | `4` | Concurrent PBKDF2 computations |
+| `UsersReadOnly` / `ReadOnlyUsers()` | `bool` | `false` | The host owns the users: user writes answer `501` (see [Read-only stores](#read-only-stores)) |
+| `GroupsReadOnly` / `ReadOnlyGroups()` | `bool` | `false` | The host owns the groups: group writes answer `501` |
 | `AuthAdapter` / `UseExternalAuth(...)` (sync or async delegate, or an instance) / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
 
 ## Permissions
@@ -101,7 +103,7 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 |----------|--------|-------------|-------------|
 | `/sessions` | POST | public | Login by name or email: `{ username, password }` → `201 { token, session }` |
 | `/sessions/ws-ticket` | POST | authenticated | Single-use WebSocket ticket → `201 { ticket, expiresIn }` |
-| `/sessions/current` | GET | authenticated | `{ id, user, permissions, loginTime, lastActivity, expiresAt }` |
+| `/sessions/current` | GET | authenticated | `{ id, user, permissions, loginTime, lastActivity, expiresAt, usersReadOnly, groupsReadOnly }` |
 | `/sessions/current` | DELETE | authenticated | Logout (204) |
 | `/sessions` | GET | `sessions:read` | Active sessions (never includes tokens) |
 | `/sessions/{id}` | DELETE | `sessions:revoke` or own session | Revoke (204) and broadcast `session-kicked` |
@@ -215,7 +217,8 @@ public Task<List<User>> QueryUsersAsync(string? query, int skip, int? take) =>
 
 ## External auth adapter
 
-If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`), `verify-password` and password changes then answer `501`, no `root` user is seeded (the built-in groups still are), and permissions come from the groups the adapter returns (`IsAdmin` adds `admin`).
+If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`), `verify-password` and password changes then answer `501`, no `root` user is seeded (the built-in groups still are), and permissions come from the groups the adapter returns (`IsAdmin` adds `admin`) plus the result's
+`Permissions`. Group names missing from the group store grant nothing (and break nothing).
 
 ```csharp
 cli.AddUsers(options =>
@@ -246,6 +249,16 @@ options.UseExternalAuth(async (ctx, cancellationToken) =>
 options.UseExternalAuth<HostAuthAdapter>();
 ```
 
+Hosts with their own roles can grant permissions directly instead of keeping a group per permission:
+
+```csharp
+return new ExternalAuthResult
+{
+    User = ToCliUser(account),                       // Groups may be empty
+    Permissions = ["commands:execute", "logs:read"], // added to the groups' permissions
+};
+```
+
 **Shells opened by adapter users** are bound like stored sessions (spec C2): at registration and at every
 re-check (`SessionCheckInterval`, and on user/group changes) the adapter is run again on a snapshot of the
 request it accepted — the shell upgrade, or the `POST /sessions/ws-ticket` request when a ticket was used. The
@@ -263,6 +276,29 @@ disabled user, an exception, or a user who no longer holds the socket's permissi
 the events socket only needs authentication) closes the socket with `4401 session ended`.
 
 A user the adapter returns with `Disabled = true` is refused (401 `account disabled`).
+
+## Read-only stores
+
+When the host application owns the users or groups (a custom `IUserStore`/`IGroupStore` over its own accounts and
+roles), mark them read-only instead of throwing from the store's write methods:
+
+```csharp
+cli.AddUsers(options => options
+    .UseExternalAuth<HostAuthAdapter>()
+    .SetUserStore<HostUserStore>()   // only the read methods need real implementations
+    .ReadOnlyUsers()
+    .ReadOnlyGroups());
+```
+
+- **`ReadOnlyUsers()`** (`UsersReadOnly = true`): `POST /users`, `PUT /users/{idOrName}` (self updates too),
+  `DELETE /users/{idOrName}`, `PUT /users/{idOrName}/password` and `POST`/`DELETE /groups/{name}/members/{idOrName}`
+  answer `501 { "error": "Users are managed by the host application" }` without calling any store. No `root` user is
+  seeded, and deleting a group leaves the users' memberships alone.
+- **`ReadOnlyGroups()`** (`GroupsReadOnly = true`): `POST /groups`, `PUT /groups/{name}` and `DELETE /groups/{name}`
+  answer `501 { "error": "Groups are managed by the host application" }` without calling the store, and the built-in
+  `admin` and `users` groups are not seeded (the host's store provides the groups it needs).
+- Reads keep working. `GET /sessions/current` and the login response (`session`) carry `usersReadOnly` and
+  `groupsReadOnly` (always present, `false` by default) so clients can hide `adduser`, `groupadd` and the like.
 
 ## Client
 

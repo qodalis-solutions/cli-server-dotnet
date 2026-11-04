@@ -115,6 +115,35 @@ public class UsersModuleOptions
 
     internal Type? AuthAdapterType { get; private set; }
 
+    /// <summary>
+    /// The host application owns the users (e.g. a read-only <see cref="IUserStore"/> over its own accounts):
+    /// creating, updating and deleting users, password changes and group membership changes answer
+    /// <c>501</c> without calling the stores, no <c>root</c> user is seeded, and
+    /// <c>GET /sessions/current</c> reports <c>usersReadOnly: true</c> so clients hide those commands.
+    /// </summary>
+    public bool UsersReadOnly { get; set; }
+
+    /// <summary>
+    /// The host application owns the groups: creating, updating and deleting groups answer <c>501</c>
+    /// without calling the store, the built-in groups are not seeded, and <c>GET /sessions/current</c>
+    /// reports <c>groupsReadOnly: true</c>.
+    /// </summary>
+    public bool GroupsReadOnly { get; set; }
+
+    /// <summary>Sets <see cref="UsersReadOnly"/>.</summary>
+    public UsersModuleOptions ReadOnlyUsers(bool readOnly = true)
+    {
+        UsersReadOnly = readOnly;
+        return this;
+    }
+
+    /// <summary>Sets <see cref="GroupsReadOnly"/>.</summary>
+    public UsersModuleOptions ReadOnlyGroups(bool readOnly = true)
+    {
+        GroupsReadOnly = readOnly;
+        return this;
+    }
+
     /// <summary>Effective idle session timeout.</summary>
     public long EffectiveSessionTimeoutMs => SessionTimeoutMs is > 0 ? SessionTimeoutMs.Value : DefaultSessionTimeoutMs;
 

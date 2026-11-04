@@ -391,6 +391,8 @@ public partial class AuthService
                 LoginTime = session.LoginTime,
                 LastActivity = session.LastActivity,
                 ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
+                UsersReadOnly = _options.UsersReadOnly,
+                GroupsReadOnly = _options.GroupsReadOnly,
             },
         };
     }
@@ -491,8 +493,9 @@ public partial class AuthService
     }
 
     /// <summary>
-    /// Builds the auth context for a request authenticated by an external adapter.
-    /// <paramref name="request"/> is the request the adapter accepted (kept for re-validation).
+    /// Builds the auth context for a request authenticated by an external adapter: the permissions of the
+    /// user's groups (plus <c>admin</c> with <see cref="ExternalAuthResult.IsAdmin"/>) and
+    /// <see cref="ExternalAuthResult.Permissions"/>. <paramref name="request"/> is the request the adapter accepted (kept for re-validation).
     /// </summary>
     public async Task<UsersAuthContext> AuthenticateExternalAsync(ExternalAuthResult result,
         ExternalRequestSnapshot? request = null)
@@ -506,11 +509,15 @@ public partial class AuthService
         var user = source.Clone();
         user.Groups = groups;
 
+        var permissions = await GetEffectivePermissionsAsync(user);
+        if (result.Permissions is { Count: > 0 } granted)
+            permissions = PermissionMatcher.Merge([permissions, granted]);
+
         var now = Now();
         return new UsersAuthContext
         {
             User = user,
-            Permissions = await GetEffectivePermissionsAsync(user),
+            Permissions = permissions,
             Session = null,
             SessionId = $"external-{user.Id}",
             LoginTime = now,

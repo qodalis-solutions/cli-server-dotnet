@@ -443,7 +443,8 @@ public class UsersService
             if (group.IsBuiltIn)
                 throw UsersApiException.Conflict($"built-in group '{group.Name}' cannot be deleted");
 
-            foreach (var user in await GetGroupMembersAsync(group))
+            // A read-only user store keeps its memberships (the host owns them).
+            foreach (var user in _auth.Options.UsersReadOnly ? [] : await GetGroupMembersAsync(group))
             {
                 await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto
                 {
