@@ -10,6 +10,26 @@ public interface IUserStore
 {
     Task<List<User>> GetUsersAsync();
 
+    /// <summary>
+    /// One page of users, oldest first: <paramref name="query"/> matches name or email substrings
+    /// (case-insensitive), then <paramref name="skip"/> and <paramref name="take"/> (null: all) apply.
+    /// The default loads every user with <see cref="GetUsersAsync"/> and pages in memory; stores backed
+    /// by a database should implement it with a query.
+    /// </summary>
+    async Task<List<User>> QueryUsersAsync(string? query, int skip, int? take)
+    {
+        IEnumerable<User> users = await GetUsersAsync();
+        if (!string.IsNullOrEmpty(query))
+        {
+            users = users.Where(u =>
+                u.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+        if (skip > 0) users = users.Skip(skip);
+        if (take.HasValue) users = users.Take(take.Value);
+        return users.ToList();
+    }
+
     /// <summary>Finds a user by id, or by name (case-insensitive).</summary>
     Task<User?> GetUserAsync(string idOrName);
 
