@@ -134,6 +134,26 @@ public class UsersModuleOptions
         AuthAdapter = new DelegateAuthAdapter(adapter);
     }
 
+    /// <summary>
+    /// Sets an asynchronous delegate-based external auth adapter, for hosts that load the user,
+    /// their roles or their state from a database. For requests and socket upgrades the token is the
+    /// request's <see cref="HttpContext.RequestAborted"/>; when an open socket is re-checked on its
+    /// rebuilt request, it is cancelled when the server stops.
+    /// </summary>
+    public UsersModuleOptions UseExternalAuth(Func<HttpContext, CancellationToken, ValueTask<ExternalAuthResult?>> adapter)
+    {
+        AuthAdapter = new DelegateAuthAdapter(adapter);
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="adapter"/> as the external auth adapter.</summary>
+    public UsersModuleOptions UseExternalAuth(IExternalAuthAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        AuthAdapter = adapter;
+        return this;
+    }
+
     /// <summary>Uses an external auth adapter constructed through dependency injection.</summary>
     public UsersModuleOptions UseExternalAuth<T>() where T : class, IExternalAuthAdapter
     {

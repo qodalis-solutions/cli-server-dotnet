@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Security;
@@ -86,7 +87,8 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
         {
             if (adapter == null) return null;
             using var scope = services?.CreateScope();
-            var external = await auth.RevalidateExternalAsync(principal, adapter, scope?.ServiceProvider);
+            var stopping = services?.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? default;
+            var external = await auth.RevalidateExternalAsync(principal, adapter, scope?.ServiceProvider, stopping);
             if (external?.ExternalRequest == null) return null;
             var current = external.ToCliPrincipal();
             auth.BindExternalRequest(current, external.ExternalRequest);
