@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -9,6 +10,8 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// Seeds the built-in groups (<c>admin</c> = <c>*</c>, <c>users</c> = <c>commands:execute</c>) and —
 /// unless external auth is configured — the <c>root</c> user (random password with
 /// <c>mustChangePassword</c> when none is configured, printed to standard error and never logged), and periodically sweeps idle sessions.
+/// With an external auth adapter it instead re-checks the events and logs sockets opened through the adapter every
+/// <see cref="Qodalis.Cli.Security.CliShellOptions.SessionCheckInterval"/> (see <see cref="AuthService.RecheckExternalSocketsAsync"/>).
 /// Seeding is idempotent and also awaited by the auth middleware, so requests that arrive
 /// before the hosted service has started still see the seeded state.
 /// </summary>
@@ -22,6 +25,10 @@ public class UsersBootstrapService : IHostedService, IDisposable
     private readonly object _seedLock = new();
     private Task? _seedTask;
     private Timer? _cleanupTimer;
+    private Timer? _externalSocketTimer;
+    private readonly IServiceProvider? _services;
+    private readonly CancellationTokenSource _stopping = new();
+    private int _externalCheckRunning;
 
     private static readonly TimeSpan MaxCleanupInterval = TimeSpan.FromMinutes(5);
 
@@ -30,8 +37,10 @@ public class UsersBootstrapService : IHostedService, IDisposable
         IGroupStore groupStore,
         AuthService authService,
         UsersModuleOptions options,
-        ILogger<UsersBootstrapService> logger)
+        ILogger<UsersBootstrapService> logger,
+        IServiceProvider? services = null)
     {
+        _services = services;
         _userStore = userStore;
         _groupStore = groupStore;
         _authService = authService;
@@ -134,7 +143,11 @@ public class UsersBootstrapService : IHostedService, IDisposable
     {
         await EnsureSeededAsync();
 
-        if (_options.UsesExternalAuth) return;
+        if (_options.UsesExternalAuth)
+        {
+            StartExternalSocketChecks();
+            return;
+        }
 
         var timeout = TimeSpan.FromMilliseconds(_authService.SessionTimeoutMs);
         var interval = timeout < MaxCleanupInterval ? timeout : MaxCleanupInterval;
@@ -151,15 +164,57 @@ public class UsersBootstrapService : IHostedService, IDisposable
         }, null, interval, interval);
     }
 
+    /// <summary>
+    /// The interval at which open shells re-check their session (<c>SessionCheckInterval</c>, capped at 60 s),
+    /// also used for the events and logs sockets opened through the external adapter.
+    /// </summary>
+    internal TimeSpan ExternalSocketCheckInterval
+    {
+        get
+        {
+            var configured = _services?.GetService<Qodalis.Cli.Security.CliServerOptions>()?.Shell.SessionCheckInterval
+                ?? TimeSpan.FromSeconds(30);
+            var max = Qodalis.Cli.Security.CliShellOptions.MaxSessionCheckInterval;
+            return configured <= TimeSpan.Zero || configured > max ? max : configured;
+        }
+    }
+
+    private void StartExternalSocketChecks()
+    {
+        if (_services?.GetService<IExternalAuthAdapter>() is not { } adapter) return;
+        var interval = ExternalSocketCheckInterval;
+        _externalSocketTimer = new Timer(async _ =>
+        {
+            // A slow adapter must not stack checks.
+            if (Interlocked.Exchange(ref _externalCheckRunning, 1) == 1) return;
+            try
+            {
+                await _authService.RecheckExternalSocketsAsync(adapter, _services, _stopping.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during the external-auth socket check");
+            }
+            finally
+            {
+                Volatile.Write(ref _externalCheckRunning, 0);
+            }
+        }, null, interval, interval);
+    }
+
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _cleanupTimer?.Change(Timeout.Infinite, 0);
+        _externalSocketTimer?.Change(Timeout.Infinite, 0);
+        _stopping.Cancel();
         return Task.CompletedTask;
     }
 
     public void Dispose()
     {
         _cleanupTimer?.Dispose();
+        _externalSocketTimer?.Dispose();
+        _stopping.Dispose();
         GC.SuppressFinalize(this);
     }
 }

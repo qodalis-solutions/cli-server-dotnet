@@ -81,7 +81,7 @@ Public: `POST /sessions`, `POST /auth/login` (admin dashboard), `/api/qcli/versi
 
 **Shell sessions** are bound to the session that opened them: logout, expiry, revoke, user disabled/deleted or losing `shell:execute` closes them with `4401`. Audit events `shell_opened` / `shell_closed` (`metadata: { mode, sessionId, durationMs, exitCode, reason }`, never the command). Shell rejections are close codes (`4401`/`4403`/`4404`/`4429`/`4408`), not HTTP statuses. See the main README, "Shell security".
 
-**Events and logs sockets** are bound to the stored session that opened them: when it ends (logout, revoke, user disabled/deleted, expiry) the socket closes with `4401 session ended`; for a revoke, `session-kicked` is sent first. Sockets authenticated by an external adapter have no stored session and are not re-checked.
+**Events and logs sockets** are bound to the stored session that opened them: when it ends (logout, revoke, user disabled/deleted, expiry) the socket closes with `4401 session ended`; for a revoke, `session-kicked` is sent first. Sockets opened through an external adapter are re-checked through the adapter every `SessionCheckInterval` (see [External auth adapter](#external-auth-adapter)).
 
 **WebSockets** authenticate with a single-use ticket: `POST /sessions/ws-ticket` → `201 { ticket, expiresIn: 30 }`, then connect with `?ticket=<ticket>`. Bearer tokens are never accepted in query strings. Upgrades are checked against `cli.SetAllowedOrigins(...)`.
 
@@ -255,6 +255,14 @@ headers or cookies — directly, or through the host's default ASP.NET Core auth
 the snapshot so `ctx.User` is set as in the example above. `null`, a different user or an exception closes the
 shell with `4401 session ended`; a user without `shell:execute` closes it with `4401 session ended` too (audit
 reason `permission removed`).
+
+**Events and logs sockets opened by adapter users** are re-checked the same way: every `SessionCheckInterval`
+(`cli.ServerOptions.Shell.SessionCheckInterval`, default 30 s, capped at 60 s; it applies whether or not the shell is
+enabled) the adapter runs again on the snapshot of the upgrade or ticket request. `null`, a different user, a
+disabled user, an exception, or a user who no longer holds the socket's permission (`logs:read` for the logs socket;
+the events socket only needs authentication) closes the socket with `4401 session ended`.
+
+A user the adapter returns with `Disabled = true` is refused (401 `account disabled`).
 
 ## Client
 

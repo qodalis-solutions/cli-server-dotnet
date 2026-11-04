@@ -244,7 +244,7 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AdapterEventsSocket_HasNoStoredSession_StaysOpenOnRecheck()
+    public async Task AdapterEventsSocket_StaysOpenWhileTheAdapterAcceptsIt()
     {
         await using var h = await UsersTestHost.StartAsync(options => options.UseExternalAuth(context =>
         {
