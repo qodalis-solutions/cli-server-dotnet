@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Regex = System.Text.RegularExpressions.Regex;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -390,6 +391,8 @@ public partial class AuthService
                 LoginTime = session.LoginTime,
                 LastActivity = session.LastActivity,
                 ExpiresAt = ExpiresAt(session.LoginTime, session.LastActivity),
+                UsersReadOnly = _options.UsersReadOnly,
+                GroupsReadOnly = _options.GroupsReadOnly,
             },
         };
     }
@@ -490,13 +493,15 @@ public partial class AuthService
     }
 
     /// <summary>
-    /// Builds the auth context for a request authenticated by an external adapter.
-    /// <paramref name="request"/> is the request the adapter accepted (kept for re-validation).
+    /// Builds the auth context for a request authenticated by an external adapter: the permissions of the
+    /// user's groups (plus <c>admin</c> with <see cref="ExternalAuthResult.IsAdmin"/>) and
+    /// <see cref="ExternalAuthResult.Permissions"/>. <paramref name="request"/> is the request the adapter accepted (kept for re-validation).
     /// </summary>
     public async Task<UsersAuthContext> AuthenticateExternalAsync(ExternalAuthResult result,
         ExternalRequestSnapshot? request = null)
     {
         var source = result.User;
+        if (source.Disabled) throw UsersApiException.Unauthorized(AccountDisabledMessage);
         var groups = new List<string>(source.Groups ?? []);
         if (result.IsAdmin && !groups.Any(g => string.Equals(g, Group.AdminGroup, StringComparison.OrdinalIgnoreCase)))
             groups.Add(Group.AdminGroup);
@@ -504,11 +509,15 @@ public partial class AuthService
         var user = source.Clone();
         user.Groups = groups;
 
+        var permissions = await GetEffectivePermissionsAsync(user);
+        if (result.Permissions is { Count: > 0 } granted)
+            permissions = PermissionMatcher.Merge([permissions, granted]);
+
         var now = Now();
         return new UsersAuthContext
         {
             User = user,
-            Permissions = await GetEffectivePermissionsAsync(user),
+            Permissions = permissions,
             Session = null,
             SessionId = $"external-{user.Id}",
             LoginTime = now,
@@ -529,7 +538,7 @@ public partial class AuthService
     {
         if (adapter != null)
         {
-            var result = adapter.Authenticate(context);
+            var result = await adapter.AuthenticateAsync(context, context.RequestAborted);
             return result?.User == null
                 ? null
                 : await AuthenticateExternalAsync(result, ExternalRequestSnapshot.Capture(context));
@@ -677,14 +686,15 @@ public partial class AuthService
     /// <summary>
     /// Whether the stored session behind an events/logs socket is still alive: not logged out,
     /// revoked or expired, and its user neither deleted nor disabled. Never extends the session.
-    /// External-adapter principals have no stored session and stay valid.
+    /// External-adapter principals have no stored session and stay valid here: they are re-checked through
+    /// the adapter by <see cref="RecheckExternalSocketsAsync"/>.
     /// </summary>
     public async Task<bool> IsSocketSessionActiveAsync(CliPrincipal principal)
     {
         if (principal.TokenId != null)
             return await RevalidateApiTokenAsync(principal.TokenId, principal.UserId) != null;
         if (principal.SessionId == null) return false;
-        if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal)) return true;
+        if (IsExternalPrincipal(principal)) return true;
 
         var session = await _sessionStore.GetSessionByIdAsync(principal.SessionId);
         if (session == null || session.UserId != principal.UserId) return false;
@@ -759,26 +769,68 @@ public partial class AuthService
     /// <summary>
     /// Re-validates an external-adapter principal by running <paramref name="adapter"/> again on the
     /// request it originally accepted (see <see cref="BindExternalRequest"/>). Null when no request is
-    /// known, the adapter returns no user, a different user, or throws.
+    /// known, the adapter returns no user, a different or disabled user, or throws.
     /// </summary>
     public async Task<UsersAuthContext?> RevalidateExternalAsync(CliPrincipal principal, IExternalAuthAdapter adapter,
-        IServiceProvider? services = null)
+        IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         if (!_externalRequests.TryGetValue(principal, out var request)) return null;
 
         ExternalAuthResult? result;
         try
         {
-            result = adapter.Authenticate(await request.ToAuthenticatedHttpContextAsync(services));
+            var context = await request.ToAuthenticatedHttpContextAsync(services);
+            result = await adapter.AuthenticateAsync(context, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "External auth adapter failed while re-validating user {UserId}", principal.UserId);
             return null;
         }
-        if (result?.User == null || result.User.Id != principal.UserId) return null;
+        if (result?.User == null || result.User.Id != principal.UserId || result.User.Disabled) return null;
 
         return await AuthenticateExternalAsync(result, request);
+    }
+
+    /// <summary>True for principals authenticated by an external adapter (no stored session or token).</summary>
+    internal static bool IsExternalPrincipal(CliPrincipal principal) =>
+        principal.TokenId == null && principal.SessionId?.StartsWith("external-", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// Re-checks the events and logs sockets opened through the external adapter: the adapter runs again on
+    /// the request each socket was opened with (see <see cref="BindExternalRequest"/>), and the socket closes
+    /// with 4401 <c>session ended</c> when it returns no user, another user or a disabled user, throws, or the
+    /// user no longer holds the socket's permission (<c>logs:read</c> for logs). Other sockets are untouched
+    /// (they are checked against their stored session or token).
+    /// </summary>
+    public async Task RecheckExternalSocketsAsync(IExternalAuthAdapter adapter, IServiceProvider? services = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _events?.CloseEndedSessionsAsync(p =>
+                    IsExternalSocketActiveAsync(p, null, adapter, services, cancellationToken)) ?? Task.CompletedTask,
+                _logs?.CloseEndedSessionsAsync(p =>
+                    IsExternalSocketActiveAsync(p, CliRoutePolicy.LogsRead, adapter, services, cancellationToken)) ?? Task.CompletedTask);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to re-check external-auth sockets");
+        }
+    }
+
+    /// <summary>
+    /// Whether an external-adapter socket principal is still authenticated and holds
+    /// <paramref name="permission"/>; true for any other principal.
+    /// </summary>
+    internal async Task<bool> IsExternalSocketActiveAsync(CliPrincipal principal, string? permission,
+        IExternalAuthAdapter adapter, IServiceProvider? services, CancellationToken cancellationToken)
+    {
+        if (!IsExternalPrincipal(principal)) return true;
+        using var scope = services?.CreateScope();
+        var current = await RevalidateExternalAsync(principal, adapter, scope?.ServiceProvider, cancellationToken);
+        return current != null && (permission == null || current.Can(permission));
     }
 
     /// <summary>

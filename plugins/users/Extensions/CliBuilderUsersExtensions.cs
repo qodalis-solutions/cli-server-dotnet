@@ -40,6 +40,8 @@ public static class CliBuilderUsersExtensions
 
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;
+        // The host application signs users in (admin dashboard: GET /api/v1/qcli/auth/mode)
+        builder.ServerOptions.ExternalAuthentication = options.UsesExternalAuth;
 
         services.AddSingleton<AuthService>();
         services.AddSingleton<UsersService>();

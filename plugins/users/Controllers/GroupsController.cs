@@ -40,17 +40,20 @@ public class GroupsController : UsersControllerBase
     /// <summary>Create a group. Requires <c>groups:create</c>.</summary>
     [HttpPost]
     [UsersPermission(UsersPermissions.GroupsCreate)]
+    [UsersStoreWrite(UsersStores.Groups)]
     public async Task<IActionResult> Create([FromBody] CreateGroupRequest request) =>
         Json(201, await _users.CreateGroupAsync(request, Auth));
 
     /// <summary>Update a group's description/permissions. Requires <c>groups:update</c>.</summary>
     [HttpPut("{name}")]
+    [UsersStoreWrite(UsersStores.Groups)]
     [UsersPermission(UsersPermissions.GroupsUpdate)]
     public async Task<IActionResult> Update([FromRoute] string name, [FromBody] UpdateGroupDto dto) =>
         JsonOk(await _users.UpdateGroupAsync(name, dto, Auth));
 
     /// <summary>Delete a group (removed from all users). Requires <c>groups:delete</c>.</summary>
     [HttpDelete("{name}")]
+    [UsersStoreWrite(UsersStores.Groups)]
     [UsersPermission(UsersPermissions.GroupsDelete)]
     public async Task<IActionResult> Delete([FromRoute] string name)
     {
@@ -60,6 +63,7 @@ public class GroupsController : UsersControllerBase
 
     /// <summary>Add a user to a group. Requires <c>groups:update</c>.</summary>
     [HttpPost("{name}/members/{idOrName}")]
+    [UsersStoreWrite(UsersStores.Users)]
     [UsersPermission(UsersPermissions.GroupsUpdate)]
     public async Task<IActionResult> AddMember([FromRoute] string name, [FromRoute] string idOrName)
     {
@@ -69,6 +73,7 @@ public class GroupsController : UsersControllerBase
 
     /// <summary>Remove a user from a group. Requires <c>groups:update</c>.</summary>
     [HttpDelete("{name}/members/{idOrName}")]
+    [UsersStoreWrite(UsersStores.Users)]
     [UsersPermission(UsersPermissions.GroupsUpdate)]
     public async Task<IActionResult> RemoveMember([FromRoute] string name, [FromRoute] string idOrName)
     {
