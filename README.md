@@ -393,6 +393,10 @@ docker run -p 8046:8046 ghcr.io/qodalis-solutions/cli-server-dotnet
 
 The image runs the bundled host (`src/Qodalis.Cli.Server`) on port 8046. `./docker-run.sh` builds and starts the demo server instead (`docker compose`, port 8046). Set `QCLI_SHELL_TOKEN` to enable the bundled host's shell in token mode; without it the shell stays locked.
 
+## Versioning
+
+Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.12` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
+
 ## Development
 
 ```bash
