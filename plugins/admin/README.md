@@ -69,6 +69,8 @@ With the users plugin installed, the dashboard signs in through it (sessions, lo
 
 ### Sign in with the host app's session
 
+The full setup (adapter, middleware order, permissions) is in [Use with your app's sign-in](../../README.md#use-with-your-apps-sign-in).
+
 When the users plugin delegates authentication to your application (`UseExternalAuth`), the dashboard runs in
 **external** mode:
 

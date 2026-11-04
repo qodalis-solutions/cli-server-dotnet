@@ -217,6 +217,8 @@ public Task<List<User>> QueryUsersAsync(string? query, int skip, int? take) =>
 
 ## External auth adapter
 
+The middleware order and a complete setup with the admin dashboard are in [Use with your app's sign-in](../../README.md#use-with-your-apps-sign-in).
+
 If the host application already authenticates requests, provide an `IExternalAuthAdapter` or use the delegate shortcut. The adapter receives the `HttpContext` and returns an `ExternalAuthResult` (user + admin flag) or `null`. Login (`POST /sessions`), logout (`DELETE /sessions/current`), `verify-password` and password changes then answer `501`, no `root` user is seeded (the built-in groups still are), and permissions come from the groups the adapter returns (`IsAdmin` adds `admin`) plus the result's
 `Permissions`. Group names missing from the group store grant nothing (and break nothing).
 
