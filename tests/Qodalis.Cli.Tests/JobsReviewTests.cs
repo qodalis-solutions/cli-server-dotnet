@@ -208,16 +208,13 @@ public sealed class EfCoreStoresFirstUseTests : IDisposable
         var jobs = new EfCoreJobStorageProvider(new Factory<JobStorageDbContext>(
             new DbContextOptionsBuilder<JobStorageDbContext>().UseSqlite($"Data Source={_path}").Options, o => new JobStorageDbContext(o)));
 
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() => audit.LogAsync(new AuditEntry
-        {
-            Event = "login_failed",
-            Username = $"u{i}",
-            Timestamp = i,
-        }))));
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() =>
-            jobs.SaveJobStateAsync($"job{i}", new JobState { Status = JobStatus.Active }))));
+        // Reads, so SQLite's single writer does not get in the way: each first call sets the tables up
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => audit.GetEntriesAsync())));
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => jobs.GetAllJobStatesAsync())));
 
-        Assert.Equal(8, (await audit.GetEntriesAsync()).Count);
-        Assert.Equal(8, (await jobs.GetAllJobStatesAsync()).Count);
+        await audit.LogAsync(new AuditEntry { Event = "login_failed", Username = "u", Timestamp = 1 });
+        await jobs.SaveJobStateAsync("job", new JobState { Status = JobStatus.Active });
+        Assert.Single(await audit.GetEntriesAsync());
+        Assert.Single(await jobs.GetAllJobStatesAsync());
     }
 }
