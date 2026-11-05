@@ -72,6 +72,18 @@ public class InMemoryAuditStore : IAuditStore
             if (!string.IsNullOrEmpty(options?.Actor))
                 query = query.Where(e => string.Equals(e.Actor, options.Actor, StringComparison.OrdinalIgnoreCase));
 
+            if (options?.From is { } from)
+            {
+                var fromMs = from.ToUnixTimeMilliseconds();
+                query = query.Where(e => e.Timestamp >= fromMs);
+            }
+
+            if (options?.To is { } to)
+            {
+                var toMs = to.ToUnixTimeMilliseconds();
+                query = query.Where(e => e.Timestamp < toMs);
+            }
+
             if (options?.Offset is int offset and > 0)
                 query = query.Skip(offset);
 

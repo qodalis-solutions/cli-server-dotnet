@@ -75,6 +75,18 @@ public class EfCoreAuditStore : IAuditStore
             query = query.Where(e => e.Actor != null && e.Actor.ToLower() == value);
         }
 
+        if (options?.From is { } from)
+        {
+            var fromMs = from.ToUnixTimeMilliseconds();
+            query = query.Where(e => e.Timestamp >= fromMs);
+        }
+
+        if (options?.To is { } to)
+        {
+            var toMs = to.ToUnixTimeMilliseconds();
+            query = query.Where(e => e.Timestamp < toMs);
+        }
+
         // Newest first; the key breaks timestamp ties in insertion order.
         query = query.OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Id);
 

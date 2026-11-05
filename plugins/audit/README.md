@@ -47,10 +47,11 @@ e.g. `group:admins`), `Details`, `Metadata` (address, session) and the applicati
 
 | Endpoint | Permission | Description |
 |---|---|---|
-| `GET /api/v1/qcli/audit?event=&username=&actor=&limit=&offset=` | `audit:read` | Entries newest first; filters are exact and case-insensitive; 100 entries without a `limit`, at most 1000 |
+| `GET /api/v1/qcli/audit?event=&username=&actor=&from=&to=&limit=&offset=` | `audit:read` | Entries newest first; filters are exact and case-insensitive; `from`/`to` (ISO 8601 or epoch milliseconds) keep `from <= timestamp < to`; 100 entries without a `limit`, at most 1000 |
 | `DELETE /api/v1/qcli/audit` | `audit:clear` | Clears the log, then records `audit_cleared` with who did it |
 
-The permissions apply on a protected server (users plugin, `ProtectServer`).
+The permissions apply on a protected server (users plugin, `ProtectServer`). A store of your own receives the time
+range as `AuditQueryOptions.From`/`To`.
 
 ## Storage
 

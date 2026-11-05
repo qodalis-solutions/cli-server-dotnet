@@ -3,6 +3,37 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.19
+
+- The admin plugin embeds dashboard 1.0.0-beta.15: charts on the Overview, Jobs, Logs, Audit and Commands pages, filters kept in the URL, sortable tables and a Ctrl+K command palette, using the endpoints below.
+
+### Dashboard insights
+
+Read-only endpoints for the admin dashboard's charts, the same JSON on the .NET, Node and Python servers. Times are
+ISO 8601 UTC strings, durations milliseconds; a range `[since, until)` (default the last 24 hours) is cut into
+`buckets` equal columns (default 24, clamped to 1..200); bad times or counts answer 400 with `{ error }`. Older
+dashboards ignore them.
+
+- **Jobs** (`GET /api/v1/qcli/jobs/stats?since=&until=&buckets=&job=&group=`, `jobs:read`): outcomes per column
+  (succeeded, failed, cancelled, running), totals and per-job figures (success rate, mean, p95 and max duration, last
+  failure, the 12 newest runs) of every run started in the range. Reads the runs through
+  `ICliJobManager.QueryExecutionsAsync` a page at a time, so it works with the in-memory store, EF Core and any job
+  manager of your own.
+- **Logs** (`GET /api/v1/qcli/logs/histogram?from=&to=&buckets=&level=&search=&service=`, admin plugin): entries per
+  level in each column, with the filters of `GET /logs`. `ILogStore.HistogramAsync` (default: pages through
+  `QueryAsync`, so other stores keep compiling); the in-memory buffer counts itself and the Seq store asks Seq to count
+  (`/api/data`), answering 502 when Seq cannot be reached.
+- **Status history** (`GET /api/v1/qcli/status/history?minutes=`, admin plugin): a hosted service samples memory, CPU
+  (% of one core over the interval), WebSocket clients and shell sessions every 15 seconds, the first at start, into a
+  24-hour ring buffer in memory; `minutes` defaults to 60 (1..1440).
+- **Command usage** (`GET /api/v1/qcli/commands/stats`): executions, failures (exit code other than 0 or an
+  exception), mean duration and last times per root command since start, counted for `/execute`, `/execute/stream`
+  and the MCP command tools (`CliCommandUsage`); unknown commands are counted with `known: false`.
+- **Audit**: `GET /api/v1/qcli/audit` takes `from` and `to` (ISO 8601 or epoch milliseconds; `from <= timestamp < to`),
+  `AuditQueryOptions` gains `From`/`To`, and the EF Core store filters in the query.
+- `Qodalis.Cli.Abstractions.Insights.TimeBuckets`: the range, columns, time parsing and nearest-rank percentile the
+  endpoints share.
+
 ## 1.0.0-beta.18
 
 ### Logs
