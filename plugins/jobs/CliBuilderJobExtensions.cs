@@ -78,6 +78,22 @@ public static class CliBuilderJobExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Replaces the job manager behind the jobs API, the <c>jobs_*</c> MCP tools and the dashboard's jobs page
+    /// with <typeparamref name="T"/> (a scoped service, so it may use the request's services), for a host whose
+    /// jobs run elsewhere. Jobs registered with <see cref="AddJob{T}"/> still run, but are no longer listed.
+    /// </summary>
+    /// <typeparam name="T">The job manager implementation type.</typeparam>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <returns>The builder for chaining.</returns>
+    public static CliBuilder SetJobManager<T>(this CliBuilder builder) where T : class, ICliJobManager
+    {
+        EnsureJobInfrastructure(builder);
+        RemoveService(builder.Services, typeof(ICliJobManager));
+        builder.Services.AddScoped<ICliJobManager, T>();
+        return builder;
+    }
+
     private static void EnsureJobInfrastructure(CliBuilder builder)
     {
         // Check if already initialized by looking for the state marker
@@ -122,6 +138,9 @@ public static class CliBuilderJobExtensions
         });
 
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<CliJobScheduler>());
+
+        // What the API, MCP tools and dashboard work on (replaceable with SetJobManager)
+        builder.Services.AddScoped<ICliJobManager, SchedulerJobManager>();
 
         // MCP tools (jobs_*), listed when the MCP endpoint is enabled
         builder.Services.AddMcpToolProvider<JobsMcpToolProvider>();

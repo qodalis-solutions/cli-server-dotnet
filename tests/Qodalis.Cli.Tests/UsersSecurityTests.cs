@@ -51,6 +51,7 @@ public class UsersSecurityTests : IAsyncLifetime
     private static void ConfigureCli(CliBuilder cli)
     {
         cli.SetAllowedOrigins(AppOrigin, "http://127.0.0.1:*");
+        cli.AddFileSystem();
         cli.AddProcessor(new TestProcessor("echo", "Echo"));
         cli.AddProcessor(new TestProcessor("secret-cmd", "Needs secret:run") { RequiredPermissions = ["secret:run"] });
         cli.AddProcessor(new TestProcessor("release", "Release")
@@ -215,7 +216,8 @@ public class UsersSecurityTests : IAsyncLifetime
         using var host = await builder.StartAsync();
         var client = host.GetTestClient();
         Assert.Equal(200, (int)(await client.GetAsync("/api/v1/qcli/commands")).StatusCode);
-        Assert.Equal(200, (int)(await client.GetAsync("/api/qcli/fs/ls?path=/")).StatusCode);
+        // The filesystem API is opt-in (AddFileSystem)
+        Assert.Equal(404, (int)(await client.GetAsync("/api/qcli/fs/ls?path=/")).StatusCode);
         var exec = await client.PostAsync("/api/v1/qcli/execute",
             new StringContent(JsonSerializer.Serialize(Exec("echo")), Encoding.UTF8, "application/json"));
         Assert.Equal(200, (int)exec.StatusCode);

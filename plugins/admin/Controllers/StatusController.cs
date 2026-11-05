@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
+using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
@@ -31,8 +34,11 @@ public class StatusController : ControllerBase
     /// Returns the current server status including uptime, memory, connections, and enabled features.
     /// </summary>
     [HttpGet]
-    public IActionResult GetStatus()
+    public async Task<IActionResult> GetStatus(CancellationToken cancellationToken = default)
     {
+        var jobs = _serviceProvider.GetService<ICliJobManager>();
+        var registeredJobs = jobs == null ? 0 : (await jobs.GetJobsAsync(cancellationToken)).Count;
+
         var process = Process.GetCurrentProcess();
         var uptime = DateTime.UtcNow - process.StartTime.ToUniversalTime();
 
@@ -47,34 +53,22 @@ public class StatusController : ControllerBase
             activeWsConnections = _eventSocketManager.GetClients().Count,
             activeShellSessions = _serviceProvider.GetService(typeof(ICliShellSessions)) is ICliShellSessions shells ? shells.Count : 0,
             registeredCommands = _commandRegistry.Processors.Count,
-            registeredJobs = 0,
-            enabledFeatures = DetectEnabledFeatures(),
+            registeredJobs,
+            enabledFeatures = DetectEnabledFeatures(jobs != null),
         });
     }
 
-    private List<string> DetectEnabledFeatures()
+    private List<string> DetectEnabledFeatures(bool hasJobs)
     {
         var features = new List<string>();
 
-        if (IsServiceRegistered("Qodalis.Cli.Plugin.FileSystem.IFileStorageProvider"))
+        // AddFileSystem() registers its options; IFileStorageProvider alone is always there (in-memory fallback).
+        if (_serviceProvider.GetService<FileSystemOptions>() != null)
             features.Add("filesystem");
 
-        if (IsServiceRegistered("Qodalis.Cli.Plugin.Jobs.CliJobScheduler"))
+        if (hasJobs)
             features.Add("jobs");
 
         return features;
-    }
-
-    private bool IsServiceRegistered(string fullTypeName)
-    {
-        var type = AppDomain.CurrentDomain.GetAssemblies()
-            .Select(a =>
-            {
-                try { return a.GetType(fullTypeName); }
-                catch { return null; }
-            })
-            .FirstOrDefault(t => t != null);
-
-        return type != null && _serviceProvider.GetService(type) != null;
     }
 }

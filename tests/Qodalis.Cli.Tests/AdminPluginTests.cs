@@ -1,3 +1,5 @@
+using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Abstractions.Jobs;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -628,7 +630,7 @@ public class ModuleRegistryTests
 public class AdminStatusControllerTests
 {
     [Fact]
-    public void GetStatus_ReturnsOkWithExpectedShape()
+    public async Task GetStatus_ReturnsOkWithExpectedShape()
     {
         var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
         var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
@@ -636,7 +638,7 @@ public class AdminStatusControllerTests
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var controller = new StatusController(esm, registry, serviceProvider);
-        var result = controller.GetStatus() as OkObjectResult;
+        var result = await controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -654,7 +656,7 @@ public class AdminStatusControllerTests
     }
 
     [Fact]
-    public void GetStatus_RegisteredCommandsCount_MatchesRegistry()
+    public async Task GetStatus_RegisteredCommandsCount_MatchesRegistry()
     {
         var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
         var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
@@ -663,7 +665,7 @@ public class AdminStatusControllerTests
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var controller = new StatusController(esm, registry, serviceProvider);
-        var result = controller.GetStatus() as OkObjectResult;
+        var result = await controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -673,18 +675,40 @@ public class AdminStatusControllerTests
     }
 
     [Fact]
-    public void GetStatus_ActiveWsConnections_ZeroByDefault()
+    public async Task GetStatus_ActiveWsConnections_ZeroByDefault()
     {
         var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
         var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var controller = new StatusController(esm, registry, serviceProvider);
-        var result = controller.GetStatus() as OkObjectResult;
+        var result = await controller.GetStatus() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
         Assert.Contains("\"activeWsConnections\":0", json);
+
+        esm.Dispose();
+    }
+
+    [Fact]
+    public async Task GetStatus_Features_OnlyWhatTheHostEnabled()
+    {
+        var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+
+        // AddCli() always registers a storage provider (in-memory fallback): that alone is not the filesystem feature
+        var services = new ServiceCollection();
+        services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
+        var result = await new StatusController(esm, registry, services.BuildServiceProvider()).GetStatus() as OkObjectResult;
+        Assert.Contains("\"enabledFeatures\":[]", JsonSerializer.Serialize(result!.Value));
+
+        services.AddSingleton(new FileSystemOptions());
+        services.AddScoped<ICliJobManager, FakeJobManager>();
+        result = await new StatusController(esm, registry, services.BuildServiceProvider()).GetStatus() as OkObjectResult;
+        var json = JsonSerializer.Serialize(result!.Value);
+        Assert.Contains("\"enabledFeatures\":[\"filesystem\",\"jobs\"]", json);
+        Assert.Contains("\"registeredJobs\":1", json);
 
         esm.Dispose();
     }
