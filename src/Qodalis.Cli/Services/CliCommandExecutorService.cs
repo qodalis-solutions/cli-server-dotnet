@@ -15,6 +15,7 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     private readonly ILogger<CliCommandExecutorService> _logger;
     private readonly IEnumerable<ICliProcessorFilter> _filters;
     private readonly int _maxTableRows;
+    private readonly CliCommandUsage? _usage;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliCommandExecutorService"/>.
@@ -23,12 +24,15 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     /// <param name="logger">The logger instance.</param>
     /// <param name="filters">Optional processor filters for runtime enable/disable checks.</param>
     /// <param name="serverOptions">Server options; <see cref="CliServerOptions.MaxTableRows"/> caps unpaged tables.</param>
+    /// <param name="usage">Counts the executions (<c>GET /api/v1/qcli/commands/stats</c>); null to not count.</param>
     public CliCommandExecutorService(
         ICliCommandRegistry registry,
         ILogger<CliCommandExecutorService> logger,
         IEnumerable<ICliProcessorFilter> filters,
-        CliServerOptions? serverOptions = null)
+        CliServerOptions? serverOptions = null,
+        CliCommandUsage? usage = null)
     {
+        _usage = usage;
         _registry = registry;
         _logger = logger;
         _filters = filters;
@@ -46,6 +50,26 @@ public class CliCommandExecutorService : ICliCommandExecutorService
         CliProcessCommand command,
         CancellationToken cancellationToken = default)
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var known = false;
+        var failed = true;
+        try
+        {
+            var response = await RunAsync(command, found => known = found, cancellationToken);
+            failed = response.ExitCode != 0;
+            return response;
+        }
+        finally
+        {
+            _usage?.Record(command.Command, known, System.Diagnostics.Stopwatch.GetElapsedTime(started), failed);
+        }
+    }
+
+    private async Task<CliServerResponse> RunAsync(
+        CliProcessCommand command,
+        Action<bool> resolved,
+        CancellationToken cancellationToken)
+    {
         var fullCommand = command.ChainCommands?.Any() == true
             ? $"{command.Command} {string.Join(" ", command.ChainCommands)}"
             : command.Command;
@@ -53,6 +77,7 @@ public class CliCommandExecutorService : ICliCommandExecutorService
         _logger.LogInformation("Executing command: {Command}", fullCommand);
 
         var processor = _registry.FindProcessor(command.Command, command.ChainCommands);
+        resolved(processor != null);
 
         if (processor == null)
         {

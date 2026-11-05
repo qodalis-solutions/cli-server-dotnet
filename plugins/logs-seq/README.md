@@ -73,6 +73,10 @@ most 500) and `offset`. With Seq it answers `store: "seq"`, `persistent: true`, 
 with `hasMore`, because Seq does not count matches; paging reaches 10000 entries back (narrow the filters or the time
 range to look further). When Seq cannot be reached the endpoint answers 502 with `{ error }`.
 
+`GET /api/v1/qcli/logs/histogram` (the dashboard's log chart) takes the same filters, `from`/`to` and `buckets`, and
+asks Seq to count (`/api/data`: `select count(*) ... group by @Level, <column>`) instead of reading the events, so it
+covers the whole range however many entries it holds. It answers `store: "seq"`, and 502 when Seq cannot be reached.
+
 ## Running Seq
 
 ```yaml

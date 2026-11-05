@@ -18,4 +18,23 @@ public interface ILogStore
 
     /// <summary>The services whose entries the store holds; empty when it holds only this process's.</summary>
     Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Counts the entries matching <see cref="LogHistogramOptions.Filter"/> per level in each column of
+    /// <see cref="LogHistogramOptions.Range"/> (<c>GET /api/v1/qcli/logs/histogram</c>). By default it pages through
+    /// <see cref="QueryAsync"/>; a store that can count (e.g. Seq) does so itself.
+    /// </summary>
+    async Task<LogHistogram> HistogramAsync(LogHistogramOptions options, CancellationToken cancellationToken = default)
+    {
+        var histogram = new LogHistogram(options.Range);
+        var offset = 0;
+        while (true)
+        {
+            var page = await QueryAsync(options.RangeFilter(LogQueryOptions.MaxLimit, offset), cancellationToken);
+            foreach (var entry in page.Entries) histogram.Add(entry.Timestamp.UtcDateTime, entry.Level);
+            offset += page.Entries.Count;
+            if (page.Entries.Count == 0 || !page.HasMore || (page.Total is { } total && offset >= total)) break;
+        }
+        return histogram;
+    }
 }

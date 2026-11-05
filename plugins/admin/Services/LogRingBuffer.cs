@@ -85,21 +85,7 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
     /// <inheritdoc />
     public Task<LogPage> QueryAsync(LogQueryOptions options, CancellationToken cancellationToken = default)
     {
-        IEnumerable<LogEntry> matches = Snapshot();
-        if (options.Levels.Count > 0)
-            matches = matches.Where(e => options.Levels.Contains(e.Level, StringComparer.OrdinalIgnoreCase));
-        if (!string.IsNullOrEmpty(options.Search))
-        {
-            matches = matches.Where(e =>
-                e.Message.Contains(options.Search, StringComparison.OrdinalIgnoreCase) ||
-                e.Source.Contains(options.Search, StringComparison.OrdinalIgnoreCase));
-        }
-        // Entries here carry no service: a service filter matches none of them.
-        if (!string.IsNullOrEmpty(options.Service)) matches = [];
-        if (options.From is { } from) matches = matches.Where(e => e.Timestamp >= from.UtcDateTime);
-        if (options.To is { } to) matches = matches.Where(e => e.Timestamp < to.UtcDateTime);
-
-        var ordered = matches.Reverse().ToList();
+        var ordered = Matching(options).Reverse().ToList();
         var limit = Math.Clamp(options.Limit, 1, LogQueryOptions.MaxLimit);
         var offset = Math.Max(options.Offset, 0);
         return Task.FromResult(new LogPage
@@ -114,6 +100,34 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
             Total = ordered.Count,
             HasMore = offset + limit < ordered.Count,
         });
+    }
+
+    /// <inheritdoc />
+    public Task<LogHistogram> HistogramAsync(LogHistogramOptions options, CancellationToken cancellationToken = default)
+    {
+        var histogram = new LogHistogram(options.Range);
+        foreach (var entry in Matching(options.RangeFilter()))
+            histogram.Add(DateTime.SpecifyKind(entry.Timestamp, DateTimeKind.Utc), entry.Level);
+        return Task.FromResult(histogram);
+    }
+
+    /// <summary>The entries matching the filters of <paramref name="options"/> (not its paging), oldest first.</summary>
+    private IEnumerable<LogEntry> Matching(LogQueryOptions options)
+    {
+        IEnumerable<LogEntry> matches = Snapshot();
+        if (options.Levels.Count > 0)
+            matches = matches.Where(e => options.Levels.Contains(e.Level, StringComparer.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(options.Search))
+        {
+            matches = matches.Where(e =>
+                e.Message.Contains(options.Search, StringComparison.OrdinalIgnoreCase) ||
+                e.Source.Contains(options.Search, StringComparison.OrdinalIgnoreCase));
+        }
+        // Entries here carry no service: a service filter matches none of them.
+        if (!string.IsNullOrEmpty(options.Service)) matches = [];
+        if (options.From is { } from) matches = matches.Where(e => e.Timestamp >= from.UtcDateTime);
+        if (options.To is { } to) matches = matches.Where(e => e.Timestamp < to.UtcDateTime);
+        return matches;
     }
 
     /// <inheritdoc />

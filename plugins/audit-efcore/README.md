@@ -54,7 +54,8 @@ public sealed class PruneAuditJob : ICliJob
 cli.AddJob(new PruneAuditJob(), o => { o.Id = "prune-audit"; o.Interval = TimeSpan.FromDays(1); o.RunOnStart = true; });
 ```
 
-`GET /api/v1/qcli/audit` returns 100 entries when the request names no `limit`, and at most 1000.
+`GET /api/v1/qcli/audit` returns 100 entries when the request names no `limit`, and at most 1000. Its `from`/`to` time
+range is filtered in the database query.
 
 ## License
 

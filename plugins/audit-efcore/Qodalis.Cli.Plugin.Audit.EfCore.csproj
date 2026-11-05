@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Audit.EfCore</RootNamespace>
-    <Version>1.0.0-beta.18</Version>
+    <Version>1.0.0-beta.19</Version>
     <Description>Entity Framework Core store for the Qodalis CLI Server audit log (audit plugin)</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>

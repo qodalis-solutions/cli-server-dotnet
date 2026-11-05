@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions.Audit;
@@ -32,8 +33,9 @@ public class CliAuditController : ControllerBase
 
     /// <summary>
     /// Entries newest first, filtered by <paramref name="event"/>, <paramref name="username"/> (the user an entry is
-    /// about) and <paramref name="actor"/> (who did it), all exact and case-insensitive; paged with
-    /// <paramref name="limit"/> (default 100, at most 1000) and <paramref name="offset"/>.
+    /// about) and <paramref name="actor"/> (who did it), all exact and case-insensitive, and by time
+    /// (<paramref name="from"/> &lt;= timestamp &lt; <paramref name="to"/>, each ISO 8601 or epoch milliseconds); paged
+    /// with <paramref name="limit"/> (default 100, at most 1000) and <paramref name="offset"/>.
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetEntries(
@@ -41,16 +43,24 @@ public class CliAuditController : ControllerBase
         [FromQuery] string? username,
         [FromQuery] string? actor,
         [FromQuery] int? limit,
-        [FromQuery] int? offset)
+        [FromQuery] int? offset,
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null)
     {
         if (!ModelState.IsValid || limit < 0 || offset < 0)
             return BadRequest(new { error = "limit and offset must be integers >= 0" });
+        if (!TryParseTime(from, out var fromTime))
+            return BadRequest(new { error = "from must be an ISO 8601 time or epoch milliseconds" });
+        if (!TryParseTime(to, out var toTime))
+            return BadRequest(new { error = "to must be an ISO 8601 time or epoch milliseconds" });
 
         return Ok(await _store.GetEntriesAsync(new AuditQueryOptions
         {
             Event = NullIfEmpty(@event),
             Username = NullIfEmpty(username),
             Actor = NullIfEmpty(actor),
+            From = fromTime,
+            To = toTime,
             Limit = Math.Min(limit ?? DefaultLimit, MaxLimit),
             Offset = offset,
         }));
@@ -76,6 +86,30 @@ public class CliAuditController : ControllerBase
             Metadata = new AuditMetadata { RemoteAddress = HttpContext.Connection.RemoteIpAddress?.ToString() },
         });
         return NoContent();
+    }
+
+    /// <summary>Parses epoch milliseconds or an ISO 8601 time (without an offset it is UTC); empty is null.</summary>
+    internal static bool TryParseTime(string? value, out DateTimeOffset? time)
+    {
+        time = null;
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        var text = value.Trim();
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms))
+        {
+            try
+            {
+                time = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+                return true;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+        if (!DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            return false;
+        time = parsed;
+        return true;
     }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;

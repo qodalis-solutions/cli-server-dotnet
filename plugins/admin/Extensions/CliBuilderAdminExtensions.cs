@@ -44,6 +44,10 @@ public static class CliBuilderAdminExtensions
         builder.Services.TryAddSingleton<ILogStore>(logBuffer);
         builder.Services.AddLogging(logging => logging.AddProvider(logBuffer));
 
+        // Samples the server status every 15 seconds for the dashboard's charts (GET /api/v1/qcli/status/history).
+        builder.Services.TryAddSingleton<StatusHistory>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<StatusHistory>());
+
         // Module registry — will be resolved after all modules are registered
         builder.Services.AddSingleton<ModuleRegistry>(sp =>
         {
