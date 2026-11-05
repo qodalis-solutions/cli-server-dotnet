@@ -178,6 +178,34 @@ public class EfCoreJobStorageSqliteTests : IDisposable
     }
 
     [Fact]
+    public async Task TablesFromAnEarlierVersion_GainThePropertiesColumn()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        using (var command = connection.CreateCommand())
+        {
+            // job_executions as 1.0.0-beta.14 created it, without Properties
+            command.CommandText = """
+                CREATE TABLE job_executions (Id INTEGER PRIMARY KEY AUTOINCREMENT, ExecutionId TEXT NOT NULL, JobId TEXT NOT NULL,
+                    JobName TEXT NOT NULL, Status TEXT NOT NULL, StartedAt TEXT NOT NULL, CompletedAt TEXT NULL, Duration INTEGER NULL,
+                    Error TEXT NULL, RetryAttempt INTEGER NOT NULL);
+                CREATE TABLE job_log_entries (Id INTEGER PRIMARY KEY AUTOINCREMENT, ExecutionId TEXT NOT NULL, Timestamp TEXT NOT NULL,
+                    Level TEXT NOT NULL, Message TEXT NOT NULL);
+                CREATE TABLE job_states (Id INTEGER PRIMARY KEY AUTOINCREMENT, JobId TEXT NOT NULL, Status TEXT NOT NULL,
+                    LastRunAt TEXT NULL, UpdatedAt TEXT NOT NULL);
+                """;
+            command.ExecuteNonQuery();
+        }
+        var options = new DbContextOptionsBuilder<JobStorageDbContext>().UseSqlite(connection).Options;
+        var provider = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(options, o => new JobStorageDbContext(o)));
+
+        await provider.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", Properties = new() { ["n"] = 1 } });
+
+        var (items, _) = await provider.GetExecutionsAsync("a");
+        Assert.Equal(1, ((System.Text.Json.JsonElement)items[0].Properties["n"]!).GetInt32());
+    }
+
+    [Fact]
     public async Task DeleteExecution_RemovesItWithItsLogs()
     {
         var execution = new JobExecution
