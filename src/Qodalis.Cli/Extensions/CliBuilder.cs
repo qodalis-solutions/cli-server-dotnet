@@ -4,6 +4,7 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Mcp;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -16,6 +17,7 @@ namespace Qodalis.Cli.Extensions;
 public class CliBuilder
 {
     private readonly List<ICliModule> _modules = [];
+    private readonly List<CliInstalledPlugin> _installedPlugins = [];
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
     internal bool HasDataExplorer { get; private set; }
@@ -30,6 +32,27 @@ public class CliBuilder
     /// Returns all registered modules.
     /// </summary>
     public IReadOnlyList<ICliModule> Modules => _modules;
+
+    /// <summary>
+    /// The server plugin packages installed so far, shown on the admin dashboard's plugins page.
+    /// </summary>
+    public IReadOnlyList<CliInstalledPlugin> InstalledPlugins => _installedPlugins;
+
+    /// <summary>
+    /// Lists the package <paramref name="assembly"/> belongs to among the installed plugins (once). The built-in
+    /// plugins (users, admin, jobs, storage providers, ...) call it themselves; call it from a plugin of your own.
+    /// The host application's own assembly is never listed.
+    /// </summary>
+    public CliBuilder AddInstalledPlugin(Assembly assembly)
+    {
+        if (assembly == Assembly.GetEntryAssembly() || assembly.IsDynamic)
+            return this;
+
+        var plugin = CliInstalledPlugin.FromAssembly(assembly);
+        if (_installedPlugins.All(p => p.Id != plugin.Id))
+            _installedPlugins.Add(plugin);
+        return this;
+    }
 
     /// <summary>
     /// Server-wide security options (shell, allowed origins, authentication requirement).
@@ -106,6 +129,7 @@ public class CliBuilder
     internal CliBuilder(IServiceCollection services)
     {
         Services = services;
+        AddInstalledPlugin(typeof(CliBuilder).Assembly);
     }
 
     /// <summary>
@@ -156,6 +180,7 @@ public class CliBuilder
     public CliBuilder AddModule(ICliModule module)
     {
         _modules.Add(module);
+        AddInstalledPlugin(module.GetType().Assembly);
 
         foreach (var processor in module.Processors)
         {
@@ -203,6 +228,8 @@ public class CliBuilder
 
         Services.AddSingleton(options);
         Services.AddSingleton<FileSystemPathValidator>();
+        AddInstalledPlugin(typeof(FileSystemOptions).Assembly);
+        AddInstalledPlugin(FileStorageProvider.GetType().Assembly);
         return this;
     }
 
@@ -216,6 +243,7 @@ public class CliBuilder
         where T : class, IDataExplorerProvider
     {
         HasDataExplorer = true;
+        AddInstalledPlugin(typeof(T).Assembly);
 
         var options = new DataExplorerProviderOptions
         {
@@ -244,6 +272,7 @@ public class CliBuilder
     public CliBuilder AddDataExplorerProvider(IDataExplorerProvider provider, Action<DataExplorerProviderOptions> configure)
     {
         HasDataExplorer = true;
+        AddInstalledPlugin(provider.GetType().Assembly);
 
         var options = new DataExplorerProviderOptions
         {

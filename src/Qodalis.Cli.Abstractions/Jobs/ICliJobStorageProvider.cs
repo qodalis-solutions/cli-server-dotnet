@@ -25,6 +25,37 @@ public interface ICliJobStorageProvider
     Task<(List<JobExecution> Items, int Total)> GetExecutionsAsync(string jobId, int limit = 20, int offset = 0, string? statusFilter = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves the executions of several jobs (or of every job), newest first. The default merges
+    /// <see cref="GetExecutionsAsync"/> per job and needs <see cref="JobExecutionQuery.JobIds"/>; override it to query
+    /// the store once. Without job ids the default throws <see cref="NotSupportedException"/> (the store does not
+    /// know the jobs); the scheduler's manager always names them.
+    /// </summary>
+    async Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(JobExecutionQuery query, CancellationToken cancellationToken = default)
+    {
+        if (query.JobIds == null)
+            throw new NotSupportedException("Listing the executions of every job is not supported by this store");
+
+        return await query.MergeAsync(query.JobIds, async (jobId, limit, status) =>
+        {
+            var (items, total) = await GetExecutionsAsync(jobId, limit, 0, status, cancellationToken);
+            return (items, total);
+        });
+    }
+
+    /// <summary>
+    /// Deletes the executions (and their logs) that started before <paramref name="before"/>; returns how many. Run
+    /// it on a schedule to keep the history bounded. The default keeps everything and returns 0.
+    /// </summary>
+    Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+    /// <summary>
+    /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns
+    /// whether it was deleted. The default keeps every execution and returns <c>false</c>.
+    /// </summary>
+    Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Retrieves a single execution by its unique identifier.
     /// </summary>
     /// <param name="executionId">The execution identifier.</param>

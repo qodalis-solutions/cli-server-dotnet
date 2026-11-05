@@ -64,10 +64,40 @@ public class InMemoryAuditStore : IAuditStore
             if (!string.IsNullOrEmpty(options?.Username))
                 query = query.Where(e => string.Equals(e.Username, options.Username, StringComparison.OrdinalIgnoreCase));
 
+            if (!string.IsNullOrEmpty(options?.Actor))
+                query = query.Where(e => string.Equals(e.Actor, options.Actor, StringComparison.OrdinalIgnoreCase));
+
+            if (options?.Offset is int offset and > 0)
+                query = query.Skip(offset);
+
             if (options?.Limit is int limit)
                 query = query.Take(limit);
 
             return Task.FromResult(query.ToList());
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
+    {
+        var cutoff = before.ToUnixTimeMilliseconds();
+        lock (_lock)
+        {
+            var removed = 0;
+            foreach (var list in new[] { _entries, _failedLogins })
+            {
+                for (var node = list.First; node != null;)
+                {
+                    var next = node.Next;
+                    if (node.Value.Entry.Timestamp < cutoff)
+                    {
+                        list.Remove(node);
+                        removed++;
+                    }
+                    node = next;
+                }
+            }
+            return Task.FromResult(removed);
         }
     }
 

@@ -8,8 +8,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Models;
+using Qodalis.Cli.Plugin.Jobs;
+using Qodalis.Cli.Plugin.Users;
+using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
 using Qodalis.Cli.Plugin.Admin.Controllers;
+using Qodalis.Cli.Plugin.Admin.Extensions;
 using Qodalis.Cli.Plugin.Admin.Services;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Helpers;
@@ -710,6 +716,11 @@ public class AdminStatusControllerTests
         Assert.Contains("\"enabledFeatures\":[\"filesystem\",\"jobs\"]", json);
         Assert.Contains("\"registeredJobs\":1", json);
 
+        // The users plugin keeps the audit log
+        services.AddSingleton(new CliInstalledPlugins([CliInstalledPlugin.FromAssembly(typeof(UsersModuleOptions).Assembly)]));
+        result = await new StatusController(esm, registry, services.BuildServiceProvider()).GetStatus() as OkObjectResult;
+        Assert.Contains("\"enabledFeatures\":[\"filesystem\",\"jobs\",\"audit\"]", JsonSerializer.Serialize(result!.Value));
+
         esm.Dispose();
     }
 }
@@ -723,8 +734,37 @@ public class AdminPluginsControllerTests
     private static (PluginsController controller, ModuleRegistry registry) CreateController(params ICliModule[] modules)
     {
         var registry = new ModuleRegistry(modules.ToList());
-        var controller = new PluginsController(registry);
+        var controller = new PluginsController(registry, new CliInstalledPlugins([]));
         return (controller, registry);
+    }
+
+    [Fact]
+    public void Installed_ListsTheAddedPluginPackagesOnce()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddControllers().AddCli(cli =>
+        {
+            cli.AddAdmin();
+            cli.AddUsers();
+            cli.AddJob(new DummyJob());
+            cli.AddJob(new DummyJob());
+        });
+        var sp = services.BuildServiceProvider();
+        var controller = new PluginsController(new ModuleRegistry([]), sp.GetRequiredService<CliInstalledPlugins>());
+
+        var result = controller.Installed() as OkObjectResult;
+
+        var plugins = Assert.IsAssignableFrom<IReadOnlyList<CliInstalledPlugin>>(result!.Value);
+        Assert.Equal(
+            ["Qodalis.Cli", "Qodalis.Cli.Plugin.Admin", "Qodalis.Cli.Plugin.Users", "Qodalis.Cli.Plugin.Jobs"],
+            plugins.Select(p => p.Id));
+        var users = plugins.Single(p => p.Id == "Qodalis.Cli.Plugin.Users");
+        Assert.Equal("Users", users.Name);
+        Assert.False(string.IsNullOrEmpty(users.Version));
+        Assert.DoesNotContain('+', users.Version);
+        Assert.Contains("User management", users.Description);
+        Assert.Equal("Core", plugins[0].Name);
     }
 
     [Fact]

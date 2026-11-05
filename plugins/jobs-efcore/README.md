@@ -40,13 +40,36 @@ cli.AddEfCoreJobStorage(o => o.UseSqlServer(connectionString));
 
 ## Database Schema
 
-Three tables are created automatically on first use:
+Three tables are created automatically on first use, also inside a database that already has other tables (your
+application's own):
 
 | Table | Purpose |
 |-------|---------|
 | `job_executions` | Execution records (status, timestamps, duration, error, retry attempt) |
 | `job_log_entries` | Structured log entries per execution (timestamp, level, message) |
 | `job_states` | Persistent job state (active/paused/stopped, last run time) |
+
+Executions keep their `properties` (the job's own values) as JSON.
+
+## Host migrations
+
+An application that manages its database with EF Core migrations can create the tables in its own migrations
+instead (and fill them from its own tables there):
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.ApplyJobStorageModel();
+}
+```
+
+## Retention
+
+The history is kept until pruned. Prune on a schedule, for example from a job:
+
+```csharp
+await context.Services.GetRequiredService<ICliJobStorageProvider>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-30));
+```
 
 ## License
 

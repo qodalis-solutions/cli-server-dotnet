@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Jobs;
@@ -103,12 +104,14 @@ public static class CliBuilderJobExtensions
 
         var state = new JobsPluginState();
         builder.Services.AddSingleton(state);
+        builder.AddInstalledPlugin(typeof(CliJobsController).Assembly);
 
         // Register the jobs plugin controller assembly
         builder.AddApplicationPart(typeof(CliJobsController).Assembly);
 
-        // Default in-memory storage (can be overridden by SetJobStorageProvider)
-        builder.Services.AddSingleton<ICliJobStorageProvider>(new InMemoryJobStorageProvider());
+        // Default in-memory storage (can be overridden by SetJobStorageProvider); kept out when a provider
+        // such as AddEfCoreJobStorage was registered before the first job
+        builder.Services.TryAddSingleton<ICliJobStorageProvider>(new InMemoryJobStorageProvider());
 
         // Register the scheduler factory — captures the registrations list by reference
         // so all AddJob calls that happen after this will still be included
@@ -118,7 +121,7 @@ public static class CliBuilderJobExtensions
             var storage = sp.GetRequiredService<ICliJobStorageProvider>();
             var eventSocket = sp.GetRequiredService<ICliEventSocketManager>();
             var logger = sp.GetRequiredService<ILogger<CliJobScheduler>>();
-            var scheduler = new CliJobScheduler(storage, eventSocket, logger);
+            var scheduler = new CliJobScheduler(storage, eventSocket, logger, sp.GetRequiredService<IServiceScopeFactory>());
 
             foreach (var (job, jobType, options) in registrations)
             {
@@ -137,6 +140,7 @@ public static class CliBuilderJobExtensions
             return scheduler;
         });
 
+        builder.Services.AddSingleton<ICliJobScheduler>(sp => sp.GetRequiredService<CliJobScheduler>());
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<CliJobScheduler>());
 
         // What the API, MCP tools and dashboard work on (replaceable with SetJobManager)

@@ -1057,7 +1057,7 @@ public partial class AuthService
 
     /// <summary>Logs an audit entry; username and details are sanitized (no control characters).</summary>
     public Task AuditAsync(string @event, string username, string? details = null, string? actor = null,
-        AuditMetadata? metadata = null, string? userId = null, string? actorId = null) =>
+        AuditMetadata? metadata = null, string? userId = null, string? actorId = null, string? target = null) =>
         _auditStore.LogAsync(new AuditEntry
         {
             Id = Guid.NewGuid().ToString(),
@@ -1068,6 +1068,7 @@ public partial class AuthService
             Details = details == null ? null : UsersValidation.Sanitize(details),
             Actor = actor == null ? null : UsersValidation.Sanitize(actor, 256),
             ActorId = actorId,
+            Target = target == null ? null : UsersValidation.Sanitize(target, 256),
             Metadata = metadata,
         });
 }

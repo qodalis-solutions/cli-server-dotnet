@@ -57,6 +57,7 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/config` | GET | View server configuration sections |
 | `/api/v1/qcli/logs` | GET | Query recent log entries with filtering |
 | `/api/v1/qcli/plugins` | GET | List registered plugin modules |
+| `/api/v1/qcli/plugins/installed` | GET | List the installed server plugin packages (`id`, `name`, `version`, `description`) |
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |
 | `/api/v1/qcli/ws/clients` | GET | List active WebSocket connections |
 
@@ -181,6 +182,24 @@ The defaults match the Qodalis CLI panel: its grays, indigo accent with the viol
 | `warning` | `--qcli-warning` | Warning states | `#f0883e` | `#bc4c00` |
 | `error` | `--qcli-error` | Errors and destructive actions | `#f85149` | `#cf222e` |
 | `info` | `--qcli-info` | Informational states | `#58a6ff` | `#0969da` |
+
+## Installed plugins
+
+The dashboard's Plugins page lists the server plugins the host installed: the core server, and each plugin package
+added through its `Add*` method (`AddUsers`, `AddAdmin`, `AddJob`, `AddFileSystem` with its storage provider,
+`AddDataExplorerProvider`, `AddEfCoreJobStorage`, `AddEfCoreAuditStore`, modules from other packages), with the
+package's version and description. A plugin of your own lists itself from its builder extension:
+
+```csharp
+public static CliBuilder AddBilling(this CliBuilder cli)
+{
+    cli.AddInstalledPlugin(typeof(BillingModule).Assembly);
+    // ... register the plugin's services
+    return cli;
+}
+```
+
+The status reports the `audit` feature when the users plugin is installed, which shows the dashboard's Audit page.
 
 ## Name and icon
 

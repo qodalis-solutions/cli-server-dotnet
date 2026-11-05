@@ -166,6 +166,7 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
             duration = e.Duration,
             error = e.Error,
             retryAttempt = e.RetryAttempt,
+            properties = e.Properties,
         }).ToList();
         var text = executions.Count == 0
             ? "(no executions)"

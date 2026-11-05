@@ -5,6 +5,13 @@ namespace Qodalis.Cli.Abstractions.Jobs;
 /// </summary>
 public class CliJobOptions
 {
+    /// <summary>
+    /// The job's id in the jobs API, its history and its saved state (pause, last run), e.g. <c>fetch-rates:bnr</c>.
+    /// Keep it stable so a restart finds the job's history and state again. Default: the name, with <c>-2</c>,
+    /// <c>-3</c>, ... for further jobs of the same name, in registration order.
+    /// </summary>
+    public string? Id { get; set; }
+
     /// <summary>Gets or sets the unique name of the job.</summary>
     public string? Name { get; set; }
 
@@ -17,8 +24,17 @@ public class CliJobOptions
     /// <summary>Gets or sets a cron expression for scheduling (alternative to <see cref="Interval"/>).</summary>
     public string? Schedule { get; set; }
 
-    /// <summary>Gets or sets the interval between job executions.</summary>
+    /// <summary>
+    /// Gets or sets the interval between job executions. Across restarts the rhythm is kept: the next run is the
+    /// last run plus the interval (right away when that has passed).
+    /// </summary>
     public TimeSpan? Interval { get; set; }
+
+    /// <summary>
+    /// Runs the job once right after the scheduler starts, whatever its schedule (also for jobs that only run on
+    /// demand). Not for paused or stopped jobs. Default is <c>false</c>.
+    /// </summary>
+    public bool RunOnStart { get; set; }
 
     /// <summary>Gets or sets whether the job is enabled. Default is <c>true</c>.</summary>
     public bool Enabled { get; set; } = true;

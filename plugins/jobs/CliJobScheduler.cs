@@ -1,4 +1,5 @@
 using Cronos;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Jobs;
@@ -10,12 +11,13 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// Hosted service that schedules and executes registered jobs using cron expressions or intervals.
 /// Supports pause, resume, stop, manual trigger, cancellation, and configurable retry policies.
 /// </summary>
-public class CliJobScheduler : IHostedService, IDisposable
+public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
     private readonly ICliJobStorageProvider _storage;
     private readonly ICliEventSocketManager _eventSocket;
     private readonly ILogger<CliJobScheduler> _logger;
+    private readonly IServiceScopeFactory? _scopes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliJobScheduler"/> class.
@@ -27,10 +29,27 @@ public class CliJobScheduler : IHostedService, IDisposable
         ICliJobStorageProvider storage,
         ICliEventSocketManager eventSocket,
         ILogger<CliJobScheduler> logger)
+        : this(storage, eventSocket, logger, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class whose runs get a service scope each.
+    /// </summary>
+    /// <param name="storage">The storage provider for persisting job state and execution history.</param>
+    /// <param name="eventSocket">The WebSocket manager for broadcasting job events.</param>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="scopes">Creates a service scope per run (<see cref="ICliJobExecutionContext.Services"/>); null for none.</param>
+    public CliJobScheduler(
+        ICliJobStorageProvider storage,
+        ICliEventSocketManager eventSocket,
+        ILogger<CliJobScheduler> logger,
+        IServiceScopeFactory? scopes)
     {
         _storage = storage;
         _eventSocket = eventSocket;
         _logger = logger;
+        _scopes = scopes;
     }
 
     /// <summary>
@@ -44,7 +63,23 @@ public class CliJobScheduler : IHostedService, IDisposable
         options.Name ??= name;
         options.Description ??= name;
 
-        var id = Guid.NewGuid().ToString("N")[..12];
+        string id;
+        if (options.Id != null)
+        {
+            if (string.IsNullOrWhiteSpace(options.Id) || options.Id.IndexOfAny(['/', '\\', '?', '#']) >= 0)
+                throw new ArgumentException($"Job id '{options.Id}' must be non-empty and may not contain '/', '\\', '?' or '#' (it is part of the jobs API's URLs)", nameof(options));
+            if (_jobs.ContainsKey(options.Id))
+                throw new InvalidOperationException($"A job with id '{options.Id}' is already registered");
+            id = options.Id;
+        }
+        else
+        {
+            // Stable across restarts, so saved state and history find the job again; URL-safe for the jobs API
+            var baseId = string.Concat(name.Select(c => c is '/' or '\\' or '?' or '#' ? '-' : c));
+            id = baseId;
+            for (var n = 2; _jobs.ContainsKey(id); n++)
+                id = $"{baseId}-{n}";
+        }
         var registration = new JobRegistration
         {
             Id = id,
@@ -62,16 +97,24 @@ public class CliJobScheduler : IHostedService, IDisposable
 
         foreach (var (id, reg) in _jobs)
         {
-            // Restore persisted state if available
+            // Restore the saved state: the last run, and a pause or stop made at run time. A job the code disables
+            // (Enabled = false) stays stopped whatever was saved.
             if (states.TryGetValue(id, out var state))
             {
-                reg.Status = state.Status;
                 reg.LastRunAt = state.LastRunAt;
+                if (reg.Options.Enabled)
+                    reg.Status = state.Status;
             }
 
             if (reg.Status == JobStatus.Active)
             {
-                StartTimer(reg);
+                // An interval job runs on start through its timer (due now), so the two never overlap
+                var runNow = reg.Options.RunOnStart && reg.Options.Schedule == null && reg.Options.Interval != null;
+                StartTimer(reg, runNow);
+
+                // Off the host's startup path: the run may take a while
+                if (reg.Options.RunOnStart && !runNow)
+                    _ = Task.Run(() => RunAsync(reg), CancellationToken.None);
             }
         }
 
@@ -118,7 +161,7 @@ public class CliJobScheduler : IHostedService, IDisposable
             if (reg.Options.OverlapPolicy == JobOverlapPolicy.Cancel)
                 await CancelCurrentAsync(jobId, cancellationToken);
         }
-        _ = ExecuteJobAsync(reg);
+        _ = RunAsync(reg);
     }
 
     /// <summary>
@@ -216,7 +259,7 @@ public class CliJobScheduler : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
-    private void StartTimer(JobRegistration reg)
+    private void StartTimer(JobRegistration reg, bool runNow = false)
     {
         if (reg.Options.Schedule != null)
         {
@@ -226,11 +269,19 @@ public class CliJobScheduler : IHostedService, IDisposable
         else if (reg.Options.Interval != null)
         {
             var interval = reg.Options.Interval.Value;
-            reg.NextRunAt = DateTime.UtcNow.Add(interval);
+            var now = DateTime.UtcNow;
+            // Keep the rhythm across restarts and pauses: due one interval after the last run
+            var due = reg.LastRunAt is { } last ? last.Add(interval) : now.Add(interval);
+            if (due < now || runNow) due = now;
+            reg.NextRunAt = due;
             reg.Timer = new Timer(
-                _ => OnTimerFired(reg),
+                _ =>
+                {
+                    reg.NextRunAt = DateTime.UtcNow.Add(interval);
+                    OnTimerFired(reg);
+                },
                 null,
-                interval,
+                due - now,
                 interval);
         }
     }
@@ -274,10 +325,48 @@ public class CliJobScheduler : IHostedService, IDisposable
             }
         }
 
-        _ = ExecuteJobAsync(reg);
+        _ = RunAsync(reg);
     }
 
-    private async Task ExecuteJobAsync(JobRegistration reg, int retryAttempt = 0)
+    /// <summary>Runs the job with its retries; nothing a run throws is left unobserved.</summary>
+    private async Task RunAsync(JobRegistration reg)
+    {
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                var execution = await ExecuteOnceAsync(reg, attempt);
+                if (execution.Status != JobExecutionStatus.Failed || attempt >= reg.Options.MaxRetries)
+                    return;
+
+                var delay = reg.Options.RetryStrategy switch
+                {
+                    JobRetryStrategy.Fixed => reg.Options.RetryDelay,
+                    JobRetryStrategy.Linear => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (attempt + 1)),
+                    JobRetryStrategy.Exponential => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (long)Math.Pow(2, attempt)),
+                    _ => reg.Options.RetryDelay,
+                };
+                _logger.LogInformation("Retrying job {JobName} in {Delay} (attempt {Attempt}/{MaxRetries})",
+                    reg.Options.Name, delay, attempt + 1, reg.Options.MaxRetries);
+                await BroadcastAsync("job:retrying", new
+                {
+                    jobId = reg.Id,
+                    executionId = execution.Id,
+                    attempt = attempt + 1,
+                    maxRetries = reg.Options.MaxRetries,
+                    delayMs = (long)delay.TotalMilliseconds,
+                });
+                await Task.Delay(delay);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Running job {JobId} failed", reg.Id);
+        }
+    }
+
+    /// <summary>One run of the job, in its own service scope (disposed when the run ends, before any retry).</summary>
+    private async Task<JobExecution> ExecuteOnceAsync(JobRegistration reg, int retryAttempt)
     {
         var execution = new JobExecution
         {
@@ -296,7 +385,8 @@ public class CliJobScheduler : IHostedService, IDisposable
         }
 
         var logger = new CliJobLogger();
-        var context = new CliJobExecutionContext(logger);
+        await using var scope = _scopes?.CreateAsyncScope();
+        var context = new CliJobExecutionContext(logger, scope?.ServiceProvider ?? EmptyServices.Instance);
 
         await _storage.SaveExecutionAsync(execution);
         await BroadcastAsync("job:started", new { jobId = reg.Id, executionId = execution.Id, timestamp = DateTime.UtcNow });
@@ -328,38 +418,56 @@ public class CliJobScheduler : IHostedService, IDisposable
             execution.CompletedAt = DateTime.UtcNow;
             execution.Duration = (long)(execution.CompletedAt.Value - execution.StartedAt).TotalMilliseconds;
             execution.Logs = logger.Entries.ToList();
+            execution.Properties = new Dictionary<string, object?>(context.Properties);
             reg.CurrentExecutionId = null;
             reg.CurrentCancellation = null;
             reg.LastRunAt = execution.StartedAt;
             reg.LastRunStatus = execution.Status.ToString().ToLowerInvariant();
             reg.LastRunDuration = execution.Duration;
 
-            await _storage.SaveExecutionAsync(execution);
-            await PersistState(reg);
+            await SaveFinishedAsync(execution, context.Discarded);
+            await TryPersistStateAsync(reg);
         }
 
-        // Retry on failure
-        if (execution.Status == JobExecutionStatus.Failed && retryAttempt < reg.Options.MaxRetries)
+        return execution;
+    }
+
+    /// <summary>
+    /// Saves the finished run (or deletes a discarded one). When the store refuses the run's properties (a value that
+    /// does not serialize), the run is saved without them, so it never stays "running".
+    /// </summary>
+    private async Task SaveFinishedAsync(JobExecution execution, bool discard)
+    {
+        try
         {
-            var delay = reg.Options.RetryStrategy switch
+            var discarded = discard && execution.Status == JobExecutionStatus.Completed
+                && await _storage.DeleteExecutionAsync(execution.Id);
+            if (!discarded)
+                await _storage.SaveExecutionAsync(execution);
+        }
+        catch (Exception ex) when (execution.Properties is { Count: > 0 })
+        {
+            _logger.LogError(ex, "Saving execution {ExecutionId} of job {JobId} failed; saving it without its properties",
+                execution.Id, execution.JobId);
+            execution.Properties = [];
+            execution.Logs.Add(new JobLogEntry
             {
-                JobRetryStrategy.Fixed => reg.Options.RetryDelay,
-                JobRetryStrategy.Linear => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (retryAttempt + 1)),
-                JobRetryStrategy.Exponential => TimeSpan.FromTicks(reg.Options.RetryDelay.Ticks * (long)Math.Pow(2, retryAttempt)),
-                _ => reg.Options.RetryDelay,
-            };
-            _logger.LogInformation("Retrying job {JobName} in {Delay} (attempt {Attempt}/{MaxRetries})",
-                reg.Options.Name, delay, retryAttempt + 1, reg.Options.MaxRetries);
-            await BroadcastAsync("job:retrying", new
-            {
-                jobId = reg.Id,
-                executionId = execution.Id,
-                attempt = retryAttempt + 1,
-                maxRetries = reg.Options.MaxRetries,
-                delayMs = (long)delay.TotalMilliseconds,
+                Level = "error",
+                Message = $"The run's properties could not be saved: {ex.Message}",
             });
-            await Task.Delay(delay);
-            await ExecuteJobAsync(reg, retryAttempt + 1);
+            await _storage.SaveExecutionAsync(execution);
+        }
+    }
+
+    private async Task TryPersistStateAsync(JobRegistration reg)
+    {
+        try
+        {
+            await PersistState(reg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Saving the state of job {JobId} failed", reg.Id);
         }
     }
 
@@ -405,4 +513,12 @@ public class CliJobScheduler : IHostedService, IDisposable
         }
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>A service provider without services, for jobs run without a host.</summary>
+internal sealed class EmptyServices : IServiceProvider
+{
+    public static readonly EmptyServices Instance = new();
+
+    public object? GetService(Type serviceType) => null;
 }

@@ -45,6 +45,45 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            IEnumerable<JobExecution> matches = _executions;
+            if (query.JobIds != null)
+                matches = matches.Where(e => query.JobIds.Contains(e.JobId));
+            if (query.Status != null && Enum.TryParse<JobExecutionStatus>(query.Status, true, out var status))
+                matches = matches.Where(e => e.Status == status);
+            if (query.Since != null)
+                matches = matches.Where(e => e.StartedAt >= JobExecutionQuery.AsUtc(query.Since.Value));
+
+            var items = matches.OrderByDescending(e => e.StartedAt).ToList();
+            IReadOnlyList<JobExecution> page = items.Skip(query.Offset).Take(query.Limit).ToList();
+            return Task.FromResult((page, items.Count));
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
+    {
+        var cutoff = before.UtcDateTime;
+        lock (_lock)
+        {
+            return Task.FromResult(_executions.RemoveAll(e => e.StartedAt < cutoff));
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_executions.RemoveAll(e => e.Id == executionId) > 0);
+        }
+    }
+
+    /// <inheritdoc />
     public Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)

@@ -89,6 +89,12 @@ public interface IAuditStore
     /// <summary>Returns entries newest first, filtered by <paramref name="options"/>.</summary>
     Task<List<AuditEntry>> GetEntriesAsync(AuditQueryOptions? options = null);
     Task ClearAsync();
+
+    /// <summary>
+    /// Deletes the entries recorded before <paramref name="before"/>; returns how many. Run it on a schedule to keep
+    /// the log bounded. The default keeps everything and returns 0.
+    /// </summary>
+    Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default) => Task.FromResult(0);
 }
 
 /// <summary>
