@@ -3,6 +3,12 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.17
+
+- The users plugin's hosted service no longer throws `ObjectDisposedException` when it is stopped after being
+  disposed. With minimal hosting the application's own `Run()` can dispose the container while
+  `WebApplicationFactory` is still stopping the host, which failed test classes at cleanup.
+
 ## 1.0.0-beta.16
 
 ### Audit plugin
