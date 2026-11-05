@@ -993,11 +993,11 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_EmptyBuffer_ReturnsEmptyEntries()
+    public async Task GetLogs_EmptyBuffer_ReturnsEmptyEntries()
     {
         var (controller, _) = CreateController();
 
-        var result = controller.GetLogs() as OkObjectResult;
+        var result = await controller.GetLogs() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1006,13 +1006,13 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_WithEntries_ReturnsEntries()
+    public async Task GetLogs_WithEntries_ReturnsEntries()
     {
         var (controller, buffer) = CreateController();
         buffer.Add(new LogEntry { Level = "INFO", Message = "hello", Source = "test" });
         buffer.Add(new LogEntry { Level = "ERROR", Message = "oops", Source = "test" });
 
-        var result = controller.GetLogs() as OkObjectResult;
+        var result = await controller.GetLogs() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1022,13 +1022,13 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_FilterByLevel_ReturnsFiltered()
+    public async Task GetLogs_FilterByLevel_ReturnsFiltered()
     {
         var (controller, buffer) = CreateController();
         buffer.Add(new LogEntry { Level = "INFO", Message = "info1", Source = "src" });
         buffer.Add(new LogEntry { Level = "ERROR", Message = "error1", Source = "src" });
 
-        var result = controller.GetLogs(level: "ERROR") as OkObjectResult;
+        var result = await controller.GetLogs(level: "ERROR") as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1037,13 +1037,13 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_FilterBySearch_ReturnsMatching()
+    public async Task GetLogs_FilterBySearch_ReturnsMatching()
     {
         var (controller, buffer) = CreateController();
         buffer.Add(new LogEntry { Level = "INFO", Message = "startup complete", Source = "app" });
         buffer.Add(new LogEntry { Level = "INFO", Message = "request handled", Source = "http" });
 
-        var result = controller.GetLogs(search: "startup") as OkObjectResult;
+        var result = await controller.GetLogs(search: "startup") as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1052,7 +1052,7 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_Pagination_RespectsLimitAndOffset()
+    public async Task GetLogs_Pagination_RespectsLimitAndOffset()
     {
         var (controller, buffer) = CreateController();
         for (int i = 0; i < 20; i++)
@@ -1060,7 +1060,7 @@ public class AdminLogsControllerTests
             buffer.Add(new LogEntry { Message = $"msg{i}", Source = "test", Level = "INFO" });
         }
 
-        var result = controller.GetLogs(limit: 5, offset: 3) as OkObjectResult;
+        var result = await controller.GetLogs(limit: 5, offset: 3) as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1070,12 +1070,12 @@ public class AdminLogsControllerTests
     }
 
     [Fact]
-    public void GetLogs_EntriesContainExpectedFields()
+    public async Task GetLogs_EntriesContainExpectedFields()
     {
         var (controller, buffer) = CreateController();
         buffer.Add(new LogEntry { Level = "WARN", Message = "warning msg", Source = "svc" });
 
-        var result = controller.GetLogs() as OkObjectResult;
+        var result = await controller.GetLogs() as OkObjectResult;
 
         Assert.NotNull(result);
         var json = JsonSerializer.Serialize(result.Value);
@@ -1083,6 +1083,97 @@ public class AdminLogsControllerTests
         Assert.Contains("level", json);
         Assert.Contains("message", json);
         Assert.Contains("source", json);
+    }
+
+    [Fact]
+    public async Task GetLogs_ReportsTheStore()
+    {
+        var (controller, _) = CreateController();
+
+        var json = JsonSerializer.Serialize((await controller.GetLogs() as OkObjectResult)!.Value);
+
+        Assert.Contains("\"store\":\"memory\"", json);
+        Assert.Contains("\"persistent\":false", json);
+        Assert.Contains("\"services\":[]", json);
+        Assert.Contains("\"hasMore\":false", json);
+    }
+
+    [Fact]
+    public async Task GetLogs_SeveralLevels_ReturnsEach()
+    {
+        var (controller, buffer) = CreateController();
+        buffer.Add(new LogEntry { Level = "INFO", Message = "info1", Source = "src" });
+        buffer.Add(new LogEntry { Level = "WARN", Message = "warn1", Source = "src" });
+        buffer.Add(new LogEntry { Level = "ERROR", Message = "error1", Source = "src" });
+
+        var json = JsonSerializer.Serialize((await controller.GetLogs(level: "warn, Error") as OkObjectResult)!.Value);
+
+        Assert.Contains("\"total\":2", json);
+        Assert.DoesNotContain("info1", json);
+    }
+
+    [Theory]
+    [InlineData("LOUD", null, null)]
+    [InlineData(null, "yesterday", null)]
+    [InlineData(null, null, "soon")]
+    public async Task GetLogs_BadFilter_Returns400(string? level, string? from, string? to)
+    {
+        var (controller, _) = CreateController();
+
+        var result = await controller.GetLogs(level: level, from: from, to: to);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("\"error\"", JsonSerializer.Serialize(bad.Value));
+    }
+
+    [Fact]
+    public async Task GetLogs_TimeRange_ReturnsEntriesInside()
+    {
+        var (controller, buffer) = CreateController();
+        var now = DateTime.UtcNow;
+        buffer.Add(new LogEntry { Timestamp = now.AddHours(-2), Level = "INFO", Message = "old", Source = "s" });
+        buffer.Add(new LogEntry { Timestamp = now.AddMinutes(-5), Level = "INFO", Message = "recent", Source = "s" });
+        buffer.Add(new LogEntry { Timestamp = now.AddMinutes(5), Level = "INFO", Message = "future", Source = "s" });
+
+        var result = await controller.GetLogs(from: now.AddHours(-1).ToString("O"), to: now.ToString("O")) as OkObjectResult;
+
+        var json = JsonSerializer.Serialize(result!.Value);
+        Assert.Contains("recent", json);
+        Assert.DoesNotContain("old", json);
+        Assert.DoesNotContain("future", json);
+    }
+
+    [Fact]
+    public async Task GetLogs_ServiceFilter_MatchesNothingInMemory()
+    {
+        var (controller, buffer) = CreateController();
+        buffer.Add(new LogEntry { Level = "INFO", Message = "here", Source = "s" });
+
+        var json = JsonSerializer.Serialize((await controller.GetLogs(service: "ratebell-jobs") as OkObjectResult)!.Value);
+
+        Assert.Contains("\"total\":0", json);
+    }
+
+    [Fact]
+    public async Task GetLogs_StoreUnavailable_Returns502()
+    {
+        var controller = new LogsController(new UnavailableStore());
+
+        var result = await controller.GetLogs();
+
+        var error = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(502, error.StatusCode);
+        Assert.Contains("seq", JsonSerializer.Serialize(error.Value));
+    }
+
+    private sealed class UnavailableStore : Qodalis.Cli.Abstractions.Logs.ILogStore
+    {
+        public string Name => "seq";
+        public bool Persistent => true;
+        public Task<Qodalis.Cli.Abstractions.Logs.LogPage> QueryAsync(Qodalis.Cli.Abstractions.Logs.LogQueryOptions options, CancellationToken cancellationToken = default) =>
+            throw new HttpRequestException("connection refused");
+        public Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
     }
 }
 
