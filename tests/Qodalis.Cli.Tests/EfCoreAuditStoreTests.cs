@@ -1,6 +1,7 @@
 using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
@@ -146,9 +147,14 @@ public class EfCoreJobStorageSqliteTests : IDisposable
             command.ExecuteNonQuery();
         }
 
-        var options = new DbContextOptionsBuilder<JobStorageDbContext>().UseSqlite(_connection).Options;
-        _provider = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(options, o => new JobStorageDbContext(o)));
+        // Hosts log EF's warnings: the storage's own queries (including the start-up checks) must not raise any.
+        _options = new DbContextOptionsBuilder<JobStorageDbContext>().UseSqlite(_connection)
+            .ConfigureWarnings(w => w.Throw(CoreEventId.FirstWithoutOrderByAndFilterWarning))
+            .Options;
+        _provider = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(_options, o => new JobStorageDbContext(o)));
     }
+
+    private readonly DbContextOptions<JobStorageDbContext> _options;
 
     public void Dispose() => _connection.Dispose();
 
@@ -176,6 +182,17 @@ public class EfCoreJobStorageSqliteTests : IDisposable
         Assert.Equal(recent.Id, items[0].Id);
         Assert.Equal(32, ((System.Text.Json.JsonElement)items[0].Properties["items"]!).GetInt32());
         Assert.Null(await _provider.GetExecutionAsync(old.Id));
+    }
+
+    [Fact]
+    public async Task ARestartOverExistingTables_ChecksThemWithoutWarnings()
+    {
+        await _provider.SaveJobStateAsync("job", new JobState { Status = JobStatus.Active });
+
+        // A new store, as after a restart: its first call checks the existing tables (the upgrade probe)
+        var restarted = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(_options, o => new JobStorageDbContext(o)));
+
+        Assert.Single(await restarted.GetAllJobStatesAsync());
     }
 
     [Fact]
