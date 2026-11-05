@@ -174,4 +174,19 @@ public class ExternalAuthSocketRecheckTests
         options.Shell.SessionCheckInterval = TimeSpan.FromMinutes(10);
         Assert.Equal(TimeSpan.FromSeconds(60), bootstrap.ExternalSocketCheckInterval);
     }
+
+    [Fact]
+    public async Task StopAsync_AfterDispose_DoesNothing()
+    {
+        // With minimal hosting the app's Run() can dispose the container while a test host still stops it.
+        var bootstrap = new Qodalis.Cli.Plugin.Users.Services.UsersBootstrapService(
+            new Qodalis.Cli.Plugin.Users.Stores.InMemoryUserStore(),
+            new Qodalis.Cli.Plugin.Users.Stores.InMemoryGroupStore(),
+            null!, new Qodalis.Cli.Plugin.Users.UsersModuleOptions(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Qodalis.Cli.Plugin.Users.Services.UsersBootstrapService>.Instance);
+
+        bootstrap.Dispose();
+        await bootstrap.StopAsync(CancellationToken.None);
+        bootstrap.Dispose();
+    }
 }
