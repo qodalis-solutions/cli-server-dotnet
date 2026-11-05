@@ -15,6 +15,9 @@ Every package shares one version with the Node and Python servers.
 - `GET /api/v1/qcli/logs` takes several levels (`level=WARN,ERROR`), `service`, `from` and `to`, answers 400 with
   `{ error }` for an unknown level or time, 502 when the store cannot be reached, and reports `hasMore`, `store`,
   `persistent` and `services`. `total` is null for stores that cannot count (Seq).
+- The admin plugin ships dashboard 1.0.0-beta.14: the Logs page filters on the server and, with Seq, by service and
+  time.
+- The demo server sends its logs to Seq when `Seq:ServerUrl` is set.
 
 ## 1.0.0-beta.17
 
