@@ -3,7 +3,9 @@ using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
+using Qodalis.Cli.Abstractions.Insights;
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Plugin.Admin.Services;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
@@ -59,6 +61,37 @@ public class StatusController : ControllerBase
             registeredCommands = _commandRegistry.Processors.Count,
             registeredJobs,
             enabledFeatures = DetectEnabledFeatures(jobs != null),
+        });
+    }
+
+    /// <summary>
+    /// The status sampled every 15 seconds over the last <paramref name="minutes"/> minutes (default 60, 1..1440),
+    /// oldest first: memory, CPU, WebSocket clients and shell sessions. Kept in memory for 24 hours.
+    /// </summary>
+    /// <param name="minutes">How far back to go.</param>
+    [HttpGet("history")]
+    public IActionResult GetHistory([FromQuery] string? minutes = null)
+    {
+        var span = 60;
+        if (!string.IsNullOrWhiteSpace(minutes)
+            && !int.TryParse(minutes.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out span))
+        {
+            return BadRequest(new { error = "minutes must be an integer" });
+        }
+        span = Math.Clamp(span, 1, 1440);
+
+        var samples = _serviceProvider.GetService<StatusHistory>()?.GetSamples(span) ?? [];
+        return Ok(new
+        {
+            intervalSeconds = (int)StatusHistory.Interval.TotalSeconds,
+            samples = samples.Select(s => new
+            {
+                timestamp = TimeBuckets.Format(s.Timestamp),
+                memoryMb = s.MemoryMb,
+                cpuPercent = s.CpuPercent,
+                activeWsConnections = s.ActiveWsConnections,
+                activeShellSessions = s.ActiveShellSessions,
+            }),
         });
     }
 

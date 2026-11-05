@@ -26,6 +26,7 @@ public class CliController : ControllerBase
     private readonly ICliServerInfoService _serverInfo;
     private readonly ILogger<CliController> _logger;
     private readonly CliServerOptions _serverOptions;
+    private readonly CliCommandUsage? _usage;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliController"/>.
@@ -34,13 +35,17 @@ public class CliController : ControllerBase
     /// <param name="executor">The command executor service.</param>
     /// <param name="serverInfo">The server info service.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="serverOptions">Server options.</param>
+    /// <param name="usage">The command execution counters (<c>GET commands/stats</c>).</param>
     public CliController(
         ICliCommandRegistry registry,
         ICliCommandExecutorService executor,
         ICliServerInfoService serverInfo,
         ILogger<CliController> logger,
-        CliServerOptions? serverOptions = null)
+        CliServerOptions? serverOptions = null,
+        CliCommandUsage? usage = null)
     {
+        _usage = usage;
         _serverOptions = serverOptions ?? new CliServerOptions();
         _registry = registry;
         _executor = executor;
@@ -97,6 +102,32 @@ public class CliController : ControllerBase
     }
 
     /// <summary>
+    /// How often each root command ran since the server started (through <c>execute</c>, <c>execute/stream</c> and
+    /// MCP): executions, failures, mean duration in milliseconds and the last times; most executed first.
+    /// </summary>
+    [HttpGet("commands/stats")]
+    public IActionResult GetCommandStats()
+    {
+        var usage = _usage;
+        return Ok(new
+        {
+            since = FormatTime(usage?.Since ?? System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()),
+            commands = (usage?.GetEntries() ?? []).Select(e => new
+            {
+                command = e.Command,
+                known = e.Known,
+                executions = e.Executions,
+                failures = e.Failures,
+                avgDuration = e.AvgDuration,
+                lastExecutedAt = e.LastExecutedAt is { } executed ? FormatTime(executed) : null,
+                lastFailedAt = e.LastFailedAt is { } failed ? FormatTime(failed) : null,
+            }),
+        });
+    }
+
+    private static string FormatTime(DateTime time) => Qodalis.Cli.Abstractions.Insights.TimeBuckets.Format(time);
+
+    /// <summary>
     /// Executes a CLI command and returns the response.
     /// </summary>
     /// <param name="command">The command to execute.</param>
@@ -148,18 +179,26 @@ public class CliController : ControllerBase
             await Response.Body.FlushAsync();
         }
 
+        // Executions the executor does not run (unknown, disabled, streaming processors) are counted here.
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool? countedHere = null;
+        var known = false;
+        var failed = true;
         try
         {
             var processor = _registry.FindProcessor(command.Command, command.ChainCommands);
+            known = processor != null;
 
             if (processor == null)
             {
+                countedHere = true;
                 await WriteEvent("error", new { message = $"Unknown command: {command.Command}" });
                 return;
             }
 
             if (_executor.IsBlocked(processor))
             {
+                countedHere = true;
                 await WriteEvent("error", new { message = $"Command '{command.Command}' is currently disabled." });
                 return;
             }
@@ -168,14 +207,17 @@ public class CliController : ControllerBase
 
             if (processor is ICliStreamCommandProcessor streamProcessor)
             {
+                countedHere = true;
                 exitCode = await streamProcessor.HandleStreamAsync(command, async output =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await WriteEvent("output", output is CliServerOutput block ? CliOutputLimits.Apply(block, _serverOptions.MaxTableRows) : output);
                 }, cancellationToken);
+                failed = exitCode != 0;
             }
             else
             {
+                countedHere = false;
                 var response = await _executor.ExecuteAsync(command, cancellationToken);
                 foreach (var output in response.Outputs)
                 {
@@ -196,6 +238,11 @@ public class CliController : ControllerBase
         {
             _logger.LogError(ex, "Stream execution failed: {Command}", command.Command);
             await WriteEvent("error", new { message = $"Error executing command: {ex.Message}" });
+        }
+        finally
+        {
+            if (countedHere == true)
+                _usage?.Record(command.Command, known, System.Diagnostics.Stopwatch.GetElapsedTime(started), failed);
         }
     }
 }

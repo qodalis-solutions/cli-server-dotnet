@@ -112,6 +112,7 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 | GET | `/executions` | Executions across jobs, newest first: `?job=a,b&group=&status=&since=&limit=&offset=` |
+| GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs); `job` and `group` as in `/executions` |
 
 Jobs without a schedule or interval run only on request (`trigger`). Executions carry `properties`, the job's own
 values. Keep job ids stable (`Id`): saved pauses and history are found again by id after a restart.
@@ -137,7 +138,8 @@ cli.SetJobStorageProvider(new MyDatabaseStorageProvider());
 Besides saving and reading executions and states, a store may implement `QueryExecutionsAsync` (executions across
 jobs; the default merges per-job listings), `DeleteExecutionAsync` (for `Discard()`; the default keeps the run) and
 `PruneAsync(before)` (delete old executions; the default keeps everything). Call `PruneAsync` on a schedule, for
-example from a job, to keep the history bounded.
+example from a job, to keep the history bounded. `GET /jobs/stats` reads every run of its range through
+`QueryExecutionsAsync`, a page at a time, so it works with any store or job manager.
 
 ## Jobs that run elsewhere
 
