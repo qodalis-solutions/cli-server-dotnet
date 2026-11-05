@@ -54,6 +54,18 @@ public static class CliBuilderAdminExtensions
     }
 
     /// <summary>
+    /// The <c>theme.json</c> document: the color scheme, plus <c>branding</c> (name, icon, terminal) when the host
+    /// set any. Throws <see cref="ArgumentException"/> on an invalid value.
+    /// </summary>
+    internal static string AdminAppearance(AdminConfig config)
+    {
+        var document = (config.Theme ?? new AdminTheme()).ToDocument();
+        if ((config.Branding ?? new AdminBranding()).ToDocument() is { } branding)
+            document["branding"] = branding;
+        return System.Text.Json.JsonSerializer.Serialize(document);
+    }
+
+    /// <summary>
     /// Adds the admin auth middleware and serves the admin SPA at /qcli/admin.
     /// Call this after UseWebSockets() and before MapControllers().
     /// </summary>
@@ -67,7 +79,7 @@ public static class CliBuilderAdminExtensions
         // Color scheme, read by the dashboard before its first render. Validated
         // here so a bad value fails at startup. Public, like the dashboard itself:
         // the login page uses it too.
-        var themeJson = (config.Theme ?? new AdminTheme()).ToJson();
+        var themeJson = AdminAppearance(config);
         app.Use(async (context, next) =>
         {
             if (HttpMethods.IsGet(context.Request.Method)

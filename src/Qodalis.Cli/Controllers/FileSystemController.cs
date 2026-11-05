@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.FileSystem;
 
@@ -7,24 +8,43 @@ namespace Qodalis.Cli.Controllers;
 
 /// <summary>
 /// Controller for filesystem operations (list, read, stat, download, upload, mkdir, delete).
-/// Access is restricted to paths whitelisted via <see cref="FileSystem.FileSystemPathValidator"/>.
+/// Access is restricted to paths whitelisted via <see cref="FileSystem.FileSystemPathValidator"/>. Without
+/// <c>AddFileSystem()</c> every route answers 404.
 /// </summary>
 [ApiController]
 [Route("api/qcli/fs")]
-public class FileSystemController : ControllerBase
+public class FileSystemController : ControllerBase, IActionFilter
 {
     private readonly IFileStorageProvider _provider;
     private readonly ILogger<FileSystemController> _logger;
+    private readonly bool _enabled;
 
     /// <summary>
     /// Initializes a new instance of <see cref="FileSystemController"/>.
     /// </summary>
     /// <param name="provider">The file storage provider.</param>
     /// <param name="logger">The logger instance.</param>
-    public FileSystemController(IFileStorageProvider provider, ILogger<FileSystemController> logger)
+    /// <param name="options">The filesystem options, registered by <c>AddFileSystem()</c>; null when it is off.</param>
+    public FileSystemController(IFileStorageProvider provider, ILogger<FileSystemController> logger,
+        FileSystemOptions? options = null)
     {
         _provider = provider;
         _logger = logger;
+        _enabled = options != null;
+    }
+
+    /// <summary>Answers 404 when the filesystem API is not enabled.</summary>
+    [NonAction]
+    public void OnActionExecuting(ActionExecutingContext context)
+    {
+        if (!_enabled)
+            context.Result = NotFound(new { Error = "The filesystem API is not enabled", Code = "FS_DISABLED" });
+    }
+
+    /// <inheritdoc />
+    [NonAction]
+    public void OnActionExecuted(ActionExecutedContext context)
+    {
     }
 
     /// <summary>

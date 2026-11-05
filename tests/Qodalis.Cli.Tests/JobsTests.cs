@@ -496,7 +496,7 @@ public class CliJobsControllerTests : IDisposable
         foreach (var (id, reg) in _scheduler.Jobs)
             _jobIds[reg.Options.Name!] = id;
 
-        _controller = new CliJobsController(_scheduler, _storage);
+        _controller = new CliJobsController(new SchedulerJobManager(_scheduler, _storage));
     }
 
     public void Dispose()
@@ -508,25 +508,25 @@ public class CliJobsControllerTests : IDisposable
     // --- List ---
 
     [Fact]
-    public void ListJobs_ReturnsAll()
+    public async Task ListJobs_ReturnsAll()
     {
-        var result = _controller.ListJobs() as OkObjectResult;
+        var result = (await _controller.ListJobs()) as OkObjectResult;
         Assert.NotNull(result);
     }
 
     // --- Get ---
 
     [Fact]
-    public void GetJob_Found()
+    public async Task GetJob_Found()
     {
-        var result = _controller.GetJob(_jobIds["quick"]) as OkObjectResult;
+        var result = (await _controller.GetJob(_jobIds["quick"])) as OkObjectResult;
         Assert.NotNull(result);
     }
 
     [Fact]
-    public void GetJob_NotFound()
+    public async Task GetJob_NotFound()
     {
-        var result = _controller.GetJob("nonexistent");
+        var result = await _controller.GetJob("nonexistent");
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         var json = System.Text.Json.JsonSerializer.Serialize(notFound.Value);
         Assert.Contains("JOB_NOT_FOUND", json);
@@ -673,7 +673,7 @@ public class CliJobsControllerTests : IDisposable
     [Fact]
     public async Task History_Empty()
     {
-        var result = await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None) as OkObjectResult;
+        var result = (await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None)) as OkObjectResult;
         Assert.NotNull(result);
         var json = System.Text.Json.JsonSerializer.Serialize(result!.Value);
         Assert.Contains("\"total\":0", json);
@@ -686,7 +686,7 @@ public class CliJobsControllerTests : IDisposable
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
         await Task.Delay(200);
 
-        var result = await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None) as OkObjectResult;
+        var result = (await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None)) as OkObjectResult;
         Assert.NotNull(result);
         var json = System.Text.Json.JsonSerializer.Serialize(result!.Value);
         Assert.DoesNotContain("\"total\":0", json);
@@ -713,7 +713,7 @@ public class CliJobsControllerTests : IDisposable
         Assert.NotEmpty(items);
         var execId = items[0].Id;
 
-        var result = await _controller.GetExecution(_jobIds["quick"], execId, CancellationToken.None) as OkObjectResult;
+        var result = (await _controller.GetExecution(_jobIds["quick"], execId, CancellationToken.None)) as OkObjectResult;
         Assert.NotNull(result);
         var json = System.Text.Json.JsonSerializer.Serialize(result!.Value);
         Assert.Contains("logs", json);
@@ -727,6 +727,104 @@ public class CliJobsControllerTests : IDisposable
         Assert.IsType<NotFoundObjectResult>(result);
         var json = System.Text.Json.JsonSerializer.Serialize(((NotFoundObjectResult)result).Value);
         Assert.Contains("EXECUTION_NOT_FOUND", json);
+    }
+}
+
+#endregion
+
+#region Custom job manager
+
+/// <summary>A host's jobs that run elsewhere: one job that can be triggered and paused, nothing else.</summary>
+public class FakeJobManager : ICliJobManager
+{
+    public List<string> Calls { get; } = [];
+
+    private static readonly CliJobInfo Job = new()
+    {
+        Id = "fetch-rates:bnr",
+        Name = "fetch-rates bnr",
+        Group = "fetch-rates",
+        Actions = [CliJobActions.Trigger, CliJobActions.Pause, CliJobActions.Resume],
+    };
+
+    public Task<IReadOnlyList<CliJobInfo>> GetJobsAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<CliJobInfo>>([Job]);
+
+    public Task TriggerAsync(string jobId, CancellationToken cancellationToken) => Record("trigger", jobId);
+
+    public Task PauseAsync(string jobId, CancellationToken cancellationToken) => Record("pause", jobId);
+
+    public Task ResumeAsync(string jobId, CancellationToken cancellationToken) => Record("resume", jobId);
+
+    public Task<(IReadOnlyList<JobExecution> Items, int Total)> GetExecutionsAsync(
+        string jobId, int limit, int offset, string? status, CancellationToken cancellationToken) =>
+        Task.FromResult<(IReadOnlyList<JobExecution>, int)>(
+            ([new JobExecution { Id = "r1", JobId = jobId, JobName = Job.Name, Status = JobExecutionStatus.Completed }], 1));
+
+    public Task<JobExecution?> GetExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken) =>
+        Task.FromResult<JobExecution?>(null);
+
+    private Task Record(string action, string jobId)
+    {
+        if (jobId != Job.Id) throw new KeyNotFoundException(jobId);
+        Calls.Add($"{action} {jobId}");
+        return Task.CompletedTask;
+    }
+}
+
+public class CustomJobManagerTests
+{
+    private readonly FakeJobManager _jobs = new();
+
+    [Fact]
+    public async Task Controller_ListsAndRunsTheHostsJobs()
+    {
+        var controller = new CliJobsController(_jobs);
+
+        var list = Assert.IsType<OkObjectResult>(await controller.ListJobs());
+        var json = System.Text.Json.JsonSerializer.Serialize(list.Value);
+        Assert.Contains("\"id\":\"fetch-rates:bnr\"", json);
+        Assert.Contains("\"actions\":[\"trigger\",\"pause\",\"resume\"]", json);
+
+        Assert.IsType<OkObjectResult>(await controller.TriggerJob("fetch-rates:bnr", CancellationToken.None));
+        Assert.IsType<OkObjectResult>(await controller.PauseJob("fetch-rates:bnr", CancellationToken.None));
+        Assert.Equal(["trigger fetch-rates:bnr", "pause fetch-rates:bnr"], _jobs.Calls);
+
+        var history = Assert.IsType<OkObjectResult>(await controller.GetHistory("fetch-rates:bnr", ct: CancellationToken.None));
+        Assert.Contains("\"total\":1", System.Text.Json.JsonSerializer.Serialize(history.Value));
+        Assert.IsType<NotFoundObjectResult>(await controller.GetHistory("nope", ct: CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Controller_ActionsTheManagerDoesNotOffer_Answer501()
+    {
+        var controller = new CliJobsController(_jobs);
+
+        foreach (var result in new[]
+        {
+            await controller.StopJob("fetch-rates:bnr", CancellationToken.None),
+            await controller.CancelJob("fetch-rates:bnr", CancellationToken.None),
+            await controller.UpdateJob("fetch-rates:bnr", new UpdateJobRequest { Interval = "5m" }, CancellationToken.None),
+        })
+        {
+            var objectResult = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(501, objectResult.StatusCode);
+            Assert.Contains("NOT_SUPPORTED", System.Text.Json.JsonSerializer.Serialize(objectResult.Value));
+        }
+        Assert.IsType<NotFoundObjectResult>(await controller.TriggerJob("nope", CancellationToken.None));
+    }
+
+    [Fact]
+    public void SetJobManager_ReplacesTheScheduler()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        var builder = new Qodalis.Cli.Extensions.CliBuilder(services);
+        builder.AddJob(new DummyJob()).SetJobManager<FakeJobManager>();
+
+        var managers = services.Where(d => d.ServiceType == typeof(ICliJobManager)).ToList();
+        var manager = Assert.Single(managers);
+        Assert.Equal(typeof(FakeJobManager), manager.ImplementationType);
+        Assert.Equal(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped, manager.Lifetime);
     }
 }
 

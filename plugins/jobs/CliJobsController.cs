@@ -1,50 +1,48 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
 /// <summary>
-/// REST API controller for managing scheduled jobs (list, trigger, pause, resume, stop, cancel, update, history).
+/// REST API controller for managing jobs (list, trigger, pause, resume, stop, cancel, update, history), through the
+/// registered <see cref="ICliJobManager"/>.
 /// </summary>
 [ApiController]
 [Route("api/v1/qcli/jobs")]
 public class CliJobsController : ControllerBase
 {
-    private readonly CliJobScheduler _scheduler;
-    private readonly ICliJobStorageProvider _storage;
+    private readonly ICliJobManager _jobs;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliJobsController"/> class.
     /// </summary>
-    /// <param name="scheduler">The job scheduler service.</param>
-    /// <param name="storage">The job storage provider for execution history.</param>
-    public CliJobsController(CliJobScheduler scheduler, ICliJobStorageProvider storage)
+    /// <param name="jobs">The job manager (by default the in-process scheduler).</param>
+    public CliJobsController(ICliJobManager jobs)
     {
-        _scheduler = scheduler;
-        _storage = storage;
+        _jobs = jobs;
     }
 
     /// <summary>
-    /// Lists all registered jobs with their current status and configuration.
+    /// Lists all jobs with their current status and configuration.
     /// </summary>
     [HttpGet]
-    public IActionResult ListJobs()
+    public async Task<IActionResult> ListJobs(CancellationToken ct = default)
     {
-        var jobs = _scheduler.Jobs.Values.Select(r => MapJobDto(r));
-        return Ok(jobs);
+        var jobs = await _jobs.GetJobsAsync(ct);
+        return Ok(jobs.Select(MapJobDto));
     }
 
     /// <summary>
     /// Gets details of a specific job by ID.
     /// </summary>
     /// <param name="id">The job identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
     [HttpGet("{id}")]
-    public IActionResult GetJob(string id)
+    public async Task<IActionResult> GetJob(string id, CancellationToken ct = default)
     {
-        if (!_scheduler.Jobs.TryGetValue(id, out var reg))
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-
-        return Ok(MapJobDto(reg));
+        var job = await _jobs.GetJobAsync(id, ct);
+        return job == null ? JobNotFound() : Ok(MapJobDto(job));
     }
 
     /// <summary>
@@ -53,22 +51,8 @@ public class CliJobsController : ControllerBase
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/trigger")]
-    public async Task<IActionResult> TriggerJob(string id, CancellationToken ct)
-    {
-        try
-        {
-            await _scheduler.TriggerAsync(id, ct);
-            return Ok(new { message = "Job triggered" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message, code = "JOB_ALREADY_RUNNING" });
-        }
-    }
+    public Task<IActionResult> TriggerJob(string id, CancellationToken ct) =>
+        RunAsync(() => _jobs.TriggerAsync(id, ct), "Job triggered", "JOB_ALREADY_RUNNING");
 
     /// <summary>
     /// Pauses a job, preventing further scheduled executions.
@@ -76,22 +60,8 @@ public class CliJobsController : ControllerBase
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/pause")]
-    public async Task<IActionResult> PauseJob(string id, CancellationToken ct)
-    {
-        try
-        {
-            await _scheduler.PauseAsync(id, ct);
-            return Ok(new { message = "Job paused" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message, code = "JOB_ALREADY_PAUSED" });
-        }
-    }
+    public Task<IActionResult> PauseJob(string id, CancellationToken ct) =>
+        RunAsync(() => _jobs.PauseAsync(id, ct), "Job paused", "JOB_ALREADY_PAUSED");
 
     /// <summary>
     /// Resumes a previously paused job.
@@ -99,22 +69,8 @@ public class CliJobsController : ControllerBase
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/resume")]
-    public async Task<IActionResult> ResumeJob(string id, CancellationToken ct)
-    {
-        try
-        {
-            await _scheduler.ResumeAsync(id, ct);
-            return Ok(new { message = "Job resumed" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message, code = "JOB_NOT_PAUSED" });
-        }
-    }
+    public Task<IActionResult> ResumeJob(string id, CancellationToken ct) =>
+        RunAsync(() => _jobs.ResumeAsync(id, ct), "Job resumed", "JOB_NOT_PAUSED");
 
     /// <summary>
     /// Stops a job entirely, cancelling any running execution.
@@ -122,18 +78,8 @@ public class CliJobsController : ControllerBase
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/stop")]
-    public async Task<IActionResult> StopJob(string id, CancellationToken ct)
-    {
-        try
-        {
-            await _scheduler.StopJobAsync(id, ct);
-            return Ok(new { message = "Job stopped" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-        }
-    }
+    public Task<IActionResult> StopJob(string id, CancellationToken ct) =>
+        RunAsync(() => _jobs.StopAsync(id, ct), "Job stopped", "JOB_CONFLICT");
 
     /// <summary>
     /// Cancels the currently running execution of a job.
@@ -141,25 +87,11 @@ public class CliJobsController : ControllerBase
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/cancel")]
-    public async Task<IActionResult> CancelJob(string id, CancellationToken ct)
-    {
-        try
-        {
-            await _scheduler.CancelCurrentAsync(id, ct);
-            return Ok(new { message = "Execution cancelled" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(new { error = ex.Message, code = "JOB_NOT_RUNNING" });
-        }
-    }
+    public Task<IActionResult> CancelJob(string id, CancellationToken ct) =>
+        RunAsync(() => _jobs.CancelAsync(id, ct), "Execution cancelled", "JOB_NOT_RUNNING");
 
     /// <summary>
-    /// Updates the configuration of a registered job (schedule, retries, timeout, etc.).
+    /// Updates the configuration of a job (schedule, retries, timeout, etc.).
     /// </summary>
     /// <param name="id">The job identifier.</param>
     /// <param name="request">The update request body.</param>
@@ -172,7 +104,7 @@ public class CliJobsController : ControllerBase
 
         try
         {
-            await _scheduler.UpdateOptionsAsync(id, options =>
+            return await RunAsync(() => _jobs.UpdateAsync(id, options =>
             {
                 if (request.Description != null) options.Description = request.Description;
                 if (request.Group != null) options.Group = request.Group;
@@ -185,12 +117,7 @@ public class CliJobsController : ControllerBase
                 if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
                 if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
                     options.OverlapPolicy = policy;
-            }, ct);
-            return Ok(new { message = "Job updated" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
+            }, ct), "Job updated", "JOB_CONFLICT");
         }
         catch (ArgumentException ex)
         {
@@ -214,11 +141,12 @@ public class CliJobsController : ControllerBase
         [FromQuery] string? status = null,
         CancellationToken ct = default)
     {
-        if (!_scheduler.Jobs.ContainsKey(id))
-            return NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
+        if (await _jobs.GetJobAsync(id, ct) == null)
+            return JobNotFound();
 
-        if (limit > 100) limit = 100;
-        var (items, total) = await _storage.GetExecutionsAsync(id, limit, offset, status, ct);
+        limit = Math.Clamp(limit, 1, 100);
+        offset = Math.Max(offset, 0);
+        var (items, total) = await _jobs.GetExecutionsAsync(id, limit, offset, status, ct);
 
         return Ok(new
         {
@@ -250,7 +178,7 @@ public class CliJobsController : ControllerBase
     [HttpGet("{id}/history/{execId}")]
     public async Task<IActionResult> GetExecution(string id, string execId, CancellationToken ct)
     {
-        var execution = await _storage.GetExecutionAsync(execId, ct);
+        var execution = await _jobs.GetExecutionAsync(id, execId, ct);
         if (execution == null || execution.JobId != id)
             return NotFound(new { error = "Execution not found", code = "EXECUTION_NOT_FOUND" });
 
@@ -269,26 +197,54 @@ public class CliJobsController : ControllerBase
         });
     }
 
-    internal static object MapJobDto(JobRegistration r) => new
+    /// <summary>
+    /// Runs a job action and maps the manager's exceptions: unknown job 404, refused by the job's state 409,
+    /// not offered by the manager 501.
+    /// </summary>
+    private async Task<IActionResult> RunAsync(Func<Task> action, string done, string conflictCode)
     {
-        id = r.Id,
-        name = r.Options.Name,
-        description = r.Options.Description,
-        group = r.Options.Group,
-        status = r.Status.ToString().ToLowerInvariant(),
-        schedule = r.Options.Schedule,
-        interval = (long?)r.Options.Interval?.TotalMilliseconds,
-        enabled = r.Status != JobStatus.Stopped,
-        maxRetries = r.Options.MaxRetries,
-        retryDelay = (long)r.Options.RetryDelay.TotalMilliseconds,
-        retryStrategy = r.Options.RetryStrategy.ToString().ToLowerInvariant(),
-        timeout = (long?)r.Options.Timeout?.TotalMilliseconds,
-        overlapPolicy = r.Options.OverlapPolicy.ToString().ToLowerInvariant(),
-        currentExecutionId = r.CurrentExecutionId,
-        nextRunAt = r.NextRunAt,
-        lastRunAt = r.LastRunAt,
-        lastRunStatus = r.LastRunStatus,
-        lastRunDuration = r.LastRunDuration,
+        try
+        {
+            await action();
+            return Ok(new { message = done });
+        }
+        catch (KeyNotFoundException)
+        {
+            return JobNotFound();
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message, code = conflictCode });
+        }
+    }
+
+    private NotFoundObjectResult JobNotFound() => NotFound(new { error = "Job not found", code = "JOB_NOT_FOUND" });
+
+    internal static object MapJobDto(CliJobInfo j) => new
+    {
+        id = j.Id,
+        name = j.Name,
+        description = j.Description,
+        group = j.Group,
+        status = j.Status.ToString().ToLowerInvariant(),
+        schedule = j.Schedule,
+        interval = (long?)j.Interval?.TotalMilliseconds,
+        enabled = j.Status != JobStatus.Stopped,
+        maxRetries = j.MaxRetries,
+        retryDelay = (long)j.RetryDelay.TotalMilliseconds,
+        retryStrategy = j.RetryStrategy.ToString().ToLowerInvariant(),
+        timeout = (long?)j.Timeout?.TotalMilliseconds,
+        overlapPolicy = j.OverlapPolicy.ToString().ToLowerInvariant(),
+        currentExecutionId = j.CurrentExecutionId,
+        nextRunAt = j.NextRunAt,
+        lastRunAt = j.LastRunAt,
+        lastRunStatus = j.LastRunStatus,
+        lastRunDuration = j.LastRunDuration,
+        actions = j.Actions,
     };
 }
 
