@@ -5,6 +5,7 @@ using Qodalis.Cli.Server.Jobs;
 using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Plugin.Admin.Extensions;
+using Qodalis.Cli.Plugin.Logs.Seq.Extensions;
 // using Qodalis.Cli.Plugin.Jobs.EfCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -53,6 +54,18 @@ builder.Services
         // ---------------------------------------------------------------
 
         cli.AddAdmin();
+
+        // Logs in Seq, the dashboard's log history, when Seq:ServerUrl is set
+        // (docker run -e ACCEPT_EULA=Y -e SEQ_FIRSTRUN_NOAUTHENTICATION=true -p 5341:80 datalust/seq).
+        if (builder.Configuration["Seq:ServerUrl"] is { Length: > 0 } seqUrl)
+        {
+            cli.AddSeqLogs(seq =>
+            {
+                seq.ServerUrl = seqUrl;
+                seq.ApiKey = builder.Configuration["Seq:ApiKey"];
+                seq.ServiceName = "qodalis-demo";
+            });
+        }
     })
     .AddJsonOptions(options =>
     {

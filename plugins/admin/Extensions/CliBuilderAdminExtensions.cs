@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Logs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
 using Qodalis.Cli.Plugin.Admin.Controllers;
@@ -35,9 +37,11 @@ public static class CliBuilderAdminExtensions
         builder.Services.AddSingleton<JwtService>();
         builder.Services.AddSingleton<AdminAuthMode>();
 
-        // Register the log ring buffer and wire it into the ASP.NET logging pipeline
+        // Register the log ring buffer and wire it into the ASP.NET logging pipeline; it is the Logs page's history
+        // unless another store (e.g. Qodalis.Cli.Plugin.Logs.Seq) was set.
         var logBuffer = new LogRingBuffer();
         builder.Services.AddSingleton(logBuffer);
+        builder.Services.TryAddSingleton<ILogStore>(logBuffer);
         builder.Services.AddLogging(logging => logging.AddProvider(logBuffer));
 
         // Module registry — will be resolved after all modules are registered

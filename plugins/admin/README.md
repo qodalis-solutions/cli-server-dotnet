@@ -55,7 +55,7 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/auth/me` | GET | Get current authenticated user info |
 | `/api/v1/qcli/status` | GET | Server status (uptime, memory, features) |
 | `/api/v1/qcli/config` | GET | View server configuration sections |
-| `/api/v1/qcli/logs` | GET | Query recent log entries with filtering |
+| `/api/v1/qcli/logs` | GET | Query log entries: `level` (comma list), `search`, `service`, `from`, `to`, `limit`, `offset`. The latest 1000 entries of this process, or Seq with [`Qodalis.Cli.Plugin.Logs.Seq`](../logs-seq/README.md) (any `ILogStore`) |
 | `/api/v1/qcli/plugins` | GET | List registered plugin modules |
 | `/api/v1/qcli/plugins/installed` | GET | List the installed server plugin packages (`id`, `name`, `version`, `description`) |
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |
