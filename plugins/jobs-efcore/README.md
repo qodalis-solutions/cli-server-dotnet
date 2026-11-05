@@ -68,7 +68,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 The history is kept until pruned. Prune on a schedule, for example from a job:
 
 ```csharp
-await context.Services.GetRequiredService<ICliJobStorageProvider>().PruneAsync(DateTime.UtcNow.AddDays(-30));
+await context.Services.GetRequiredService<ICliJobStorageProvider>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-30));
 ```
 
 ## License

@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -15,7 +16,8 @@ namespace Qodalis.Cli.Plugin.Users.EfCore;
 public class EfCoreAuditStore : IAuditStore
 {
     private readonly IDbContextFactory<AuditStorageDbContext> _dbFactory;
-    private bool _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _initialized;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EfCoreAuditStore"/> class.
@@ -107,8 +109,20 @@ public class EfCoreAuditStore : IAuditStore
         var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         if (!_initialized)
         {
-            await EnsureTableAsync(db, cancellationToken);
-            _initialized = true;
+            // Once per store, even when the first calls come together (jobs at startup, a burst of sign-ins)
+            await _initLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (!_initialized)
+                {
+                    await EnsureTableAsync(db, cancellationToken);
+                    _initialized = true;
+                }
+            }
+            finally
+            {
+                _initLock.Release();
+            }
         }
         return db;
     }
@@ -122,13 +136,32 @@ public class EfCoreAuditStore : IAuditStore
         if (await db.Database.EnsureCreatedAsync(cancellationToken))
             return;
 
+        if (!await ExistsAsync(db, cancellationToken))
+        {
+            try
+            {
+                await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            }
+            catch (DbException)
+            {
+                // Another instance of the server may have created them meanwhile
+                if (!await ExistsAsync(db, cancellationToken))
+                    throw;
+            }
+        }
+    }
+
+    /// <summary>Whether the store's tables are there; a query on a missing table fails with the provider's error.</summary>
+    private static async Task<bool> ExistsAsync(AuditStorageDbContext db, CancellationToken cancellationToken)
+    {
         try
         {
             _ = await db.Entries.AnyAsync(cancellationToken);
+            return true;
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (DbException)
         {
-            await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            return false;
         }
     }
 

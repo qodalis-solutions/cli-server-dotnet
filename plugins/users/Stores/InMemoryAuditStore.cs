@@ -77,6 +77,7 @@ public class InMemoryAuditStore : IAuditStore
         }
     }
 
+    /// <inheritdoc />
     public Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
     {
         var cutoff = before.ToUnixTimeMilliseconds();

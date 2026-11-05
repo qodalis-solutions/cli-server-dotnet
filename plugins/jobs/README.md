@@ -90,7 +90,7 @@ To run a job from your own code (e.g. when something happened), resolve `ICliJob
 | `Schedule` | `string?` | `null` | Cron expression (5-field) |
 | `Interval` | `TimeSpan?` | `null` | Fixed interval between runs; across restarts the next run is the last run plus the interval |
 | `RunOnStart` | `bool` | `false` | Run once right after the scheduler starts (active jobs only) |
-| `Enabled` | `bool` | `true` | Whether the job starts active |
+| `Enabled` | `bool` | `true` | Whether the job starts active. `false` keeps it stopped whatever state was saved; otherwise a saved pause or stop (made from the API) is kept across restarts |
 | `MaxRetries` | `int` | `1` | Retry count on failure |
 | `Timeout` | `TimeSpan?` | `null` | Max execution duration |
 | `OverlapPolicy` | `JobOverlapPolicy` | `Skip` | `Skip`, `Queue`, or `Cancel` |

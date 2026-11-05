@@ -455,6 +455,17 @@ public class UsersApiTests
     }
 
     [Fact]
+    public async Task Audit_WithoutALimit_ReturnsTheDefaultPage_AndNeverMoreThanTheMaximum()
+    {
+        for (var i = 0; i < UsersService.DefaultAuditLimit + 5; i++)
+            await _auditStore.LogAsync(new AuditEntry { Event = "login_failed", Username = $"u{i}", Timestamp = i });
+        var users = new UsersService(_userStore, _groupStore, _credentialStore, _auditStore, _authService);
+
+        Assert.Equal(UsersService.DefaultAuditLimit, (await users.GetAuditAsync(null, null, null)).Count);
+        Assert.Equal(UsersService.DefaultAuditLimit + 5, (await users.GetAuditAsync(null, null, 5000)).Count);
+    }
+
+    [Fact]
     public async Task QueryUsers_DefaultFiltersAndPagesInMemory()
     {
         foreach (var name in new[] { "qa-1", "qa-2", "qa-3", "dev" })

@@ -38,7 +38,9 @@ public class JobExecution
     /// <summary>
     /// The host's own values for this execution, e.g. <c>items</c> and <c>changed</c> counts or the record it worked
     /// on: set by the job (<see cref="ICliJobExecutionContext.Properties"/>), saved with the execution and returned by
-    /// the jobs API. Values must serialize to JSON.
+    /// the jobs API. Values must serialize to JSON; a run whose values do not is saved without them. Read back from a
+    /// database store, the values are <see cref="System.Text.Json.JsonElement"/>s (the in-memory store keeps the
+    /// objects), so read them as JSON (<c>((JsonElement)value).GetInt32()</c>) or through the API.
     /// </summary>
     public Dictionary<string, object?> Properties { get; set; } = [];
 }

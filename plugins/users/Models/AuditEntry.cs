@@ -50,7 +50,8 @@ public class AuditEntry
 
     /// <summary>
     /// The host's own values for this entry (e.g. the old and new value of a setting), saved with it and returned
-    /// by the audit API. Values must serialize to JSON.
+    /// by the audit API. Values must serialize to JSON. Read back from a database store, the values are
+    /// <see cref="System.Text.Json.JsonElement"/>s (the in-memory store keeps the objects).
     /// </summary>
     [JsonPropertyName("properties")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -524,6 +524,12 @@ public class UsersService
     // Audit
     // =========================================================================
 
+    /// <summary>Audit entries returned when the request names no limit.</summary>
+    public const int DefaultAuditLimit = 100;
+
+    /// <summary>The most audit entries one request returns.</summary>
+    public const int MaxAuditLimit = 1000;
+
     public async Task<List<AuditEntry>> GetAuditAsync(string? @event, string? username, int? limit,
         string? actor = null, int? offset = null)
     {
@@ -534,7 +540,8 @@ public class UsersService
             Event = @event,
             Username = username,
             Actor = actor,
-            Limit = limit,
+            // A database store never loads the whole log for one request
+            Limit = Math.Min(limit ?? DefaultAuditLimit, MaxAuditLimit),
             Offset = offset,
         });
     }

@@ -56,7 +56,7 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
             if (query.Status != null && Enum.TryParse<JobExecutionStatus>(query.Status, true, out var status))
                 matches = matches.Where(e => e.Status == status);
             if (query.Since != null)
-                matches = matches.Where(e => e.StartedAt >= query.Since);
+                matches = matches.Where(e => e.StartedAt >= JobExecutionQuery.AsUtc(query.Since.Value));
 
             var items = matches.OrderByDescending(e => e.StartedAt).ToList();
             IReadOnlyList<JobExecution> page = items.Skip(query.Offset).Take(query.Limit).ToList();
@@ -65,11 +65,12 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
-    public Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
+    public Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
     {
+        var cutoff = before.UtcDateTime;
         lock (_lock)
         {
-            return Task.FromResult(_executions.RemoveAll(e => e.StartedAt < before));
+            return Task.FromResult(_executions.RemoveAll(e => e.StartedAt < cutoff));
         }
     }
 

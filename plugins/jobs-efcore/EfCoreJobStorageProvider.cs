@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -13,7 +14,8 @@ namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 public class EfCoreJobStorageProvider : ICliJobStorageProvider
 {
     private readonly IDbContextFactory<JobStorageDbContext> _dbFactory;
-    private bool _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _initialized;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EfCoreJobStorageProvider"/> class.
@@ -29,8 +31,20 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         if (!_initialized)
         {
-            await EnsureTablesAsync(db, cancellationToken);
-            _initialized = true;
+            // Once per store, even when the first calls come together (jobs at startup, a burst of sign-ins)
+            await _initLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (!_initialized)
+                {
+                    await EnsureTablesAsync(db, cancellationToken);
+                    _initialized = true;
+                }
+            }
+            finally
+            {
+                _initLock.Release();
+            }
         }
         return db;
     }
@@ -44,17 +58,36 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         if (await db.Database.EnsureCreatedAsync(cancellationToken))
             return;
 
-        try
+        if (!await ExistsAsync(db, cancellationToken))
         {
-            _ = await db.States.AnyAsync(cancellationToken);
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            try
+            {
+                await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            }
+            catch (DbException)
+            {
+                // Another instance of the server may have created them meanwhile
+                if (!await ExistsAsync(db, cancellationToken))
+                    throw;
+            }
             return;
         }
 
         await AddMissingColumnsAsync(db, cancellationToken);
+    }
+
+    /// <summary>Whether the store's tables are there; a query on a missing table fails with the provider's error.</summary>
+    private static async Task<bool> ExistsAsync(JobStorageDbContext db, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await db.States.AnyAsync(cancellationToken);
+            return true;
+        }
+        catch (DbException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -66,22 +99,25 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         {
             _ = await db.Executions.Select(e => e.Properties).FirstOrDefaultAsync(cancellationToken);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (DbException)
         {
             var entity = db.Model.FindEntityType(typeof(JobExecutionEntity))!;
             var column = entity.FindProperty(nameof(JobExecutionEntity.Properties))!;
             var sql = db.GetService<ISqlGenerationHelper>();
             var table = sql.DelimitIdentifier(entity.GetTableName()!, entity.GetSchema());
             var name = sql.DelimitIdentifier(column.GetColumnName());
-            await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD {name} {column.GetColumnType()} NULL", cancellationToken);
+            // Identifiers from the model, delimited by the provider: no user input reaches this statement
+            var alter = $"ALTER TABLE {table} ADD {name} {column.GetColumnType()} NULL";
+            await db.Database.ExecuteSqlRawAsync(alter, cancellationToken);
         }
     }
 
     /// <inheritdoc />
-    public async Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
+    public async Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
     {
+        var cutoff = before.UtcDateTime;
         await using var db = await CreateDbContextAsync(cancellationToken);
-        var old = db.Executions.Where(e => e.StartedAt < before);
+        var old = db.Executions.Where(e => e.StartedAt < cutoff);
 
         _ = await db.LogEntries.Where(l => old.Any(e => e.ExecutionId == l.ExecutionId)).ExecuteDeleteAsync(cancellationToken);
         return await old.ExecuteDeleteAsync(cancellationToken);
@@ -166,6 +202,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
 
         var entities = await query
             .OrderByDescending(e => e.StartedAt)
+            .ThenByDescending(e => e.Id)
             .Skip(offset)
             .Take(limit)
             .Include(e => e.Logs)
@@ -194,13 +231,14 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         }
         if (query.Since is { } since)
         {
-            var utc = since.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(since, DateTimeKind.Utc) : since.ToUniversalTime();
+            var utc = JobExecutionQuery.AsUtc(since);
             matches = matches.Where(e => e.StartedAt >= utc);
         }
 
         var total = await matches.CountAsync(cancellationToken);
         var entities = await matches
             .OrderByDescending(e => e.StartedAt)
+            .ThenByDescending(e => e.Id)
             .Skip(query.Offset)
             .Take(query.Limit)
             .Include(e => e.Logs)

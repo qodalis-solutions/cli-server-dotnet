@@ -11,7 +11,7 @@ public class JobExecutionQuery
     /// <summary>Only executions with this status (e.g. <c>failed</c>), case-insensitive; null for any.</summary>
     public string? Status { get; set; }
 
-    /// <summary>Only executions started at or after this time (UTC); null for any.</summary>
+    /// <summary>Only executions started at or after this time (UTC; see <see cref="AsUtc"/>); null for any.</summary>
     public DateTime? Since { get; set; }
 
     /// <summary>Maximum number of executions to return.</summary>
@@ -33,11 +33,22 @@ public class JobExecutionQuery
         foreach (var jobId in jobIds.Distinct())
         {
             var (items, count) = await listJob(jobId, Since == null ? Offset + Limit : int.MaxValue, Status);
-            var matching = Since == null ? items : items.Where(e => e.StartedAt >= Since).ToList();
+            var matching = Since is not { } since ? items : items.Where(e => e.StartedAt >= AsUtc(since)).ToList();
             all.AddRange(matching);
             total += Since == null ? count : matching.Count;
         }
 
         return ([.. all.OrderByDescending(e => e.StartedAt).Skip(Offset).Take(Limit)], total);
     }
+
+    /// <summary>
+    /// A time as UTC: one without a kind (parsed without an offset, or read from a database) is taken as UTC, a
+    /// local one is converted. Stores compare execution times, which are UTC, against it.
+    /// </summary>
+    public static DateTime AsUtc(DateTime time) => time.Kind switch
+    {
+        DateTimeKind.Utc => time,
+        DateTimeKind.Local => time.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(time, DateTimeKind.Utc),
+    };
 }
