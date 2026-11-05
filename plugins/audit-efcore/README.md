@@ -1,17 +1,17 @@
-# Qodalis.Cli.Plugin.Users.EfCore
+# Qodalis.Cli.Plugin.Audit.EfCore
 
-Entity Framework Core audit log store for the [Qodalis CLI Server users plugin](../users/README.md). Keeps the audit log (sign-ins, user and group changes, shells, tokens, and the host's own events) in a database, so it survives restarts and is shared by every instance of the server.
+Entity Framework Core store for the [Qodalis CLI Server audit log](../audit/README.md). Keeps the audit log (sign-ins, user and group changes, shells, tokens, and the host's own events) in a database, so it survives restarts and is shared by every instance of the server.
 
 ## Install
 
 ```bash
-dotnet add package Qodalis.Cli.Plugin.Users.EfCore
+dotnet add package Qodalis.Cli.Plugin.Audit.EfCore
 ```
 
 ## Quick Start
 
 ```csharp
-using Qodalis.Cli.Plugin.Users.EfCore;
+using Qodalis.Cli.Plugin.Audit.EfCore;
 
 builder.Services
     .AddControllers()
@@ -19,7 +19,7 @@ builder.Services
     {
         cli.AddUsers();
 
-        // Keep the audit log in PostgreSQL (any EF Core provider works)
+        // Keep the audit log in PostgreSQL (any EF Core provider works); adds the audit plugin too
         cli.AddEfCoreAuditStore(o => o.UseNpgsql(connectionString));
     });
 ```

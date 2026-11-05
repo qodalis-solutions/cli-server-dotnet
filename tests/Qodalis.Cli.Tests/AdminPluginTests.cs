@@ -716,8 +716,8 @@ public class AdminStatusControllerTests
         Assert.Contains("\"enabledFeatures\":[\"filesystem\",\"jobs\"]", json);
         Assert.Contains("\"registeredJobs\":1", json);
 
-        // The users plugin keeps the audit log
-        services.AddSingleton(new CliInstalledPlugins([CliInstalledPlugin.FromAssembly(typeof(UsersModuleOptions).Assembly)]));
+        // The audit plugin serves the audit log
+        services.AddSingleton(new CliInstalledPlugins([CliInstalledPlugin.FromAssembly(typeof(Qodalis.Cli.Plugin.Audit.InMemoryAuditStore).Assembly)]));
         result = await new StatusController(esm, registry, services.BuildServiceProvider()).GetStatus() as OkObjectResult;
         Assert.Contains("\"enabledFeatures\":[\"filesystem\",\"jobs\",\"audit\"]", JsonSerializer.Serialize(result!.Value));
 
@@ -757,7 +757,7 @@ public class AdminPluginsControllerTests
 
         var plugins = Assert.IsAssignableFrom<IReadOnlyList<CliInstalledPlugin>>(result!.Value);
         Assert.Equal(
-            ["Qodalis.Cli", "Qodalis.Cli.Plugin.Admin", "Qodalis.Cli.Plugin.Users", "Qodalis.Cli.Plugin.Jobs"],
+            ["Qodalis.Cli", "Qodalis.Cli.Plugin.Admin", "Qodalis.Cli.Plugin.Users", "Qodalis.Cli.Plugin.Audit", "Qodalis.Cli.Plugin.Jobs"],
             plugins.Select(p => p.Id));
         var users = plugins.Single(p => p.Id == "Qodalis.Cli.Plugin.Users");
         Assert.Equal("Users", users.Name);

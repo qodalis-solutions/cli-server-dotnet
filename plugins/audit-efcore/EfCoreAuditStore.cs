@@ -3,10 +3,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Qodalis.Cli.Plugin.Users.Models;
-using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Abstractions.Audit;
 
-namespace Qodalis.Cli.Plugin.Users.EfCore;
+namespace Qodalis.Cli.Plugin.Audit.EfCore;
 
 /// <summary>
 /// Entity Framework Core implementation of <see cref="IAuditStore"/>: keeps the audit log in a relational database,

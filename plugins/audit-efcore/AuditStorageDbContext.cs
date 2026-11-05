@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Qodalis.Cli.Plugin.Users.EfCore;
+namespace Qodalis.Cli.Plugin.Audit.EfCore;
 
 /// <summary>
 /// EF Core database context for the audit log table.

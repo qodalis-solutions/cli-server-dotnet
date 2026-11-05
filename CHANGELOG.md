@@ -3,6 +3,32 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.16
+
+### Audit plugin
+
+- The audit log is a plugin of its own, **Qodalis.Cli.Plugin.Audit** (`cli.AddAudit()`): the entries, the in-memory
+  store and `GET/DELETE /api/v1/qcli/audit`, listed on the dashboard's Plugins page and shown as its Audit page. The
+  users plugin adds it (`AddUsers`), so existing hosts keep their audit log; a host can use it without the users
+  plugin. See [its README](plugins/audit/README.md).
+- The contract moves to **Qodalis.Cli.Abstractions** (`Qodalis.Cli.Abstractions.Audit`: `AuditEntry`,
+  `AuditMetadata`, `AuditQueryOptions`, `IAuditStore`), so a store of your own needs only the abstractions.
+  `InMemoryAuditStore` is in `Qodalis.Cli.Plugin.Audit`; `AuditEvents` (the users plugin's event names) stays in the
+  users plugin. **Breaking**: update the `using`s of code that implements or calls `IAuditStore`.
+- `cli.SetAuditStore<T>()` / `SetAuditStore(instance)` keep the log elsewhere; `UsersModuleOptions.SetAuditStore`
+  still works and does the same.
+- The route policy protects the audit API itself (`audit:read` for `GET`, `audit:clear` for `DELETE`); clearing
+  records `audit_cleared` with the caller.
+- **Qodalis.Cli.Plugin.Audit.EfCore** replaces Qodalis.Cli.Plugin.Users.EfCore (published in 1.0.0-beta.15 only):
+  the same `AddEfCoreAuditStore(...)`, `ApplyAuditStorageModel()` and `audit_entries` table, now in the namespace
+  `Qodalis.Cli.Plugin.Audit.EfCore`. Change the package and the `using`; the data stays as it is.
+- The admin status reports the `audit` feature when the audit plugin is installed.
+
+### Admin
+
+- The admin plugin ships dashboard 1.0.0-beta.13: the Terminal page is shown on every server again (it was hidden
+  without an OS shell).
+
 ## 1.0.0-beta.15
 
 ### Installed plugins

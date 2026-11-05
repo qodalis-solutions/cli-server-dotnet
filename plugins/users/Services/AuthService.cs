@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Audit;
 using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;

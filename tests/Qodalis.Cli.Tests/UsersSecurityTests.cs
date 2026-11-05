@@ -1,3 +1,5 @@
+using Qodalis.Cli.Plugin.Audit;
+using Qodalis.Cli.Abstractions.Audit;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -254,6 +256,8 @@ public class UsersSecurityTests : IAsyncLifetime
         Assert.Null(CliRoutePolicy.Resolve("GET", "/api/v1/qcli/commands").Permission);
         Assert.Equal("commands:execute", CliRoutePolicy.Resolve("POST", "/api/v1/qcli/execute/stream").Permission);
         Assert.Equal("files:read", CliRoutePolicy.Resolve("GET", "/api/qcli/fs/download").Permission);
+        Assert.Equal("audit:read", CliRoutePolicy.Resolve("GET", "/api/v1/qcli/audit").Permission);
+        Assert.Equal("audit:clear", CliRoutePolicy.Resolve("DELETE", "/api/v1/qcli/audit").Permission);
         Assert.Equal("files:write", CliRoutePolicy.Resolve("POST", "/api/qcli/fs/upload").Permission);
         Assert.Equal("files:write", CliRoutePolicy.Resolve("DELETE", "/api/qcli/fs/rm").Permission);
         Assert.Equal("data:query", CliRoutePolicy.Resolve("POST", "/api/qcli/data-explorer/execute").Permission);
@@ -920,9 +924,9 @@ public class UsersSecurityTests : IAsyncLifetime
     {
         var store = new InMemoryAuditStore();
         for (var i = 0; i < 10; i++)
-            await store.LogAsync(new Qodalis.Cli.Plugin.Users.Models.AuditEntry { Timestamp = i, Event = "user_created", Username = $"u{i}" });
+            await store.LogAsync(new Qodalis.Cli.Abstractions.Audit.AuditEntry { Timestamp = i, Event = "user_created", Username = $"u{i}" });
         for (var i = 0; i < 500; i++)
-            await store.LogAsync(new Qodalis.Cli.Plugin.Users.Models.AuditEntry { Timestamp = 100 + i, Event = "login_failed", Username = "x" });
+            await store.LogAsync(new Qodalis.Cli.Abstractions.Audit.AuditEntry { Timestamp = 100 + i, Event = "login_failed", Username = "x" });
 
         var all = await store.GetEntriesAsync();
         Assert.Equal(10, all.Count(e => e.Event == "user_created"));

@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
 
@@ -523,35 +524,6 @@ public class UsersService
     // =========================================================================
     // Audit
     // =========================================================================
-
-    /// <summary>Audit entries returned when the request names no limit.</summary>
-    public const int DefaultAuditLimit = 100;
-
-    /// <summary>The most audit entries one request returns.</summary>
-    public const int MaxAuditLimit = 1000;
-
-    public async Task<List<AuditEntry>> GetAuditAsync(string? @event, string? username, int? limit,
-        string? actor = null, int? offset = null)
-    {
-        if (limit < 0) throw UsersApiException.BadRequest("limit must be >= 0");
-        if (offset < 0) throw UsersApiException.BadRequest("offset must be >= 0");
-        return await _auditStore.GetEntriesAsync(new AuditQueryOptions
-        {
-            Event = @event,
-            Username = username,
-            Actor = actor,
-            // A database store never loads the whole log for one request
-            Limit = Math.Min(limit ?? DefaultAuditLimit, MaxAuditLimit),
-            Offset = offset,
-        });
-    }
-
-    public async Task ClearAuditAsync(UsersAuthContext caller)
-    {
-        await _auditStore.ClearAsync();
-        await _auth.AuditAsync(AuditEvents.AuditCleared, caller.User.Name, "audit log cleared", caller.User.Name,
-            userId: caller.User.Id, actorId: caller.User.Id);
-    }
 
     // =========================================================================
     // Helpers
