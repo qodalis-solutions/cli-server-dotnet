@@ -715,6 +715,7 @@ public class CliJobsControllerTests : IDisposable
         Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(job: [_jobIds["slow"]], ct: CancellationToken.None)));
         Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(status: "failed", ct: CancellationToken.None)));
         Assert.Contains("\"calls\":1", Json(await _controller.GetExecutions(limit: 1, offset: 1, ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(since: DateTime.UtcNow.AddMinutes(1), ct: CancellationToken.None)));
         // No job in the group: nothing, not every job
         Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(group: "none", ct: CancellationToken.None)));
 
@@ -869,6 +870,11 @@ public class JobManagerDefaultQueryTests
 
         Assert.Equal(1, total);
         Assert.Equal("r1", Assert.Single(items).Id);
+
+        var (none, noneTotal) = await manager.QueryExecutionsAsync(
+            new JobExecutionQuery { Since = DateTime.UtcNow.AddDays(1) }, CancellationToken.None);
+        Assert.Empty(none);
+        Assert.Equal(0, noneTotal);
     }
 }
 

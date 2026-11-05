@@ -172,7 +172,8 @@ public class CliJobsController : ControllerBase
 
     /// <summary>
     /// Lists executions across jobs, newest first: every job, the jobs named in <paramref name="job"/> (repeat it or
-    /// separate ids with commas), or the jobs of a <paramref name="group"/>.
+    /// separate ids with commas), or the jobs of a <paramref name="group"/>; optionally only those started
+    /// <paramref name="since"/> a time (ISO 8601).
     /// </summary>
     [HttpGet("executions")]
     public async Task<IActionResult> GetExecutions(
@@ -181,6 +182,7 @@ public class CliJobsController : ControllerBase
         [FromQuery] int limit = 20,
         [FromQuery] int offset = 0,
         [FromQuery] string? status = null,
+        [FromQuery] DateTime? since = null,
         CancellationToken ct = default)
     {
         var jobIds = job?.SelectMany(j => j.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -197,6 +199,7 @@ public class CliJobsController : ControllerBase
         {
             JobIds = jobIds is { Count: > 0 } || group != null ? jobIds : null,
             Status = status,
+            Since = since?.ToUniversalTime(),
             Limit = Math.Clamp(limit, 1, 100),
             Offset = Math.Max(offset, 0),
         };

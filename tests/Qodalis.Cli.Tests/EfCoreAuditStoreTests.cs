@@ -209,6 +209,10 @@ public class EfCoreJobStorageSqliteTests : IDisposable
         var (failed, failedTotal) = await _provider.QueryExecutionsAsync(new JobExecutionQuery { Status = "FAILED" });
         Assert.Equal(1, failedTotal);
         Assert.Equal("b", failed[0].JobId);
+
+        var (recent, recentTotal) = await _provider.QueryExecutionsAsync(new JobExecutionQuery { Since = now.AddMinutes(2) });
+        Assert.Equal(2, recentTotal);
+        Assert.Equal(["c", "b"], recent.Select(e => e.JobId));
     }
 
     [Fact]

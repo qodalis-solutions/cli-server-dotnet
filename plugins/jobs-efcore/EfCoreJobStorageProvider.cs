@@ -172,6 +172,11 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
             var statusStr = status.ToString();
             matches = matches.Where(e => e.Status == statusStr);
         }
+        if (query.Since is { } since)
+        {
+            var utc = since.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(since, DateTimeKind.Utc) : since.ToUniversalTime();
+            matches = matches.Where(e => e.StartedAt >= utc);
+        }
 
         var total = await matches.CountAsync(cancellationToken);
         var entities = await matches

@@ -55,6 +55,8 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
                 matches = matches.Where(e => query.JobIds.Contains(e.JobId));
             if (query.Status != null && Enum.TryParse<JobExecutionStatus>(query.Status, true, out var status))
                 matches = matches.Where(e => e.Status == status);
+            if (query.Since != null)
+                matches = matches.Where(e => e.StartedAt >= query.Since);
 
             var items = matches.OrderByDescending(e => e.StartedAt).ToList();
             IReadOnlyList<JobExecution> page = items.Skip(query.Offset).Take(query.Limit).ToList();
