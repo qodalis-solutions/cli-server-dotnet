@@ -147,6 +147,71 @@ public class AdminThemeTests
     }
 
     [Fact]
+    public void Branding_Unset_IsLeftOut()
+    {
+        Assert.Null(new AdminBranding().ToDocument());
+        Assert.Null(new AdminBranding { Name = "  ", IconUrl = "" }.ToDocument());
+    }
+
+    [Fact]
+    public void Branding_WritesTheNameIconAndTerminal()
+    {
+        var doc = new AdminBranding { Name = " RateBell ", IconUrl = "/favicon.svg", CliName = "RateBell CLI" }.ToDocument()!;
+
+        Assert.Equal("RateBell", doc["name"]);
+        Assert.Equal("/favicon.svg", doc["icon"]);
+        var cli = Assert.IsType<Dictionary<string, object>>(doc["cli"]);
+        Assert.Equal("RateBell CLI", Assert.Single(cli).Value);
+    }
+
+    [Theory]
+    [InlineData("/favicon.svg")]
+    [InlineData("https://ratebell.app/favicon.svg")]
+    [InlineData("data:image/png;base64,iVBORw0KGgo=")]
+    [InlineData("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=")]
+    public void Branding_AcceptsIcons(string icon)
+    {
+        Assert.Equal(icon, new AdminBranding { IconUrl = icon }.ToDocument()!["icon"]);
+    }
+
+    [Theory]
+    [InlineData("//evil.example/x.svg")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("data:text/html;base64,PHNjcmlwdD4=")]
+    [InlineData("data:image/svg+xml,<svg onload=alert(1)>")]
+    [InlineData("favicon.svg")]
+    [InlineData("/a b.svg")]
+    public void Branding_RejectsOtherIcons(string icon)
+    {
+        Assert.Throws<ArgumentException>(() => new AdminBranding { IconUrl = icon }.ToDocument());
+    }
+
+    [Fact]
+    public void Branding_RejectsBadNames()
+    {
+        Assert.Throws<ArgumentException>(() => new AdminBranding { Name = new string('a', 81) }.ToDocument());
+        Assert.Throws<ArgumentException>(() => new AdminBranding { CliName = "a\u0007b" }.ToDocument());
+    }
+
+    [Fact]
+    public async Task ThemeJson_CarriesTheBranding()
+    {
+        using var host = await StartAsync(o => o.Branding = new AdminBranding { Name = "RateBell", CliName = "RateBell CLI" });
+        var doc = JsonDocument.Parse(await host.GetTestClient().GetStringAsync("/qcli/admin/theme.json")).RootElement;
+
+        Assert.Equal("dark", doc.GetProperty("mode").GetString());
+        Assert.Equal("RateBell", doc.GetProperty("branding").GetProperty("name").GetString());
+        Assert.Equal("RateBell CLI", doc.GetProperty("branding").GetProperty("cli").GetProperty("name").GetString());
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task InvalidBranding_FailsAtStartup()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => StartAsync(o => o.Branding.IconUrl = "javascript:alert(1)"));
+    }
+
+    [Fact]
     public async Task InvalidTheme_FailsAtStartup()
     {
         await Assert.ThrowsAsync<ArgumentException>(() =>
