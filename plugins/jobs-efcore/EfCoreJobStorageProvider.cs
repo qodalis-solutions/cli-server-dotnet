@@ -51,6 +51,29 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            return;
+        }
+
+        await AddMissingColumnsAsync(db, cancellationToken);
+    }
+
+    /// <summary>
+    /// Brings tables created by an earlier version up to date: <c>job_executions.Properties</c> (1.0.0-beta.15).
+    /// </summary>
+    private static async Task AddMissingColumnsAsync(JobStorageDbContext db, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await db.Executions.Select(e => e.Properties).FirstOrDefaultAsync(cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            var entity = db.Model.FindEntityType(typeof(JobExecutionEntity))!;
+            var column = entity.FindProperty(nameof(JobExecutionEntity.Properties))!;
+            var sql = db.GetService<ISqlGenerationHelper>();
+            var table = sql.DelimitIdentifier(entity.GetTableName()!, entity.GetSchema());
+            var name = sql.DelimitIdentifier(column.GetColumnName());
+            await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD {name} {column.GetColumnType()} NULL", cancellationToken);
         }
     }
 
