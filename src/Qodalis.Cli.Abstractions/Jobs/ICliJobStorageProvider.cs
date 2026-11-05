@@ -42,6 +42,12 @@ public interface ICliJobStorageProvider
     }
 
     /// <summary>
+    /// Deletes the executions (and their logs) that started before <paramref name="before"/>; returns how many. Run
+    /// it on a schedule to keep the history bounded. The default keeps everything and returns 0.
+    /// </summary>
+    Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+    /// <summary>
     /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns
     /// whether it was deleted. The default keeps every execution and returns <c>false</c>.
     /// </summary>

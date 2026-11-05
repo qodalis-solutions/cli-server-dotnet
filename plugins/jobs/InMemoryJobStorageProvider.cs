@@ -65,6 +65,15 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_executions.RemoveAll(e => e.StartedAt < before));
+        }
+    }
+
+    /// <inheritdoc />
     public Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)

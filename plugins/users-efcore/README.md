@@ -42,7 +42,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 Entries are kept until cleared (`DELETE /api/v1/qcli/audit`) or pruned. Prune on a schedule, for example from a job:
 
 ```csharp
-await services.GetRequiredService<EfCoreAuditStore>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-365));
+await services.GetRequiredService<IAuditStore>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-365));
 ```
 
 ## License

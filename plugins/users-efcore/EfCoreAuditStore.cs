@@ -94,10 +94,7 @@ public class EfCoreAuditStore : IAuditStore
         await db.Entries.ExecuteDeleteAsync();
     }
 
-    /// <summary>
-    /// Deletes the entries recorded before <paramref name="before"/>; returns how many. Run it on a schedule to keep
-    /// the log bounded.
-    /// </summary>
+    /// <inheritdoc />
     public async Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
     {
         var cutoff = before.ToUnixTimeMilliseconds();

@@ -8,13 +8,13 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// </summary>
 public sealed class SchedulerJobManager : ICliJobManager
 {
-    private readonly CliJobScheduler _scheduler;
+    private readonly ICliJobScheduler _scheduler;
     private readonly ICliJobStorageProvider _storage;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SchedulerJobManager"/> class.
     /// </summary>
-    public SchedulerJobManager(CliJobScheduler scheduler, ICliJobStorageProvider storage)
+    public SchedulerJobManager(ICliJobScheduler scheduler, ICliJobStorageProvider storage)
     {
         _scheduler = scheduler;
         _storage = storage;

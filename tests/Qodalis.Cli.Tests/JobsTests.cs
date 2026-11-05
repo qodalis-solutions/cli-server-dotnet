@@ -1018,8 +1018,8 @@ public class JobServicesTests
         services.AddScoped<Counter>();
         services.AddControllers().AddCli(cli => cli.AddJob(job, o => o.Name = "scoped"));
         await using var sp = services.BuildServiceProvider();
-        var scheduler = sp.GetRequiredService<CliJobScheduler>();
-        await scheduler.StartAsync(CancellationToken.None);
+        var scheduler = sp.GetRequiredService<ICliJobScheduler>();
+        await ((CliJobScheduler)scheduler).StartAsync(CancellationToken.None);
 
         await scheduler.TriggerAsync("scoped");
         await Task.Delay(200);
@@ -1030,6 +1030,20 @@ public class JobServicesTests
         Assert.Equal(4, job.Seen.Count);
         Assert.Same(job.Seen[0], job.Seen[1]);
         Assert.NotSame(job.Seen[1], job.Seen[2]);
-        await scheduler.StopAsync(CancellationToken.None);
+        await ((CliJobScheduler)scheduler).StopAsync(CancellationToken.None);
+    }
+}
+
+public class JobPruneTests
+{
+    [Fact]
+    public async Task InMemoryStorage_PrunesOldExecutions()
+    {
+        ICliJobStorageProvider storage = new InMemoryJobStorageProvider();
+        await storage.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", StartedAt = DateTime.UtcNow.AddDays(-40) });
+        await storage.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", StartedAt = DateTime.UtcNow });
+
+        Assert.Equal(1, await storage.PruneAsync(DateTime.UtcNow.AddDays(-30)));
+        Assert.Equal(1, (await storage.GetExecutionsAsync("a")).Total);
     }
 }

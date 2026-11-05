@@ -54,10 +54,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         }
     }
 
-    /// <summary>
-    /// Deletes the executions (and their logs) that started before <paramref name="before"/>; returns how many.
-    /// Run it on a schedule to keep the history bounded.
-    /// </summary>
+    /// <inheritdoc />
     public async Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);

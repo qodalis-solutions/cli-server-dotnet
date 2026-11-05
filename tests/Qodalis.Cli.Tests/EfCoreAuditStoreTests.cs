@@ -125,7 +125,7 @@ public class EfCoreAuditStoreTests : IDisposable
             });
             var sp = services.BuildServiceProvider();
 
-            Assert.Same(sp.GetRequiredService<EfCoreAuditStore>(), sp.GetRequiredService<IAuditStore>());
+            Assert.IsType<EfCoreAuditStore>(sp.GetRequiredService<IAuditStore>());
             Assert.Contains(sp.GetRequiredService<CliInstalledPlugins>().All, p => p.Id == "Qodalis.Cli.Plugin.Users.EfCore");
         }
     }
@@ -227,6 +227,6 @@ public class EfCoreJobStorageSqliteTests : IDisposable
         });
         var sp = services.BuildServiceProvider();
 
-        Assert.Same(sp.GetRequiredService<EfCoreJobStorageProvider>(), sp.GetRequiredService<ICliJobStorageProvider>());
+        Assert.IsType<EfCoreJobStorageProvider>(sp.GetRequiredService<ICliJobStorageProvider>());
     }
 }

@@ -140,6 +140,7 @@ public static class CliBuilderJobExtensions
             return scheduler;
         });
 
+        builder.Services.AddSingleton<ICliJobScheduler>(sp => sp.GetRequiredService<CliJobScheduler>());
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<CliJobScheduler>());
 
         // What the API, MCP tools and dashboard work on (replaceable with SetJobManager)
