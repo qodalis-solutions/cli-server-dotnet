@@ -941,15 +941,20 @@ public class JobSchedulerIdsAndStartTests : IDisposable
     public async Task RunOnStart_RunsOnDemandJobsOnce_ButNotPausedOnes()
     {
         var onDemand = new DummyJob();
+        var hourly = new DummyJob(TimeSpan.FromMilliseconds(100));
         var paused = new DummyJob();
         await _storage.SaveJobStateAsync("paused", new JobState { Status = JobStatus.Paused });
+        await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = DateTime.UtcNow.AddHours(-2) });
         _scheduler.Register(onDemand, new CliJobOptions { Name = "backfill", RunOnStart = true });
+        _scheduler.Register(hourly, new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1), RunOnStart = true });
         _scheduler.Register(paused, new CliJobOptions { Name = "paused", RunOnStart = true });
 
         await _scheduler.StartAsync(CancellationToken.None);
-        await Task.Delay(300);
+        await Task.Delay(400);
 
         Assert.Equal(1, onDemand.CallCount);
+        // Overdue and run on start: still one run
+        Assert.Equal(1, hourly.CallCount);
         Assert.Equal(0, paused.CallCount);
         await _scheduler.StopAsync(CancellationToken.None);
     }

@@ -86,9 +86,11 @@ public class CliJobScheduler : IHostedService, IDisposable
 
             if (reg.Status == JobStatus.Active)
             {
-                StartTimer(reg);
+                // An interval job runs on start through its timer (due now), so the two never overlap
+                var runNow = reg.Options.RunOnStart && reg.Options.Schedule == null && reg.Options.Interval != null;
+                StartTimer(reg, runNow);
 
-                if (reg.Options.RunOnStart)
+                if (reg.Options.RunOnStart && !runNow)
                     _ = ExecuteJobAsync(reg);
             }
         }
@@ -234,7 +236,7 @@ public class CliJobScheduler : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
-    private void StartTimer(JobRegistration reg)
+    private void StartTimer(JobRegistration reg, bool runNow = false)
     {
         if (reg.Options.Schedule != null)
         {
@@ -247,7 +249,7 @@ public class CliJobScheduler : IHostedService, IDisposable
             var now = DateTime.UtcNow;
             // Keep the rhythm across restarts and pauses: due one interval after the last run
             var due = reg.LastRunAt is { } last ? last.Add(interval) : now.Add(interval);
-            if (due < now) due = now;
+            if (due < now || runNow) due = now;
             reg.NextRunAt = due;
             reg.Timer = new Timer(
                 _ =>
