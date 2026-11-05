@@ -97,7 +97,8 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     {
         try
         {
-            _ = await db.Executions.Select(e => e.Properties).FirstOrDefaultAsync(cancellationToken);
+            // Take(1), not FirstOrDefault: EF warns about First without OrderBy on every start, and any row will do.
+            _ = await db.Executions.Select(e => e.Properties).Take(1).ToListAsync(cancellationToken);
         }
         catch (DbException)
         {
