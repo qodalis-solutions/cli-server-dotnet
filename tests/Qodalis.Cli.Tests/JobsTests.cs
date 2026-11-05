@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Extensions;
 using Moq;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Plugin.Jobs;
@@ -984,5 +986,50 @@ public class JobSchedulerIdsAndStartTests : IDisposable
         Assert.NotNull(_scheduler.Jobs["quiet"].LastRunAt);
         Assert.Equal(1, (await _storage.GetExecutionsAsync("broken")).Total);
         await _scheduler.StopAsync(CancellationToken.None);
+    }
+}
+
+public class JobServicesTests
+{
+    public sealed class Counter
+    {
+        public static int Created;
+        public Counter() => Interlocked.Increment(ref Created);
+    }
+
+    private sealed class ScopedJob : ICliJob
+    {
+        public List<Counter> Seen { get; } = [];
+
+        public Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)
+        {
+            Seen.Add(context.Services.GetRequiredService<Counter>());
+            Seen.Add(context.Services.GetRequiredService<Counter>());
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task EachRun_GetsItsOwnServiceScope()
+    {
+        var job = new ScopedJob();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped<Counter>();
+        services.AddControllers().AddCli(cli => cli.AddJob(job, o => o.Name = "scoped"));
+        await using var sp = services.BuildServiceProvider();
+        var scheduler = sp.GetRequiredService<CliJobScheduler>();
+        await scheduler.StartAsync(CancellationToken.None);
+
+        await scheduler.TriggerAsync("scoped");
+        await Task.Delay(200);
+        await scheduler.TriggerAsync("scoped");
+        await Task.Delay(200);
+
+        // One instance within a run, a new one per run
+        Assert.Equal(4, job.Seen.Count);
+        Assert.Same(job.Seen[0], job.Seen[1]);
+        Assert.NotSame(job.Seen[1], job.Seen[2]);
+        await scheduler.StopAsync(CancellationToken.None);
     }
 }

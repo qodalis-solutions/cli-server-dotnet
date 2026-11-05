@@ -121,7 +121,7 @@ public static class CliBuilderJobExtensions
             var storage = sp.GetRequiredService<ICliJobStorageProvider>();
             var eventSocket = sp.GetRequiredService<ICliEventSocketManager>();
             var logger = sp.GetRequiredService<ILogger<CliJobScheduler>>();
-            var scheduler = new CliJobScheduler(storage, eventSocket, logger);
+            var scheduler = new CliJobScheduler(storage, eventSocket, logger, sp.GetRequiredService<IServiceScopeFactory>());
 
             foreach (var (job, jobType, options) in registrations)
             {
