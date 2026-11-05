@@ -27,7 +27,8 @@ public interface ICliJobStorageProvider
     /// <summary>
     /// Retrieves the executions of several jobs (or of every job), newest first. The default merges
     /// <see cref="GetExecutionsAsync"/> per job and needs <see cref="JobExecutionQuery.JobIds"/>; override it to query
-    /// the store once.
+    /// the store once. Without job ids the default throws <see cref="NotSupportedException"/> (the store does not
+    /// know the jobs); the scheduler's manager always names them.
     /// </summary>
     async Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(JobExecutionQuery query, CancellationToken cancellationToken = default)
     {
@@ -45,7 +46,7 @@ public interface ICliJobStorageProvider
     /// Deletes the executions (and their logs) that started before <paramref name="before"/>; returns how many. Run
     /// it on a schedule to keep the history bounded. The default keeps everything and returns 0.
     /// </summary>
-    Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default) => Task.FromResult(0);
 
     /// <summary>
     /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns

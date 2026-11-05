@@ -39,11 +39,22 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 ## Retention
 
-Entries are kept until cleared (`DELETE /api/v1/qcli/audit`) or pruned. Prune on a schedule, for example from a job:
+Entries are kept until cleared (`DELETE /api/v1/qcli/audit`) or pruned. Unlike the in-memory store, which keeps
+at most 200 failed sign-ins, the database keeps every entry, including one per failed sign-in from anyone on the
+internet: **prune on a schedule**, for example with a daily job (jobs plugin):
 
 ```csharp
-await services.GetRequiredService<IAuditStore>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-365));
+public sealed class PruneAuditJob : ICliJob
+{
+    public async Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken) =>
+        context.Properties["deleted"] = await context.Services.GetRequiredService<IAuditStore>()
+            .PruneAsync(DateTimeOffset.UtcNow.AddDays(-365), cancellationToken);
+}
+
+cli.AddJob(new PruneAuditJob(), o => { o.Id = "prune-audit"; o.Interval = TimeSpan.FromDays(1); o.RunOnStart = true; });
 ```
+
+`GET /api/v1/qcli/audit` returns 100 entries when the request names no `limit`, and at most 1000.
 
 ## License
 

@@ -173,7 +173,7 @@ public class CliJobsController : ControllerBase
     /// <summary>
     /// Lists executions across jobs, newest first: every job, the jobs named in <paramref name="job"/> (repeat it or
     /// separate ids with commas), or the jobs of a <paramref name="group"/>; optionally only those started
-    /// <paramref name="since"/> a time (ISO 8601).
+    /// <paramref name="since"/> a time (ISO 8601; without an offset it is UTC).
     /// </summary>
     [HttpGet("executions")]
     public async Task<IActionResult> GetExecutions(
@@ -199,11 +199,20 @@ public class CliJobsController : ControllerBase
         {
             JobIds = jobIds is { Count: > 0 } || group != null ? jobIds : null,
             Status = status,
-            Since = since?.ToUniversalTime(),
+            Since = since is { } s ? JobExecutionQuery.AsUtc(s) : null,
             Limit = Math.Clamp(limit, 1, 100),
             Offset = Math.Max(offset, 0),
         };
-        var (items, total) = query.JobIds is { Count: 0 } ? ([], 0) : await _jobs.QueryExecutionsAsync(query, ct);
+        IReadOnlyList<JobExecution> items;
+        int total;
+        try
+        {
+            (items, total) = query.JobIds is { Count: 0 } ? ([], 0) : await _jobs.QueryExecutionsAsync(query, ct);
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(501, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
 
         return Ok(new
         {

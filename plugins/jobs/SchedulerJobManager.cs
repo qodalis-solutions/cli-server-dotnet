@@ -61,9 +61,16 @@ public sealed class SchedulerJobManager : ICliJobManager
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Without job ids the query names this scheduler's jobs, so a store without its own query (the default merges
+    /// the per-job listings) still answers.
+    /// </remarks>
     public Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
-        JobExecutionQuery query, CancellationToken cancellationToken) =>
-        _storage.QueryExecutionsAsync(query, cancellationToken);
+        JobExecutionQuery query, CancellationToken cancellationToken)
+    {
+        query.JobIds ??= [.. _scheduler.Jobs.Keys];
+        return _storage.QueryExecutionsAsync(query, cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task<JobExecution?> GetExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken)

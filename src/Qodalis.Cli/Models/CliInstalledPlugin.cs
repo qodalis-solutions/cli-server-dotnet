@@ -19,9 +19,11 @@ public class CliInstalledPlugin
     [JsonPropertyName("name")]
     public required string Name { get; init; }
 
+    /// <summary>The package version, without the build metadata (e.g. <c>1.0.0-beta.15</c>).</summary>
     [JsonPropertyName("version")]
     public string? Version { get; init; }
 
+    /// <summary>What the package does (its NuGet description).</summary>
     [JsonPropertyName("description")]
     public string? Description { get; init; }
 
@@ -46,5 +48,6 @@ public class CliInstalledPlugin
 /// <summary>The server plugins installed on this host, in the order they were added (see <c>CliBuilder.AddInstalledPlugin</c>).</summary>
 public class CliInstalledPlugins(IReadOnlyList<CliInstalledPlugin> plugins)
 {
+    /// <summary>Every installed plugin, the core server first.</summary>
     public IReadOnlyList<CliInstalledPlugin> All { get; } = plugins;
 }
