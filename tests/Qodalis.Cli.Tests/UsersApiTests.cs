@@ -1,3 +1,5 @@
+using Qodalis.Cli.Plugin.Audit;
+using Qodalis.Cli.Abstractions.Audit;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
@@ -452,17 +454,6 @@ public class UsersApiTests
 
         Assert.Equal([("jo", 20, (int?)10), (null, 0, null)], store.Queries);
         Assert.Equal(0, store.FullLoads);
-    }
-
-    [Fact]
-    public async Task Audit_WithoutALimit_ReturnsTheDefaultPage_AndNeverMoreThanTheMaximum()
-    {
-        for (var i = 0; i < UsersService.DefaultAuditLimit + 5; i++)
-            await _auditStore.LogAsync(new AuditEntry { Event = "login_failed", Username = $"u{i}", Timestamp = i });
-        var users = new UsersService(_userStore, _groupStore, _credentialStore, _auditStore, _authService);
-
-        Assert.Equal(UsersService.DefaultAuditLimit, (await users.GetAuditAsync(null, null, null)).Count);
-        Assert.Equal(UsersService.DefaultAuditLimit + 5, (await users.GetAuditAsync(null, null, 5000)).Count);
     }
 
     [Fact]

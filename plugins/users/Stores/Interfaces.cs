@@ -80,24 +80,6 @@ public interface ICredentialStore
 }
 
 /// <summary>
-/// Storage interface for audit log entries.
-/// </summary>
-public interface IAuditStore
-{
-    Task LogAsync(AuditEntry entry);
-
-    /// <summary>Returns entries newest first, filtered by <paramref name="options"/>.</summary>
-    Task<List<AuditEntry>> GetEntriesAsync(AuditQueryOptions? options = null);
-    Task ClearAsync();
-
-    /// <summary>
-    /// Deletes the entries recorded before <paramref name="before"/>; returns how many. Run it on a schedule to keep
-    /// the log bounded. The default keeps everything and returns 0.
-    /// </summary>
-    Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default) => Task.FromResult(0);
-}
-
-/// <summary>
 /// Storage interface for user groups. Group names are case-insensitive keys, stored as given.
 /// </summary>
 public interface IGroupStore

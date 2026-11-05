@@ -1,31 +1,27 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Qodalis.Cli.Extensions;
-using Qodalis.Cli.Plugin.Users.Stores;
+using Qodalis.Cli.Plugin.Audit.Extensions;
 
-namespace Qodalis.Cli.Plugin.Users.EfCore;
+namespace Qodalis.Cli.Plugin.Audit.EfCore;
 
 /// <summary>
-/// Extension methods for keeping the users plugin's audit log in a database.
+/// Extension methods for keeping the audit log in a database.
 /// </summary>
 public static class EfCoreAuditStoreExtensions
 {
     /// <summary>
-    /// Keeps the users plugin's audit log in a database through EF Core, replacing the in-memory store. Call it
-    /// before or after <c>AddUsers</c>; called after it, it also replaces a store set there with <c>SetAuditStore</c>.
+    /// Keeps the audit log in a database through EF Core instead of in memory, and adds the audit plugin. Call it
+    /// before or after <c>AddUsers</c> (which keeps it). The table (<c>audit_entries</c>) is created on first use, or
+    /// by the host's migrations with <c>modelBuilder.ApplyAuditStorageModel()</c>.
     /// </summary>
     /// <param name="builder">The CLI builder instance.</param>
     /// <param name="configure">Callback to configure the <see cref="DbContextOptionsBuilder"/> (e.g., connection string).</param>
     /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddEfCoreAuditStore(this CliBuilder builder, Action<DbContextOptionsBuilder> configure)
     {
-        builder.AddInstalledPlugin(typeof(EfCoreAuditStore).Assembly);
         builder.Services.AddDbContextFactory<AuditStorageDbContext>(configure);
-
-        builder.Services.RemoveAll<IAuditStore>();
-        builder.Services.AddSingleton<IAuditStore, EfCoreAuditStore>();
-
-        return builder;
+        builder.SetAuditStore<EfCoreAuditStore>();
+        return builder.AddInstalledPlugin(typeof(EfCoreAuditStore).Assembly);
     }
 }

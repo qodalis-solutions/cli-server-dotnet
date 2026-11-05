@@ -1,4 +1,4 @@
-namespace Qodalis.Cli.Plugin.Users.EfCore;
+namespace Qodalis.Cli.Plugin.Audit.EfCore;
 
 /// <summary>
 /// EF Core entity for one audit log entry (<see cref="Models.AuditEntry"/>).
