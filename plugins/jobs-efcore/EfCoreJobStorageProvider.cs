@@ -185,6 +185,21 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public async Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await CreateDbContextAsync(cancellationToken);
+        var entity = await db.Executions.Include(e => e.Logs)
+            .FirstOrDefaultAsync(e => e.ExecutionId == executionId, cancellationToken);
+        if (entity == null)
+            return false;
+
+        db.LogEntries.RemoveRange(entity.Logs);
+        db.Executions.Remove(entity);
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    /// <inheritdoc />
     public async Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);

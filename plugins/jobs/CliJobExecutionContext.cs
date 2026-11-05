@@ -17,4 +17,10 @@ internal class CliJobExecutionContext : ICliJobExecutionContext
 
     /// <inheritdoc />
     public IDictionary<string, object?> Properties { get; } = new Dictionary<string, object?>();
+
+    /// <summary>Whether the job asked to leave this run out of the history.</summary>
+    public bool Discarded { get; private set; }
+
+    /// <inheritdoc />
+    public void Discard() => Discarded = true;
 }

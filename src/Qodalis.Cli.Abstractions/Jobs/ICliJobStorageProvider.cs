@@ -42,6 +42,13 @@ public interface ICliJobStorageProvider
     }
 
     /// <summary>
+    /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns
+    /// whether it was deleted. The default keeps every execution and returns <c>false</c>.
+    /// </summary>
+    Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Retrieves a single execution by its unique identifier.
     /// </summary>
     /// <param name="executionId">The execution identifier.</param>

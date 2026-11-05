@@ -63,6 +63,15 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_executions.RemoveAll(e => e.Id == executionId) > 0);
+        }
+    }
+
+    /// <inheritdoc />
     public Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)
