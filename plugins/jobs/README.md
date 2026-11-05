@@ -82,11 +82,14 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 
+Each job carries `actions`: the actions it offers (`trigger`, `pause`, `resume`, `stop`, `cancel`, `update`), or
+`null` for all of them. An action the job manager does not offer answers `501` with code `NOT_SUPPORTED`.
+
 ## MCP tools
 
 When the server's MCP endpoint is enabled (`cli.AddMcp()`), the plugin contributes `jobs_list`, `jobs_get {id}`,
 `jobs_history {id, limit?=20}` (`jobs:read`) and `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`,
-`jobs_cancel` `{id}` (`jobs:manage`; `id` is a job id or a unique job name), backed by the same scheduler as the REST API.
+`jobs_cancel` `{id}` (`jobs:manage`; `id` is a job id or a unique job name), backed by the same job manager as the REST API.
 
 ## Custom Storage
 
@@ -95,6 +98,22 @@ By default, execution history is stored in memory. Provide a custom `ICliJobStor
 ```csharp
 cli.SetJobStorageProvider(new MyDatabaseStorageProvider());
 ```
+
+## Jobs that run elsewhere
+
+The REST API, the MCP tools and the dashboard's jobs page work on an `ICliJobManager`. The default one runs the
+jobs registered with `AddJob` in this process. When the host's jobs run somewhere else (a worker service, a queue,
+its own scheduler), implement `ICliJobManager` over them and register it; the CLI and the dashboard then list and
+control those jobs:
+
+```csharp
+cli.SetJobManager<MyJobManager>();   // scoped: it may use the request's services
+```
+
+Implement `GetJobsAsync`, `TriggerAsync`, `PauseAsync`, `ResumeAsync`, `GetExecutionsAsync` and
+`GetExecutionAsync`. `StopAsync`, `CancelAsync` and `UpdateAsync` default to `NotSupportedException` (501); set
+`CliJobInfo.Actions` so clients hide what a job does not offer. Throw `KeyNotFoundException` for an unknown job
+(404) and `InvalidOperationException` when the job's state refuses the action (409).
 
 ## License
 
