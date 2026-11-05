@@ -77,6 +77,29 @@ public class InMemoryAuditStore : IAuditStore
         }
     }
 
+    public Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
+    {
+        var cutoff = before.ToUnixTimeMilliseconds();
+        lock (_lock)
+        {
+            var removed = 0;
+            foreach (var list in new[] { _entries, _failedLogins })
+            {
+                for (var node = list.First; node != null;)
+                {
+                    var next = node.Next;
+                    if (node.Value.Entry.Timestamp < cutoff)
+                    {
+                        list.Remove(node);
+                        removed++;
+                    }
+                    node = next;
+                }
+            }
+            return Task.FromResult(removed);
+        }
+    }
+
     public Task ClearAsync()
     {
         lock (_lock)

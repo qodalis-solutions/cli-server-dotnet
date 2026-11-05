@@ -23,9 +23,8 @@ public static class EfCoreAuditStoreExtensions
         builder.AddInstalledPlugin(typeof(EfCoreAuditStore).Assembly);
         builder.Services.AddDbContextFactory<AuditStorageDbContext>(configure);
 
-        builder.Services.TryAddSingleton<EfCoreAuditStore>();
         builder.Services.RemoveAll<IAuditStore>();
-        builder.Services.AddSingleton<IAuditStore>(sp => sp.GetRequiredService<EfCoreAuditStore>());
+        builder.Services.AddSingleton<IAuditStore, EfCoreAuditStore>();
 
         return builder;
     }

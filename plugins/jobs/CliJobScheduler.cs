@@ -11,7 +11,7 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// Hosted service that schedules and executes registered jobs using cron expressions or intervals.
 /// Supports pause, resume, stop, manual trigger, cancellation, and configurable retry policies.
 /// </summary>
-public class CliJobScheduler : IHostedService, IDisposable
+public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
     private readonly ICliJobStorageProvider _storage;

@@ -22,8 +22,7 @@ public static class EfCoreJobStorageExtensions
         builder.Services.AddDbContextFactory<JobStorageDbContext>(configure);
 
         RemoveService(builder.Services, typeof(ICliJobStorageProvider));
-        builder.Services.AddSingleton<EfCoreJobStorageProvider>();
-        builder.Services.AddSingleton<ICliJobStorageProvider>(sp => sp.GetRequiredService<EfCoreJobStorageProvider>());
+        builder.Services.AddSingleton<ICliJobStorageProvider, EfCoreJobStorageProvider>();
 
         return builder;
     }
