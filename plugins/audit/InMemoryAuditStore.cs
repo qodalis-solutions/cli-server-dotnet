@@ -1,6 +1,6 @@
-using Qodalis.Cli.Plugin.Users.Models;
+using Qodalis.Cli.Abstractions.Audit;
 
-namespace Qodalis.Cli.Plugin.Users.Stores;
+namespace Qodalis.Cli.Plugin.Audit;
 
 /// <summary>
 /// In-memory implementation of <see cref="IAuditStore"/>. Keeps the most recent
@@ -9,6 +9,9 @@ namespace Qodalis.Cli.Plugin.Users.Stores;
 /// </summary>
 public class InMemoryAuditStore : IAuditStore
 {
+    /// <summary>The event of a failed sign-in (users plugin), kept apart so a flood of them keeps the rest.</summary>
+    public const string FailedLoginEvent = "login_failed";
+
     public const int DefaultMaxEntries = 1000;
     public const int DefaultMaxFailedLoginEntries = 200;
 
@@ -31,6 +34,7 @@ public class InMemoryAuditStore : IAuditStore
     /// <summary>Maximum number of retained <c>login_failed</c> entries.</summary>
     public int MaxFailedLoginEntries { get; }
 
+    /// <inheritdoc />
     public Task LogAsync(AuditEntry entry)
     {
         if (string.IsNullOrEmpty(entry.Id))
@@ -38,7 +42,7 @@ public class InMemoryAuditStore : IAuditStore
 
         lock (_lock)
         {
-            var failed = entry.Event == AuditEvents.LoginFailed;
+            var failed = entry.Event == FailedLoginEvent;
             var list = failed ? _failedLogins : _entries;
             var cap = failed ? MaxFailedLoginEntries : MaxEntries;
             list.AddLast((++_seq, entry));
@@ -48,6 +52,7 @@ public class InMemoryAuditStore : IAuditStore
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task<List<AuditEntry>> GetEntriesAsync(AuditQueryOptions? options = null)
     {
         lock (_lock)
@@ -101,6 +106,7 @@ public class InMemoryAuditStore : IAuditStore
         }
     }
 
+    /// <inheritdoc />
     public Task ClearAsync()
     {
         lock (_lock)

@@ -186,7 +186,7 @@ The defaults match the Qodalis CLI panel: its grays, indigo accent with the viol
 ## Installed plugins
 
 The dashboard's Plugins page lists the server plugins the host installed: the core server, and each plugin package
-added through its `Add*` method (`AddUsers`, `AddAdmin`, `AddJob`, `AddFileSystem` with its storage provider,
+added through its `Add*` method (`AddUsers`, `AddAudit`, `AddAdmin`, `AddJob`, `AddFileSystem` with its storage provider,
 `AddDataExplorerProvider`, `AddEfCoreJobStorage`, `AddEfCoreAuditStore`, modules from other packages), with the
 package's version and description. A plugin of your own lists itself from its builder extension:
 

@@ -200,17 +200,14 @@ Every entry has the `event`, the user it is about (`username`), who did it (`act
 - `target`: what the event is about when it is not a user, e.g. `group:admins` (the plugin's group events), a role or a job.
 - `properties`: the application's own values, e.g. the old and new value of a setting.
 
-An application records its own changes in the same log through `IAuditStore.LogAsync`, so the dashboard's Audit page,
-the `audit` command and `GET /audit` show them all. Filter by `event`, `username` (the subject) and `actor`, and page
-with `limit` and `offset`.
-
-The default store keeps the latest 1000 entries in memory. Keep them in a database with
-[Qodalis.Cli.Plugin.Users.EfCore](../users-efcore/README.md) (`cli.AddEfCoreAuditStore(...)`), and bound the log with
-`IAuditStore.PruneAsync(before)` on a schedule.
+The log is the [audit plugin](../audit/README.md)'s, which `AddUsers` adds: an application records its own changes in
+the same log through `IAuditStore.LogAsync`, so the dashboard's Audit page, the `audit` command and `GET /audit` show
+them all. Keep it in a database with [Qodalis.Cli.Plugin.Audit.EfCore](../audit-efcore/README.md)
+(`cli.AddEfCoreAuditStore(...)`); `SetAuditStore` here does the same as `cli.SetAuditStore<T>()`.
 
 ## Custom storage
 
-Implement any of `IUserStore`, `ISessionStore`, `ICredentialStore`, `IAuditStore`, `IGroupStore` or `IApiTokenStore` (namespace `Qodalis.Cli.Plugin.Users.Stores`) and register it:
+Implement any of `IUserStore`, `ISessionStore`, `ICredentialStore`, `IGroupStore` or `IApiTokenStore` (namespace `Qodalis.Cli.Plugin.Users.Stores`; the audit store, `IAuditStore`, is the audit plugin's) and register it:
 
 ```csharp
 cli.AddUsers(options => options

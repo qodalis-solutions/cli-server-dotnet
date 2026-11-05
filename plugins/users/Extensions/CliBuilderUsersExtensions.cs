@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Plugin.Audit.Extensions;
 using Qodalis.Cli.Plugin.Users.Controllers;
 using Qodalis.Cli.Plugin.Users.Middleware;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -17,7 +19,8 @@ namespace Qodalis.Cli.Plugin.Users.Extensions;
 public static class CliBuilderUsersExtensions
 {
     /// <summary>
-    /// Registers users plugin services, stores, and controllers.
+    /// Registers users plugin services, stores, and controllers, and adds the audit plugin (<c>AddAudit</c>), where
+    /// the plugin records sign-ins, token and group changes.
     /// Stores default to in-memory implementations; override them with the
     /// <c>Set*Store&lt;T&gt;()</c> options (DI-constructed), the store properties (instances),
     /// or by registering the store interface in the service collection before calling this.
@@ -35,7 +38,13 @@ public static class CliBuilderUsersExtensions
         RegisterStore<IUserStore, InMemoryUserStore>(services, options, options.UserStore);
         RegisterStore<ISessionStore, InMemorySessionStore>(services, options, options.SessionStore);
         RegisterStore<ICredentialStore, InMemoryCredentialStore>(services, options, options.CredentialStore);
-        RegisterStore<IAuditStore, InMemoryAuditStore>(services, options, options.AuditStore);
+        // The audit log is the audit plugin's: the users plugin records its events there and adds the plugin
+        if (options.GetStoreFactory(typeof(IAuditStore), options.AuditStore) is { } auditStore)
+        {
+            services.RemoveAll<IAuditStore>();
+            services.AddSingleton(sp => (IAuditStore)auditStore(sp));
+        }
+        builder.AddAudit();
         RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
         RegisterStore<IApiTokenStore, InMemoryApiTokenStore>(services, options, options.ApiTokenStore);
 

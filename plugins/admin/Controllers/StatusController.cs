@@ -17,6 +17,9 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 [Route("api/v1/qcli/status")]
 public class StatusController : ControllerBase
 {
+    /// <summary>The audit plugin's package id (the admin plugin does not reference it).</summary>
+    private const string AuditPluginId = "Qodalis.Cli.Plugin.Audit";
+
     private readonly ICliEventSocketManager _eventSocketManager;
     private readonly ICliCommandRegistry _commandRegistry;
     private readonly IServiceProvider _serviceProvider;
@@ -70,8 +73,8 @@ public class StatusController : ControllerBase
         if (hasJobs)
             features.Add("jobs");
 
-        // The users plugin keeps the audit log (GET /api/v1/qcli/audit).
-        if (_serviceProvider.GetService<CliInstalledPlugins>()?.All.Any(p => p.Id == "Qodalis.Cli.Plugin.Users") == true)
+        // The audit plugin serves the audit log (GET /api/v1/qcli/audit); the users plugin adds it.
+        if (_serviceProvider.GetService<CliInstalledPlugins>()?.All.Any(p => p.Id == AuditPluginId) == true)
             features.Add("audit");
 
         return features;

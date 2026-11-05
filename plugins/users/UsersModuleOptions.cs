@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Plugin.Users.Models;
