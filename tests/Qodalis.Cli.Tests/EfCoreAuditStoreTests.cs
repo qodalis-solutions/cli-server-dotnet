@@ -178,6 +178,21 @@ public class EfCoreJobStorageSqliteTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteExecution_RemovesItWithItsLogs()
+    {
+        var execution = new JobExecution
+        {
+            JobId = "digest", JobName = "digest", Status = JobExecutionStatus.Completed,
+            Logs = [new JobLogEntry { Level = "info", Message = "nothing due" }],
+        };
+        await _provider.SaveExecutionAsync(execution);
+
+        Assert.True(await _provider.DeleteExecutionAsync(execution.Id));
+        Assert.False(await _provider.DeleteExecutionAsync(execution.Id));
+        Assert.Null(await _provider.GetExecutionAsync(execution.Id));
+    }
+
+    [Fact]
     public async Task QueryExecutions_AcrossJobs_FiltersAndPages()
     {
         var now = DateTime.UtcNow;

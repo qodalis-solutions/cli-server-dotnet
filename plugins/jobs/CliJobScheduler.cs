@@ -44,7 +44,22 @@ public class CliJobScheduler : IHostedService, IDisposable
         options.Name ??= name;
         options.Description ??= name;
 
-        var id = Guid.NewGuid().ToString("N")[..12];
+        string id;
+        if (options.Id != null)
+        {
+            if (string.IsNullOrWhiteSpace(options.Id))
+                throw new ArgumentException("A job id may not be empty", nameof(options));
+            if (_jobs.ContainsKey(options.Id))
+                throw new InvalidOperationException($"A job with id '{options.Id}' is already registered");
+            id = options.Id;
+        }
+        else
+        {
+            // Stable across restarts, so saved state and history find the job again
+            id = name;
+            for (var n = 2; _jobs.ContainsKey(id); n++)
+                id = $"{name}-{n}";
+        }
         var registration = new JobRegistration
         {
             Id = id,
@@ -72,6 +87,9 @@ public class CliJobScheduler : IHostedService, IDisposable
             if (reg.Status == JobStatus.Active)
             {
                 StartTimer(reg);
+
+                if (reg.Options.RunOnStart)
+                    _ = ExecuteJobAsync(reg);
             }
         }
 
@@ -226,11 +244,19 @@ public class CliJobScheduler : IHostedService, IDisposable
         else if (reg.Options.Interval != null)
         {
             var interval = reg.Options.Interval.Value;
-            reg.NextRunAt = DateTime.UtcNow.Add(interval);
+            var now = DateTime.UtcNow;
+            // Keep the rhythm across restarts and pauses: due one interval after the last run
+            var due = reg.LastRunAt is { } last ? last.Add(interval) : now.Add(interval);
+            if (due < now) due = now;
+            reg.NextRunAt = due;
             reg.Timer = new Timer(
-                _ => OnTimerFired(reg),
+                _ =>
+                {
+                    reg.NextRunAt = DateTime.UtcNow.Add(interval);
+                    OnTimerFired(reg);
+                },
                 null,
-                interval,
+                due - now,
                 interval);
         }
     }
@@ -335,7 +361,10 @@ public class CliJobScheduler : IHostedService, IDisposable
             reg.LastRunStatus = execution.Status.ToString().ToLowerInvariant();
             reg.LastRunDuration = execution.Duration;
 
-            await _storage.SaveExecutionAsync(execution);
+            var discarded = context.Discarded && execution.Status == JobExecutionStatus.Completed
+                && await _storage.DeleteExecutionAsync(execution.Id);
+            if (!discarded)
+                await _storage.SaveExecutionAsync(execution);
             await PersistState(reg);
         }
 

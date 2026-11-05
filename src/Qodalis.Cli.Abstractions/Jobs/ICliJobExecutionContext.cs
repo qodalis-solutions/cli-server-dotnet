@@ -15,4 +15,10 @@ public interface ICliJobExecutionContext
     /// saved when the run ends, whatever its outcome.
     /// </summary>
     IDictionary<string, object?> Properties { get; }
+
+    /// <summary>
+    /// Leaves this run out of the history when it completes: for a frequent job whose run found nothing to do
+    /// (e.g. no digest was due). The job's last run is still updated. Failed runs are always kept.
+    /// </summary>
+    void Discard();
 }
