@@ -3,6 +3,22 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.18
+
+### Logs
+
+- New plugin **Qodalis.Cli.Plugin.Logs.Seq** (`cli.AddSeqLogs(...)`): sends the logs to Seq, each entry tagged with
+  its service (`Service`), and makes Seq the dashboard's log history, so logs survive restarts and an API and its
+  workers share one history. Logging never waits for or fails because of Seq. See [its README](plugins/logs-seq/README.md).
+- The log history is an `ILogStore` (`Qodalis.Cli.Abstractions.Logs`); the admin plugin's in-memory buffer stays the
+  default.
+- `GET /api/v1/qcli/logs` takes several levels (`level=WARN,ERROR`), `service`, `from` and `to`, answers 400 with
+  `{ error }` for an unknown level or time, 502 when the store cannot be reached, and reports `hasMore`, `store`,
+  `persistent` and `services`. `total` is null for stores that cannot count (Seq).
+- The admin plugin ships dashboard 1.0.0-beta.14: the Logs page filters on the server and, with Seq, by service and
+  time.
+- The demo server sends its logs to Seq when `Seq:ServerUrl` is set.
+
 ## 1.0.0-beta.17
 
 - The users plugin's hosted service no longer throws `ObjectDisposedException` when it is stopped after being
