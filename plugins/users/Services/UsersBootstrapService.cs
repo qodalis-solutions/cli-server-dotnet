@@ -29,6 +29,7 @@ public class UsersBootstrapService : IHostedService, IDisposable
     private readonly IServiceProvider? _services;
     private readonly CancellationTokenSource _stopping = new();
     private int _externalCheckRunning;
+    private int _disposed;
 
     private static readonly TimeSpan MaxCleanupInterval = TimeSpan.FromMinutes(5);
 
@@ -206,16 +207,29 @@ public class UsersBootstrapService : IHostedService, IDisposable
         }, null, interval, interval);
     }
 
+    /// <summary>
+    /// Stops the timers and cancels a running socket check. Does nothing once disposed: with minimal hosting the
+    /// application's own <c>Run()</c> can dispose the container while a test host is still stopping it.
+    /// </summary>
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _cleanupTimer?.Change(Timeout.Infinite, 0);
-        _externalSocketTimer?.Change(Timeout.Infinite, 0);
-        _stopping.Cancel();
+        if (Volatile.Read(ref _disposed) == 1) return Task.CompletedTask;
+        try
+        {
+            _cleanupTimer?.Change(Timeout.Infinite, 0);
+            _externalSocketTimer?.Change(Timeout.Infinite, 0);
+            _stopping.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposed while stopping: Dispose already stopped everything.
+        }
         return Task.CompletedTask;
     }
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
         _cleanupTimer?.Dispose();
         _externalSocketTimer?.Dispose();
         _stopping.Dispose();
