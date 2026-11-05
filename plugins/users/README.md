@@ -125,7 +125,7 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | `/tokens` | GET | authenticated | Own API tokens; `?all=true` → every user's (`tokens:read`) |
 | `/tokens` | POST | authenticated, **session only** | `{ name, expiresInDays?, permissions? }` → `201 { token, apiToken }` |
 | `/tokens/{id}` | DELETE | owner or `tokens:revoke` | Revoke (204); unknown or not yours → 404 |
-| `/audit` | GET | `audit:read` | Audit entries (`?event=&username=&limit=`) |
+| `/audit` | GET | `audit:read` | Audit entries, newest first (`?event=&username=&actor=&limit=&offset=`) |
 | `/audit` | DELETE | `audit:clear` | Clear the audit log (204) |
 
 While `mustChangePassword` is true a session may only call `GET/DELETE /sessions/current` and `PUT /users/{self}/password` (others → 403 `password change required`). Session stores keep only `SHA-256(token)`. Names: 1–64 chars `^[A-Za-z0-9][A-Za-z0-9._@-]*$`; names and emails share one uniqueness namespace; control characters are rejected.
@@ -191,6 +191,22 @@ Every revoked session (explicit revoke, user deleted/disabled, password changed)
 ```
 
 `reason` is one of `revoked`, `user_deleted`, `user_disabled`, `password_changed`. A `@qodalis/cli-users` client in server mode logs itself out when its own session id is kicked.
+
+## Audit log
+
+Every entry has the `event`, the user it is about (`username`), who did it (`actor`), `details` and `metadata`
+(address, session, shell). Two optional fields make it fit an application's own changes:
+
+- `target`: what the event is about when it is not a user, e.g. `group:admins` (the plugin's group events), a role or a job.
+- `properties`: the application's own values, e.g. the old and new value of a setting.
+
+An application records its own changes in the same log through `IAuditStore.LogAsync`, so the dashboard's Audit page,
+the `audit` command and `GET /audit` show them all. Filter by `event`, `username` (the subject) and `actor`, and page
+with `limit` and `offset`.
+
+The default store keeps the latest 1000 entries in memory. Keep them in a database with
+[Qodalis.Cli.Plugin.Users.EfCore](../users-efcore/README.md) (`cli.AddEfCoreAuditStore(...)`), and bound the log with
+`IAuditStore.PruneAsync(before)` on a schedule.
 
 ## Custom storage
 
