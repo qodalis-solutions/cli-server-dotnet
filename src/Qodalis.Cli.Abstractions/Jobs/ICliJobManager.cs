@@ -45,6 +45,18 @@ public interface ICliJobManager
     Task<(IReadOnlyList<JobExecution> Items, int Total)> GetExecutionsAsync(
         string jobId, int limit, int offset, string? status, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The executions of several jobs (or of every job), newest first. The default merges
+    /// <see cref="GetExecutionsAsync"/> per job.
+    /// </summary>
+    async Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken)
+    {
+        var jobIds = query.JobIds ?? (await GetJobsAsync(cancellationToken)).Select(j => j.Id).ToList();
+        return await query.MergeAsync(jobIds, (jobId, limit, status) =>
+            GetExecutionsAsync(jobId, limit, 0, status, cancellationToken));
+    }
+
     /// <summary>One execution of the job with its logs, or <c>null</c>.</summary>
     Task<JobExecution?> GetExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken);
 }

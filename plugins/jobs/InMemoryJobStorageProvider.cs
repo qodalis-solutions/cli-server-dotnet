@@ -45,6 +45,24 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            IEnumerable<JobExecution> matches = _executions;
+            if (query.JobIds != null)
+                matches = matches.Where(e => query.JobIds.Contains(e.JobId));
+            if (query.Status != null && Enum.TryParse<JobExecutionStatus>(query.Status, true, out var status))
+                matches = matches.Where(e => e.Status == status);
+
+            var items = matches.OrderByDescending(e => e.StartedAt).ToList();
+            IReadOnlyList<JobExecution> page = items.Skip(query.Offset).Take(query.Limit).ToList();
+            return Task.FromResult((page, items.Count));
+        }
+    }
+
+    /// <inheritdoc />
     public Task<JobExecution?> GetExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)

@@ -383,7 +383,7 @@ public class UsersService
             }
 
             await _auth.AuditAsync(AuditEvents.GroupCreated, caller.User.Name, $"group '{group.Name}' created",
-                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
             return group;
         }
         finally
@@ -425,7 +425,7 @@ public class UsersService
 
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupUpdated, caller.User.Name, $"group '{updated.Name}' updated",
-                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{updated.Name}");
             return updated;
         }
         finally
@@ -455,7 +455,7 @@ public class UsersService
             await _groupStore.DeleteGroupAsync(group.Name);
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupDeleted, caller.User.Name, $"group '{group.Name}' deleted",
-                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id);
+                caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
         }
         finally
         {
@@ -480,7 +480,7 @@ public class UsersService
             await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto { Groups = [.. user.Groups, group.Name] });
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberAdded, user.Name, $"added to group '{group.Name}'",
-                caller.User.Name, userId: user.Id, actorId: caller.User.Id);
+                caller.User.Name, userId: user.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
         }
         finally
         {
@@ -512,7 +512,7 @@ public class UsersService
             });
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberRemoved, user.Name, $"removed from group '{group.Name}'",
-                caller.User.Name, userId: user.Id, actorId: caller.User.Id);
+                caller.User.Name, userId: user.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
         }
         finally
         {
@@ -524,10 +524,19 @@ public class UsersService
     // Audit
     // =========================================================================
 
-    public async Task<List<AuditEntry>> GetAuditAsync(string? @event, string? username, int? limit)
+    public async Task<List<AuditEntry>> GetAuditAsync(string? @event, string? username, int? limit,
+        string? actor = null, int? offset = null)
     {
         if (limit < 0) throw UsersApiException.BadRequest("limit must be >= 0");
-        return await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = @event, Username = username, Limit = limit });
+        if (offset < 0) throw UsersApiException.BadRequest("offset must be >= 0");
+        return await _auditStore.GetEntriesAsync(new AuditQueryOptions
+        {
+            Event = @event,
+            Username = username,
+            Actor = actor,
+            Limit = limit,
+            Offset = offset,
+        });
     }
 
     public async Task ClearAuditAsync(UsersAuthContext caller)

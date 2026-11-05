@@ -14,4 +14,7 @@ internal class CliJobExecutionContext : ICliJobExecutionContext
 
     /// <inheritdoc />
     public ICliJobLogger Logger { get; }
+
+    /// <inheritdoc />
+    public IDictionary<string, object?> Properties { get; } = new Dictionary<string, object?>();
 }

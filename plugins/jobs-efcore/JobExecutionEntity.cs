@@ -25,6 +25,8 @@ internal class JobExecutionEntity
     public string? Error { get; set; }
     /// <summary>Zero-based retry attempt number.</summary>
     public int RetryAttempt { get; set; }
+    /// <summary>The host's own values (<c>JobExecution.Properties</c>) as JSON.</summary>
+    public string? Properties { get; set; }
     /// <summary>Log entries produced during this execution.</summary>
     public List<JobLogEntryEntity> Logs { get; set; } = [];
 }

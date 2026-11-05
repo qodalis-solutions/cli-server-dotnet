@@ -61,6 +61,11 @@ public sealed class SchedulerJobManager : ICliJobManager
     }
 
     /// <inheritdoc />
+    public Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken) =>
+        _storage.QueryExecutionsAsync(query, cancellationToken);
+
+    /// <inheritdoc />
     public async Task<JobExecution?> GetExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken)
     {
         var execution = await _storage.GetExecutionAsync(executionId, cancellationToken);

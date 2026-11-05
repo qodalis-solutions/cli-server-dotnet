@@ -16,14 +16,19 @@ public class AuditController : UsersControllerBase
         _users = users;
     }
 
-    /// <summary>Query audit entries (<c>?event=&amp;username=&amp;limit=</c>). Requires <c>audit:read</c>.</summary>
+    /// <summary>
+    /// Query audit entries, newest first (<c>?event=&amp;username=&amp;actor=&amp;limit=&amp;offset=</c>).
+    /// Requires <c>audit:read</c>.
+    /// </summary>
     [HttpGet]
     [UsersPermission(UsersPermissions.AuditRead)]
     public async Task<IActionResult> GetAll(
         [FromQuery(Name = "event")] string? @event,
         [FromQuery] string? username,
-        [FromQuery] int? limit) =>
-        JsonOk(await _users.GetAuditAsync(@event, username, limit));
+        [FromQuery] int? limit,
+        [FromQuery] string? actor,
+        [FromQuery] int? offset) =>
+        JsonOk(await _users.GetAuditAsync(@event, username, limit, actor, offset));
 
     /// <summary>Clear the audit log (an <c>audit_cleared</c> entry is then recorded). Requires <c>audit:clear</c>.</summary>
     [HttpDelete]

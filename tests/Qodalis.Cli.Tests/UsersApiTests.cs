@@ -383,6 +383,10 @@ public class UsersApiTests
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login" }));
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Username = "HACKER" }));
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Limit = 1 }));
+        Assert.Equal("login", Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Offset = 1 })).Event);
+
+        await _auditStore.LogAsync(new AuditEntry { Timestamp = 3, Event = "user_updated", Username = "bob", Actor = "Root" });
+        Assert.Equal("user_updated", Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Actor = "root" })).Event);
 
         await _auditStore.ClearAsync();
         Assert.Empty(await _auditStore.GetEntriesAsync());
