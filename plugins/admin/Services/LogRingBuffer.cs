@@ -1,12 +1,14 @@
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Logs;
 
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
 /// <summary>
 /// A fixed-size ring buffer that stores recent log entries for the admin logs endpoint.
-/// Implements ILoggerProvider to plug into the ASP.NET Core logging pipeline.
+/// Implements ILoggerProvider to plug into the ASP.NET Core logging pipeline, and is the default
+/// <see cref="ILogStore"/>: the latest entries of this process, lost on restart.
 /// </summary>
-public class LogRingBuffer : ILoggerProvider
+public class LogRingBuffer : ILoggerProvider, ILogStore
 {
     private readonly LogEntry[] _buffer;
     private readonly int _capacity;
@@ -49,17 +51,7 @@ public class LogRingBuffer : ILoggerProvider
     /// <returns>A <see cref="LogQueryResult"/> containing the matched entries and total count.</returns>
     public LogQueryResult Query(string? level = null, string? search = null, int limit = 100, int offset = 0)
     {
-        List<LogEntry> snapshot;
-        lock (_lock)
-        {
-            var startIndex = _count < _capacity ? 0 : _writeIndex % _capacity;
-            snapshot = new List<LogEntry>((int)_count);
-            for (long i = 0; i < _count; i++)
-            {
-                var idx = (startIndex + i) % _capacity;
-                snapshot.Add(_buffer[idx]);
-            }
-        }
+        var snapshot = Snapshot();
 
         // Apply filters
         IEnumerable<LogEntry> filtered = snapshot;
@@ -82,6 +74,63 @@ public class LogRingBuffer : ILoggerProvider
         var items = ordered.Skip(offset).Take(Math.Min(limit, 500)).ToList();
 
         return new LogQueryResult { Items = items, Total = total, Limit = limit, Offset = offset };
+    }
+
+    /// <inheritdoc />
+    public string Name => "memory";
+
+    /// <inheritdoc />
+    public bool Persistent => false;
+
+    /// <inheritdoc />
+    public Task<LogPage> QueryAsync(LogQueryOptions options, CancellationToken cancellationToken = default)
+    {
+        IEnumerable<LogEntry> matches = Snapshot();
+        if (options.Levels.Count > 0)
+            matches = matches.Where(e => options.Levels.Contains(e.Level, StringComparer.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(options.Search))
+        {
+            matches = matches.Where(e =>
+                e.Message.Contains(options.Search, StringComparison.OrdinalIgnoreCase) ||
+                e.Source.Contains(options.Search, StringComparison.OrdinalIgnoreCase));
+        }
+        // Entries here carry no service: a service filter matches none of them.
+        if (!string.IsNullOrEmpty(options.Service)) matches = [];
+        if (options.From is { } from) matches = matches.Where(e => e.Timestamp >= from.UtcDateTime);
+        if (options.To is { } to) matches = matches.Where(e => e.Timestamp < to.UtcDateTime);
+
+        var ordered = matches.Reverse().ToList();
+        var limit = Math.Clamp(options.Limit, 1, LogQueryOptions.MaxLimit);
+        var offset = Math.Max(options.Offset, 0);
+        return Task.FromResult(new LogPage
+        {
+            Entries = ordered.Skip(offset).Take(limit).Select(e => new LogRecord
+            {
+                Timestamp = new DateTimeOffset(DateTime.SpecifyKind(e.Timestamp, DateTimeKind.Utc)),
+                Level = e.Level,
+                Message = e.Message,
+                Source = e.Source,
+            }).ToList(),
+            Total = ordered.Count,
+            HasMore = offset + limit < ordered.Count,
+        });
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>The entries, oldest first.</summary>
+    private List<LogEntry> Snapshot()
+    {
+        lock (_lock)
+        {
+            var startIndex = _count < _capacity ? 0 : _writeIndex % _capacity;
+            var snapshot = new List<LogEntry>((int)_count);
+            for (long i = 0; i < _count; i++)
+                snapshot.Add(_buffer[(startIndex + i) % _capacity]);
+            return snapshot;
+        }
     }
 
     /// <inheritdoc />
