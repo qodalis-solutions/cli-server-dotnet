@@ -39,6 +39,13 @@ public class AdminConfig
     public AdminTheme Theme { get; set; } = new();
 
     /// <summary>
+    /// The dashboard's name and icon and its terminal's branding, for applications that ship the dashboard under
+    /// their own name. Served with the color scheme at <c>/qcli/admin/theme.json</c>; values are validated at
+    /// startup. Unset: Qodalis Cli Admin with the Qodalis Solutions logo.
+    /// </summary>
+    public AdminBranding Branding { get; set; } = new();
+
+    /// <summary>
     /// Where the host application signs users in, shown by the dashboard in external sign-in mode
     /// (users plugin with an external auth adapter) and returned by <c>GET /api/v1/qcli/auth/mode</c>.
     /// An absolute <c>http(s)</c> URL or a root-relative path (<c>/sign-in</c>). Null: the dashboard

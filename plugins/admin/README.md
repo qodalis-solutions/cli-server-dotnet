@@ -182,6 +182,23 @@ The defaults match the Qodalis CLI panel: its grays, indigo accent with the viol
 | `error` | `--qcli-error` | Errors and destructive actions | `#f85149` | `#cf222e` |
 | `info` | `--qcli-info` | Informational states | `#58a6ff` | `#0969da` |
 
+## Name and icon
+
+By default the dashboard is "Qodalis Cli Admin" with the Qodalis Solutions logo. An application that ships it
+under its own name sets `Branding` (`AdminBranding`, in `Qodalis.Cli.Plugin.Admin.Services`):
+
+```csharp
+cli.AddAdmin(o =>
+{
+    o.Branding.Name = "RateBell";          // browser tab, sidebar, sign-in page
+    o.Branding.IconUrl = "/favicon.svg";   // http(s) URL, root-relative path or base64 data:image URL
+    o.Branding.CliName = "RateBell CLI";   // the terminal's welcome banner
+});
+```
+
+Anything left unset keeps the Qodalis default. The terminal's copyright line, docs link and `version` stay Qodalis
+CLI's. The values are served with the color scheme at `/qcli/admin/theme.json` and validated at startup.
+
 ## License
 
 MIT
