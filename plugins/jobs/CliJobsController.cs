@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Abstractions.Insights;
 using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs;
@@ -185,19 +186,9 @@ public class CliJobsController : ControllerBase
         [FromQuery] DateTime? since = null,
         CancellationToken ct = default)
     {
-        var jobIds = job?.SelectMany(j => j.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            .ToList();
-        if (!string.IsNullOrWhiteSpace(group))
-        {
-            var inGroup = (await _jobs.GetJobsAsync(ct))
-                .Where(j => string.Equals(j.Group, group, StringComparison.OrdinalIgnoreCase))
-                .Select(j => j.Id);
-            jobIds = jobIds is { Count: > 0 } ? jobIds.Intersect(inGroup).ToList() : inGroup.ToList();
-        }
-
         var query = new JobExecutionQuery
         {
-            JobIds = jobIds is { Count: > 0 } || group != null ? jobIds : null,
+            JobIds = await ResolveJobIdsAsync(job, group, ct),
             Status = status,
             Since = since is { } s ? JobExecutionQuery.AsUtc(s) : null,
             Limit = Math.Clamp(limit, 1, 100),
@@ -234,6 +225,56 @@ public class CliJobsController : ControllerBase
             limit = query.Limit,
             offset = query.Offset,
         });
+    }
+
+    /// <summary>
+    /// Statistics of the runs started in <c>[since, until)</c> (ISO 8601; default the last 24 hours): outcomes per
+    /// column (<paramref name="buckets"/>, default 24, 1..200), totals and per-job figures. <paramref name="job"/> and
+    /// <paramref name="group"/> narrow the jobs as in <see cref="GetExecutions"/>. Reads every run in the range through
+    /// <see cref="ICliJobManager.QueryExecutionsAsync"/>, so it works with any job store.
+    /// </summary>
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats(
+        [FromQuery] string? since = null,
+        [FromQuery] string? until = null,
+        [FromQuery] string? buckets = null,
+        [FromQuery] string[]? job = null,
+        [FromQuery] string? group = null,
+        CancellationToken ct = default)
+    {
+        if (!TimeBuckets.TryParse(since, until, buckets, out var range, out var error))
+            return BadRequest(new { error });
+
+        List<JobExecution> runs;
+        try
+        {
+            runs = await JobStatistics.CollectAsync(_jobs, await ResolveJobIdsAsync(job, group, ct), range!, ct);
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
+
+        return Ok(JobStatistics.Compute(runs, range!));
+    }
+
+    /// <summary>
+    /// The jobs named in <paramref name="job"/> (repeated or comma-separated) and/or in <paramref name="group"/>
+    /// (case-insensitive): null for every job, empty when the filters match none.
+    /// </summary>
+    private async Task<List<string>?> ResolveJobIdsAsync(string[]? job, string? group, CancellationToken ct)
+    {
+        var jobIds = job?.SelectMany(j => j.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(group))
+        {
+            var inGroup = (await _jobs.GetJobsAsync(ct))
+                .Where(j => string.Equals(j.Group, group, StringComparison.OrdinalIgnoreCase))
+                .Select(j => j.Id);
+            jobIds = jobIds is { Count: > 0 } ? jobIds.Intersect(inGroup).ToList() : inGroup.ToList();
+        }
+
+        return jobIds is { Count: > 0 } || group != null ? jobIds : null;
     }
 
     /// <summary>

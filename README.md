@@ -399,6 +399,7 @@ Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter
 | GET | `/api/v1/qcli/version` | Server version |
 | GET | `/api/v1/qcli/capabilities` | OS, shell and enabled features |
 | GET | `/api/v1/qcli/commands` | Registered commands |
+| GET | `/api/v1/qcli/commands/stats` | Executions per root command since start (count, failures, mean duration, last times) |
 | POST | `/api/v1/qcli/execute` | Execute a command |
 | POST | `/api/v1/qcli/execute/stream` | Execute with streamed output (SSE) |
 | GET | `/api/qcli/fs/ls`, `cat`, `stat`, `download` | File system, with `AddFileSystem()` |
@@ -411,7 +412,7 @@ Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter
 | WS | `/ws/v1/qcli/logs` | Log stream (`?level=` filter) |
 | WS | `/ws/v1/qcli/shell` | Interactive PTY shell, with `EnableShell()` |
 
-Every WebSocket is also served without the version segment (`/ws/qcli/events`, ...). The jobs and users plugins add routes under `/api/v1/qcli` (see their READMEs).
+Every WebSocket is also served without the version segment (`/ws/qcli/events`, ...). The jobs, admin, audit and users plugins add routes under `/api/v1/qcli` (see their READMEs), among them the dashboard's chart data: `jobs/stats`, `logs/histogram` and `status/history`.
 
 ## Plugins
 
@@ -451,7 +452,7 @@ The image runs the bundled host (`src/Qodalis.Cli.Server`) on port 8046. `./dock
 
 ## Versioning
 
-Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.18` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
+Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.19` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
 
 ## Development
 

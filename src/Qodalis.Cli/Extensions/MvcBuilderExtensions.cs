@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
@@ -65,6 +66,7 @@ public static class MvcBuilderExtensions
                 .AllowAnyHeader()));
         }
 
+        builder.Services.TryAddSingleton<CliCommandUsage>();
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<ICliServerInfoService, CliServerInfoService>();
         builder.Services.AddSingleton<CliMcpServer>();

@@ -54,8 +54,10 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/auth/login` | POST | Authenticate and receive a JWT token (501 in external mode) |
 | `/api/v1/qcli/auth/me` | GET | Get current authenticated user info |
 | `/api/v1/qcli/status` | GET | Server status (uptime, memory, features) |
+| `/api/v1/qcli/status/history` | GET | The status sampled every 15 seconds (memory, CPU % of one core, WebSocket clients, shell sessions), oldest first: `minutes` (default 60, 1..1440). Kept in memory for 24 hours |
 | `/api/v1/qcli/config` | GET | View server configuration sections |
 | `/api/v1/qcli/logs` | GET | Query log entries: `level` (comma list), `search`, `service`, `from`, `to`, `limit`, `offset`. The latest 1000 entries of this process, or Seq with [`Qodalis.Cli.Plugin.Logs.Seq`](../logs-seq/README.md) (any `ILogStore`) |
+| `/api/v1/qcli/logs/histogram` | GET | Entries per level (`DEBUG`, `INFO`, `WARN`, `ERROR`) in `buckets` equal columns (default 24, 1..200) of `[from, to)` (default the last 24 hours), with the filters of `/logs`. Counts the buffer, or asks Seq to count |
 | `/api/v1/qcli/plugins` | GET | List registered plugin modules |
 | `/api/v1/qcli/plugins/installed` | GET | List the installed server plugin packages (`id`, `name`, `version`, `description`) |
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |

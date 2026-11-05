@@ -92,6 +92,83 @@ internal sealed class SeqLogStore : ILogStore, IDisposable
         return services;
     }
 
+    /// <summary>
+    /// Asks Seq to count (<c>/api/data</c>): <c>select count(*) ... group by @Level, &lt;column of @Timestamp&gt;</c>
+    /// over the range, so the counts come back per level and column without reading the events.
+    /// </summary>
+    public async Task<LogHistogram> HistogramAsync(LogHistogramOptions options, CancellationToken cancellationToken = default)
+    {
+        var histogram = new LogHistogram(options.Range);
+        var q = HistogramQuery(options);
+        var query = string.Join('&',
+            "q=" + Uri.EscapeDataString(q),
+            "rangeStartUtc=" + Uri.EscapeDataString(options.Range.Since.ToString("O", CultureInfo.InvariantCulture)),
+            "rangeEndUtc=" + Uri.EscapeDataString(options.Range.Until.ToString("O", CultureInfo.InvariantCulture)));
+
+        using var response = await _http.GetAsync("api/data?" + query, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            var root = document.RootElement;
+            if (root.TryGetProperty("Error", out var error) && error.ValueKind == JsonValueKind.String)
+                throw new HttpRequestException($"Seq could not count the logs: {error.GetString()}");
+            if (!root.TryGetProperty("Rows", out var rows) || rows.ValueKind != JsonValueKind.Array) return histogram;
+
+            var countColumn = CountColumn(root);
+            foreach (var row in rows.EnumerateArray())
+            {
+                var cells = row.EnumerateArray().ToList();
+                if (cells.Count == 0) continue;
+                var countIndex = countColumn >= 0 && countColumn < cells.Count ? countColumn : cells.Count - 1;
+                if (!cells[countIndex].TryGetInt64(out var count)) continue;
+
+                string? level = null;
+                double? bucket = null;
+                for (var i = 0; i < cells.Count; i++)
+                {
+                    if (i == countIndex) continue;
+                    if (cells[i].ValueKind == JsonValueKind.String) level = cells[i].GetString();
+                    else if (cells[i].ValueKind == JsonValueKind.Number) bucket = cells[i].GetDouble();
+                }
+                // An integer in exact arithmetic; rounding absorbs floating-point error.
+                if (bucket is { } b) histogram.AddToBucket((int)Math.Round(b), level, count);
+            }
+        }
+        catch (JsonException ex)
+        {
+            throw new HttpRequestException($"Seq answered an unexpected body: {ex.Message}", ex);
+        }
+
+        return histogram;
+    }
+
+    /// <summary>The Seq query counting <paramref name="options"/> per level and column.</summary>
+    internal static string HistogramQuery(LogHistogramOptions options)
+    {
+        var since = options.Range.Since.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+        // @Timestamp and DateTime() are in 100-nanosecond ticks.
+        var width = (options.Range.BucketMs * TimeSpan.TicksPerMillisecond).ToString("0.###", CultureInfo.InvariantCulture);
+        var where = Filter(options.Filter) is { } filter ? $" where {filter}" : string.Empty;
+        // Seq has no floor(): the column is (elapsed - elapsed % width) / width, elapsed >= 0 inside the range.
+        var elapsed = $"(@Timestamp - DateTime('{since}'))";
+        return $"select count(*) as count from stream{where} " +
+            $"group by @Level, ({elapsed} - {elapsed} % {width}) / {width} limit 10000";
+    }
+
+    private static int CountColumn(JsonElement root)
+    {
+        if (!root.TryGetProperty("Columns", out var columns) || columns.ValueKind != JsonValueKind.Array) return -1;
+        var i = 0;
+        foreach (var column in columns.EnumerateArray())
+        {
+            if (column.ValueKind == JsonValueKind.String && string.Equals(column.GetString(), "count", StringComparison.OrdinalIgnoreCase))
+                return i;
+            i++;
+        }
+        return -1;
+    }
+
     /// <summary>The Seq filter expression for <paramref name="options"/>; null when nothing is filtered.</summary>
     internal static string? Filter(LogQueryOptions options)
     {

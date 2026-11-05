@@ -14,6 +14,12 @@ public class AuditQueryOptions
     /// <summary>The user who performed the actions (exact, case-insensitive).</summary>
     public string? Actor { get; set; }
 
+    /// <summary>Entries written at or after this time; null for no lower bound.</summary>
+    public DateTimeOffset? From { get; set; }
+
+    /// <summary>Entries written before this time; null for no upper bound.</summary>
+    public DateTimeOffset? To { get; set; }
+
     /// <summary>The most entries to return; null for all.</summary>
     public int? Limit { get; set; }
 
