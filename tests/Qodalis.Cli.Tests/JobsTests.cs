@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Extensions;
 using Moq;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Plugin.Jobs;
@@ -24,6 +26,7 @@ public class DummyJob : ICliJob
     public async Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)
     {
         CallCount++;
+        context.Properties["calls"] = CallCount;
         context.Logger.Info("started");
         if (_delay > TimeSpan.Zero)
             await Task.Delay(_delay, cancellationToken);
@@ -261,6 +264,8 @@ public class CliJobSchedulerTests : IDisposable
         var (items, total) = await _storage.GetExecutionsAsync(id);
         Assert.Equal(1, total);
         Assert.Equal(JobExecutionStatus.Completed, items[0].Status);
+        // The job's own values are saved with the execution
+        Assert.Equal(1, items[0].Properties["calls"]);
 
         await _scheduler.StopAsync(CancellationToken.None);
     }
@@ -694,6 +699,32 @@ public class CliJobsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Executions_AcrossJobs_FilterByJobAndGroup()
+    {
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
+        await Task.Delay(200);
+        await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
+        await Task.Delay(200);
+
+        static string Json(IActionResult r) => System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)r).Value);
+
+        var all = Json(await _controller.GetExecutions(ct: CancellationToken.None));
+        Assert.Contains("\"total\":2", all);
+        Assert.Contains("\"properties\":{\"calls\":2}", all);
+
+        Assert.Contains("\"total\":2", Json(await _controller.GetExecutions(job: [_jobIds["quick"] + "," + _jobIds["slow"]], ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(job: [_jobIds["slow"]], ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(status: "failed", ct: CancellationToken.None)));
+        Assert.Contains("\"calls\":1", Json(await _controller.GetExecutions(limit: 1, offset: 1, ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(since: DateTime.UtcNow.AddMinutes(1), ct: CancellationToken.None)));
+        // No job in the group: nothing, not every job
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(group: "none", ct: CancellationToken.None)));
+
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task History_NotFound()
     {
         var result = await _controller.GetHistory("nonexistent", ct: CancellationToken.None);
@@ -829,3 +860,190 @@ public class CustomJobManagerTests
 }
 
 #endregion
+
+public class JobManagerDefaultQueryTests
+{
+    [Fact]
+    public async Task QueryExecutions_MergesTheJobsExecutions()
+    {
+        ICliJobManager manager = new FakeJobManager();
+
+        var (items, total) = await manager.QueryExecutionsAsync(new JobExecutionQuery(), CancellationToken.None);
+
+        Assert.Equal(1, total);
+        Assert.Equal("r1", Assert.Single(items).Id);
+
+        var (none, noneTotal) = await manager.QueryExecutionsAsync(
+            new JobExecutionQuery { Since = DateTime.UtcNow.AddDays(1) }, CancellationToken.None);
+        Assert.Empty(none);
+        Assert.Equal(0, noneTotal);
+    }
+}
+
+public class JobSchedulerIdsAndStartTests : IDisposable
+{
+    private readonly InMemoryJobStorageProvider _storage = new();
+    private readonly CliJobScheduler _scheduler;
+
+    public JobSchedulerIdsAndStartTests()
+    {
+        _scheduler = new CliJobScheduler(_storage, new Mock<ICliEventSocketManager>().Object, new Mock<ILogger<CliJobScheduler>>().Object);
+    }
+
+    public void Dispose()
+    {
+        _scheduler.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public void Ids_AreTheSetId_OrTheNameNumberedInOrder()
+    {
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Id = "fetch-rates:bnr", Name = "BNR" });
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "digest" });
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "digest" });
+        _scheduler.Register(new DummyJob(), new CliJobOptions());
+
+        Assert.Equal(["fetch-rates:bnr", "digest", "digest-2", "DummyJob"], _scheduler.Jobs.Keys);
+        Assert.Throws<InvalidOperationException>(() =>
+            _scheduler.Register(new DummyJob(), new CliJobOptions { Id = "digest" }));
+    }
+
+    [Fact]
+    public async Task SavedState_IsFoundAgainAfterARestart()
+    {
+        await _storage.SaveJobStateAsync("nightly", new JobState { Status = JobStatus.Paused });
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "nightly", Interval = TimeSpan.FromHours(1) });
+
+        await _scheduler.StartAsync(CancellationToken.None);
+
+        Assert.Equal(JobStatus.Paused, _scheduler.Jobs["nightly"].Status);
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Interval_KeepsItsRhythmAcrossRestarts_AndRunsAnOverdueJobRightAway()
+    {
+        var lastRun = DateTime.UtcNow.AddMinutes(-20);
+        await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = lastRun });
+        await _storage.SaveJobStateAsync("overdue", new JobState { Status = JobStatus.Active, LastRunAt = DateTime.UtcNow.AddHours(-3) });
+        var overdue = new DummyJob();
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1) });
+        _scheduler.Register(overdue, new CliJobOptions { Name = "overdue", Interval = TimeSpan.FromHours(1) });
+
+        await _scheduler.StartAsync(CancellationToken.None);
+        await Task.Delay(300);
+
+        Assert.Equal(lastRun.AddHours(1), _scheduler.Jobs["hourly"].NextRunAt!.Value, TimeSpan.FromSeconds(1));
+        Assert.Equal(1, overdue.CallCount);
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunOnStart_RunsOnDemandJobsOnce_ButNotPausedOnes()
+    {
+        var onDemand = new DummyJob();
+        var hourly = new DummyJob(TimeSpan.FromMilliseconds(100));
+        var paused = new DummyJob();
+        await _storage.SaveJobStateAsync("paused", new JobState { Status = JobStatus.Paused });
+        await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = DateTime.UtcNow.AddHours(-2) });
+        _scheduler.Register(onDemand, new CliJobOptions { Name = "backfill", RunOnStart = true });
+        _scheduler.Register(hourly, new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1), RunOnStart = true });
+        _scheduler.Register(paused, new CliJobOptions { Name = "paused", RunOnStart = true });
+
+        await _scheduler.StartAsync(CancellationToken.None);
+        await Task.Delay(400);
+
+        Assert.Equal(1, onDemand.CallCount);
+        // Overdue and run on start: still one run
+        Assert.Equal(1, hourly.CallCount);
+        Assert.Equal(0, paused.CallCount);
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+
+    private sealed class DiscardingJob(bool fail) : ICliJob
+    {
+        public async Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)
+        {
+            context.Discard();
+            await Task.Yield();
+            if (fail) throw new Exception("boom");
+        }
+    }
+
+    [Fact]
+    public async Task Discard_LeavesACompletedRunOutOfTheHistory_ButKeepsFailures()
+    {
+        _scheduler.Register(new DiscardingJob(fail: false), new CliJobOptions { Name = "quiet" });
+        _scheduler.Register(new DiscardingJob(fail: true), new CliJobOptions { Name = "broken", MaxRetries = 0 });
+        await _scheduler.StartAsync(CancellationToken.None);
+
+        await _scheduler.TriggerAsync("quiet");
+        await _scheduler.TriggerAsync("broken");
+        await Task.Delay(300);
+
+        Assert.Equal(0, (await _storage.GetExecutionsAsync("quiet")).Total);
+        Assert.NotNull(_scheduler.Jobs["quiet"].LastRunAt);
+        Assert.Equal(1, (await _storage.GetExecutionsAsync("broken")).Total);
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+}
+
+public class JobServicesTests
+{
+    public sealed class Counter
+    {
+        public static int Created;
+        public Counter() => Interlocked.Increment(ref Created);
+    }
+
+    private sealed class ScopedJob : ICliJob
+    {
+        public List<Counter> Seen { get; } = [];
+
+        public Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)
+        {
+            Seen.Add(context.Services.GetRequiredService<Counter>());
+            Seen.Add(context.Services.GetRequiredService<Counter>());
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task EachRun_GetsItsOwnServiceScope()
+    {
+        var job = new ScopedJob();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped<Counter>();
+        services.AddControllers().AddCli(cli => cli.AddJob(job, o => o.Name = "scoped"));
+        await using var sp = services.BuildServiceProvider();
+        var scheduler = sp.GetRequiredService<ICliJobScheduler>();
+        await ((CliJobScheduler)scheduler).StartAsync(CancellationToken.None);
+
+        await scheduler.TriggerAsync("scoped");
+        await Task.Delay(200);
+        await scheduler.TriggerAsync("scoped");
+        await Task.Delay(200);
+
+        // One instance within a run, a new one per run
+        Assert.Equal(4, job.Seen.Count);
+        Assert.Same(job.Seen[0], job.Seen[1]);
+        Assert.NotSame(job.Seen[1], job.Seen[2]);
+        await ((CliJobScheduler)scheduler).StopAsync(CancellationToken.None);
+    }
+}
+
+public class JobPruneTests
+{
+    [Fact]
+    public async Task InMemoryStorage_PrunesOldExecutions()
+    {
+        ICliJobStorageProvider storage = new InMemoryJobStorageProvider();
+        await storage.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", StartedAt = DateTime.UtcNow.AddDays(-40) });
+        await storage.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", StartedAt = DateTime.UtcNow });
+
+        Assert.Equal(1, await storage.PruneAsync(DateTime.UtcNow.AddDays(-30)));
+        Assert.Equal(1, (await storage.GetExecutionsAsync("a")).Total);
+    }
+}

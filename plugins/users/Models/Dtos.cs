@@ -129,8 +129,17 @@ public class UserPermissionsResponse
 public class AuditQueryOptions
 {
     public string? Event { get; set; }
+
+    /// <summary>The user the events are about (exact, case-insensitive).</summary>
     public string? Username { get; set; }
+
+    /// <summary>The user who performed the actions (exact, case-insensitive).</summary>
+    public string? Actor { get; set; }
+
     public int? Limit { get; set; }
+
+    /// <summary>Entries to skip, for paging (newest first).</summary>
+    public int? Offset { get; set; }
 }
 
 /// <summary>

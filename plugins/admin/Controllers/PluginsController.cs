@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Admin.Services;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
@@ -11,13 +12,24 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 public class PluginsController : ControllerBase
 {
     private readonly ModuleRegistry _moduleRegistry;
+    private readonly CliInstalledPlugins _installedPlugins;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginsController"/> class.
     /// </summary>
-    public PluginsController(ModuleRegistry moduleRegistry)
+    public PluginsController(ModuleRegistry moduleRegistry, CliInstalledPlugins installedPlugins)
     {
         _moduleRegistry = moduleRegistry;
+        _installedPlugins = installedPlugins;
+    }
+
+    /// <summary>
+    /// Lists the installed server plugin packages (users, admin, jobs, storage providers, ...) with their versions.
+    /// </summary>
+    [HttpGet("installed")]
+    public IActionResult Installed()
+    {
+        return Ok(_installedPlugins.All);
     }
 
     /// <summary>

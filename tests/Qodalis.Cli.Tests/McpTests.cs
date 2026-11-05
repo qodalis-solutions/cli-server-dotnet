@@ -1206,7 +1206,9 @@ public class McpRevisedRulesTests
         Assert.False((await Mcp.CallAsync(h.Client, "jobs_pause", new { id = "nightly" })).GetProperty("isError").GetBoolean());
         Assert.False((await Mcp.CallAsync(h.Client, "jobs_history", new { id = "nightly" })).GetProperty("isError").GetBoolean());
 
-        var ambiguous = await Mcp.CallAsync(h.Client, "jobs_get", new { id = "dup" });
+        // Ids default to the name ("dup", then "dup-2"): an exact id wins, a name matching two jobs is ambiguous
+        Assert.False((await Mcp.CallAsync(h.Client, "jobs_get", new { id = "dup-2" })).GetProperty("isError").GetBoolean());
+        var ambiguous = await Mcp.CallAsync(h.Client, "jobs_get", new { id = "DUP" });
         Assert.True(ambiguous.GetProperty("isError").GetBoolean());
         Assert.Contains("ambiguous", Mcp.Text(ambiguous));
     }

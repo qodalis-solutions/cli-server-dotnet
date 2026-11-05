@@ -28,6 +28,7 @@ public static class CliBuilderUsersExtensions
         configure?.Invoke(options);
 
         var services = builder.Services;
+        builder.AddInstalledPlugin(typeof(UsersModuleOptions).Assembly);
         services.AddSingleton(options);
         services.TryAddSingleton(TimeProvider.System);
 

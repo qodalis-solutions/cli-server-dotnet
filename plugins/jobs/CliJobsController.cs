@@ -162,10 +162,77 @@ public class CliJobsController : ControllerBase
                 error = e.Error,
                 retryAttempt = e.RetryAttempt,
                 logCount = e.Logs.Count,
+                properties = e.Properties,
             }),
             total,
             limit,
             offset,
+        });
+    }
+
+    /// <summary>
+    /// Lists executions across jobs, newest first: every job, the jobs named in <paramref name="job"/> (repeat it or
+    /// separate ids with commas), or the jobs of a <paramref name="group"/>; optionally only those started
+    /// <paramref name="since"/> a time (ISO 8601; without an offset it is UTC).
+    /// </summary>
+    [HttpGet("executions")]
+    public async Task<IActionResult> GetExecutions(
+        [FromQuery] string[]? job = null,
+        [FromQuery] string? group = null,
+        [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
+        [FromQuery] string? status = null,
+        [FromQuery] DateTime? since = null,
+        CancellationToken ct = default)
+    {
+        var jobIds = job?.SelectMany(j => j.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(group))
+        {
+            var inGroup = (await _jobs.GetJobsAsync(ct))
+                .Where(j => string.Equals(j.Group, group, StringComparison.OrdinalIgnoreCase))
+                .Select(j => j.Id);
+            jobIds = jobIds is { Count: > 0 } ? jobIds.Intersect(inGroup).ToList() : inGroup.ToList();
+        }
+
+        var query = new JobExecutionQuery
+        {
+            JobIds = jobIds is { Count: > 0 } || group != null ? jobIds : null,
+            Status = status,
+            Since = since is { } s ? JobExecutionQuery.AsUtc(s) : null,
+            Limit = Math.Clamp(limit, 1, 100),
+            Offset = Math.Max(offset, 0),
+        };
+        IReadOnlyList<JobExecution> items;
+        int total;
+        try
+        {
+            (items, total) = query.JobIds is { Count: 0 } ? ([], 0) : await _jobs.QueryExecutionsAsync(query, ct);
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(501, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
+
+        return Ok(new
+        {
+            items = items.Select(e => new
+            {
+                id = e.Id,
+                jobId = e.JobId,
+                jobName = e.JobName,
+                status = e.Status.ToString().ToLowerInvariant(),
+                startedAt = e.StartedAt,
+                completedAt = e.CompletedAt,
+                duration = e.Duration,
+                error = e.Error,
+                retryAttempt = e.RetryAttempt,
+                logCount = e.Logs.Count,
+                properties = e.Properties,
+            }),
+            total,
+            limit = query.Limit,
+            offset = query.Offset,
         });
     }
 
@@ -193,6 +260,7 @@ public class CliJobsController : ControllerBase
             duration = execution.Duration,
             error = execution.Error,
             retryAttempt = execution.RetryAttempt,
+            properties = execution.Properties,
             logs = execution.Logs.Select(l => new { l.Timestamp, l.Level, l.Message }),
         });
     }

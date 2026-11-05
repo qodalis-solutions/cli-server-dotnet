@@ -8,13 +8,13 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// </summary>
 public sealed class SchedulerJobManager : ICliJobManager
 {
-    private readonly CliJobScheduler _scheduler;
+    private readonly ICliJobScheduler _scheduler;
     private readonly ICliJobStorageProvider _storage;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SchedulerJobManager"/> class.
     /// </summary>
-    public SchedulerJobManager(CliJobScheduler scheduler, ICliJobStorageProvider storage)
+    public SchedulerJobManager(ICliJobScheduler scheduler, ICliJobStorageProvider storage)
     {
         _scheduler = scheduler;
         _storage = storage;
@@ -58,6 +58,18 @@ public sealed class SchedulerJobManager : ICliJobManager
     {
         var (items, total) = await _storage.GetExecutionsAsync(jobId, limit, offset, status, cancellationToken);
         return (items, total);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Without job ids the query names this scheduler's jobs, so a store without its own query (the default merges
+    /// the per-job listings) still answers.
+    /// </remarks>
+    public Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken)
+    {
+        query.JobIds ??= [.. _scheduler.Jobs.Keys];
+        return _storage.QueryExecutionsAsync(query, cancellationToken);
     }
 
     /// <inheritdoc />

@@ -383,6 +383,13 @@ public class UsersApiTests
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Event = "login" }));
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Username = "HACKER" }));
         Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Limit = 1 }));
+        Assert.Equal("login", Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Offset = 1 })).Event);
+
+        await _auditStore.LogAsync(new AuditEntry { Timestamp = 3, Event = "user_updated", Username = "bob", Actor = "Root" });
+        Assert.Equal("user_updated", Assert.Single(await _auditStore.GetEntriesAsync(new AuditQueryOptions { Actor = "root" })).Event);
+
+        Assert.Equal(2, await _auditStore.PruneAsync(DateTimeOffset.FromUnixTimeMilliseconds(3)));
+        Assert.Equal("user_updated", Assert.Single(await _auditStore.GetEntriesAsync()).Event);
 
         await _auditStore.ClearAsync();
         Assert.Empty(await _auditStore.GetEntriesAsync());
@@ -445,6 +452,17 @@ public class UsersApiTests
 
         Assert.Equal([("jo", 20, (int?)10), (null, 0, null)], store.Queries);
         Assert.Equal(0, store.FullLoads);
+    }
+
+    [Fact]
+    public async Task Audit_WithoutALimit_ReturnsTheDefaultPage_AndNeverMoreThanTheMaximum()
+    {
+        for (var i = 0; i < UsersService.DefaultAuditLimit + 5; i++)
+            await _auditStore.LogAsync(new AuditEntry { Event = "login_failed", Username = $"u{i}", Timestamp = i });
+        var users = new UsersService(_userStore, _groupStore, _credentialStore, _auditStore, _authService);
+
+        Assert.Equal(UsersService.DefaultAuditLimit, (await users.GetAuditAsync(null, null, null)).Count);
+        Assert.Equal(UsersService.DefaultAuditLimit + 5, (await users.GetAuditAsync(null, null, 5000)).Count);
     }
 
     [Fact]

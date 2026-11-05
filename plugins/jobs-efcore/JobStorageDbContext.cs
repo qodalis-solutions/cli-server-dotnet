@@ -20,6 +20,22 @@ public class JobStorageDbContext : DbContext
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyJobStorageModel();
+    }
+}
+
+/// <summary>
+/// The job storage tables as part of another model, so a host that manages its database with migrations creates
+/// them in its own migrations (and can fill them from its own tables there).
+/// </summary>
+public static class JobStorageModelBuilderExtensions
+{
+    /// <summary>
+    /// Adds the job storage tables (<c>job_executions</c>, <c>job_log_entries</c>, <c>job_states</c>) to
+    /// <paramref name="modelBuilder"/>; call it from the host's <c>OnModelCreating</c>.
+    /// </summary>
+    public static ModelBuilder ApplyJobStorageModel(this ModelBuilder modelBuilder)
+    {
         modelBuilder.Entity<JobExecutionEntity>(entity =>
         {
             entity.ToTable("job_executions");
@@ -55,5 +71,7 @@ public class JobStorageDbContext : DbContext
             entity.Property(e => e.JobId).HasMaxLength(256);
             entity.Property(e => e.Status).HasMaxLength(32);
         });
+
+        return modelBuilder;
     }
 }
