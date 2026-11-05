@@ -11,6 +11,12 @@ public interface ICliJobExecutionContext
     ICliJobLogger Logger { get; }
 
     /// <summary>
+    /// The services of a scope created for this run (disposed when it ends), to resolve scoped services such as a
+    /// <c>DbContext</c> from a job registered as an instance. Without a host service provider, an empty one.
+    /// </summary>
+    IServiceProvider Services { get; }
+
+    /// <summary>
     /// The execution's own values (<see cref="JobExecution.Properties"/>), e.g. <c>Properties["items"] = 32</c>;
     /// saved when the run ends, whatever its outcome.
     /// </summary>

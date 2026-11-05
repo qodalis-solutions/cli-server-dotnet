@@ -1,4 +1,5 @@
 using Cronos;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Jobs;
@@ -16,6 +17,7 @@ public class CliJobScheduler : IHostedService, IDisposable
     private readonly ICliJobStorageProvider _storage;
     private readonly ICliEventSocketManager _eventSocket;
     private readonly ILogger<CliJobScheduler> _logger;
+    private readonly IServiceScopeFactory? _scopes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliJobScheduler"/> class.
@@ -23,14 +25,17 @@ public class CliJobScheduler : IHostedService, IDisposable
     /// <param name="storage">The storage provider for persisting job state and execution history.</param>
     /// <param name="eventSocket">The WebSocket manager for broadcasting job events.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="scopes">Creates a service scope per run (<see cref="ICliJobExecutionContext.Services"/>).</param>
     public CliJobScheduler(
         ICliJobStorageProvider storage,
         ICliEventSocketManager eventSocket,
-        ILogger<CliJobScheduler> logger)
+        ILogger<CliJobScheduler> logger,
+        IServiceScopeFactory? scopes = null)
     {
         _storage = storage;
         _eventSocket = eventSocket;
         _logger = logger;
+        _scopes = scopes;
     }
 
     /// <summary>
@@ -324,7 +329,8 @@ public class CliJobScheduler : IHostedService, IDisposable
         }
 
         var logger = new CliJobLogger();
-        var context = new CliJobExecutionContext(logger);
+        await using var scope = _scopes?.CreateAsyncScope();
+        var context = new CliJobExecutionContext(logger, scope?.ServiceProvider ?? EmptyServices.Instance);
 
         await _storage.SaveExecutionAsync(execution);
         await BroadcastAsync("job:started", new { jobId = reg.Id, executionId = execution.Id, timestamp = DateTime.UtcNow });
@@ -437,4 +443,12 @@ public class CliJobScheduler : IHostedService, IDisposable
         }
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>A service provider without services, for jobs run without a host.</summary>
+internal sealed class EmptyServices : IServiceProvider
+{
+    public static readonly EmptyServices Instance = new();
+
+    public object? GetService(Type serviceType) => null;
 }

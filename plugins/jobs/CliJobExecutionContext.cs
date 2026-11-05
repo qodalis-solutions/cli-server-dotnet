@@ -7,13 +7,17 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// </summary>
 internal class CliJobExecutionContext : ICliJobExecutionContext
 {
-    public CliJobExecutionContext(CliJobLogger logger)
+    public CliJobExecutionContext(CliJobLogger logger, IServiceProvider services)
     {
         Logger = logger;
+        Services = services;
     }
 
     /// <inheritdoc />
     public ICliJobLogger Logger { get; }
+
+    /// <inheritdoc />
+    public IServiceProvider Services { get; }
 
     /// <inheritdoc />
     public IDictionary<string, object?> Properties { get; } = new Dictionary<string, object?>();
