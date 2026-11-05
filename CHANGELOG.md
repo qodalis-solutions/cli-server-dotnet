@@ -3,6 +3,11 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.20
+
+- Jobs EF Core: the start-up check for the run table's columns reads `Take(1)`, so EF no longer logs
+  `FirstWithoutOrderByAndFilterWarning` on every start.
+
 ## 1.0.0-beta.19
 
 - The admin plugin embeds dashboard 1.0.0-beta.15: charts on the Overview, Jobs, Logs, Audit and Commands pages, filters kept in the URL, sortable tables and a Ctrl+K command palette, using the endpoints below.
