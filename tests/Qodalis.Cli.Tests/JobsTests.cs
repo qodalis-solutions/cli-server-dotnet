@@ -24,6 +24,7 @@ public class DummyJob : ICliJob
     public async Task ExecuteAsync(ICliJobExecutionContext context, CancellationToken cancellationToken)
     {
         CallCount++;
+        context.Properties["calls"] = CallCount;
         context.Logger.Info("started");
         if (_delay > TimeSpan.Zero)
             await Task.Delay(_delay, cancellationToken);
@@ -261,6 +262,8 @@ public class CliJobSchedulerTests : IDisposable
         var (items, total) = await _storage.GetExecutionsAsync(id);
         Assert.Equal(1, total);
         Assert.Equal(JobExecutionStatus.Completed, items[0].Status);
+        // The job's own values are saved with the execution
+        Assert.Equal(1, items[0].Properties["calls"]);
 
         await _scheduler.StopAsync(CancellationToken.None);
     }
@@ -694,6 +697,31 @@ public class CliJobsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Executions_AcrossJobs_FilterByJobAndGroup()
+    {
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
+        await Task.Delay(200);
+        await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
+        await Task.Delay(200);
+
+        static string Json(IActionResult r) => System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)r).Value);
+
+        var all = Json(await _controller.GetExecutions(ct: CancellationToken.None));
+        Assert.Contains("\"total\":2", all);
+        Assert.Contains("\"properties\":{\"calls\":2}", all);
+
+        Assert.Contains("\"total\":2", Json(await _controller.GetExecutions(job: [_jobIds["quick"] + "," + _jobIds["slow"]], ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(job: [_jobIds["slow"]], ct: CancellationToken.None)));
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(status: "failed", ct: CancellationToken.None)));
+        Assert.Contains("\"calls\":1", Json(await _controller.GetExecutions(limit: 1, offset: 1, ct: CancellationToken.None)));
+        // No job in the group: nothing, not every job
+        Assert.Contains("\"total\":0", Json(await _controller.GetExecutions(group: "none", ct: CancellationToken.None)));
+
+        await _scheduler.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task History_NotFound()
     {
         var result = await _controller.GetHistory("nonexistent", ct: CancellationToken.None);
@@ -829,3 +857,17 @@ public class CustomJobManagerTests
 }
 
 #endregion
+
+public class JobManagerDefaultQueryTests
+{
+    [Fact]
+    public async Task QueryExecutions_MergesTheJobsExecutions()
+    {
+        ICliJobManager manager = new FakeJobManager();
+
+        var (items, total) = await manager.QueryExecutionsAsync(new JobExecutionQuery(), CancellationToken.None);
+
+        Assert.Equal(1, total);
+        Assert.Equal("r1", Assert.Single(items).Id);
+    }
+}

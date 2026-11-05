@@ -328,6 +328,7 @@ public class CliJobScheduler : IHostedService, IDisposable
             execution.CompletedAt = DateTime.UtcNow;
             execution.Duration = (long)(execution.CompletedAt.Value - execution.StartedAt).TotalMilliseconds;
             execution.Logs = logger.Entries.ToList();
+            execution.Properties = new Dictionary<string, object?>(context.Properties);
             reg.CurrentExecutionId = null;
             reg.CurrentCancellation = null;
             reg.LastRunAt = execution.StartedAt;

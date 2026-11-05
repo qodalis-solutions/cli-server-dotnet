@@ -15,6 +15,7 @@
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />
     <PackageReference Include="Moq" Version="4.20.70" />
   </ItemGroup>
@@ -35,6 +36,7 @@
     <ProjectReference Include="..\..\plugins\filesystem-s3\Qodalis.Cli.Plugin.FileSystem.S3.csproj" />
     <ProjectReference Include="..\..\plugins\jobs\Qodalis.Cli.Plugin.Jobs.csproj" />
     <ProjectReference Include="..\..\plugins\jobs-efcore\Qodalis.Cli.Plugin.Jobs.EfCore.csproj" />
+    <ProjectReference Include="..\..\plugins\users-efcore\Qodalis.Cli.Plugin.Users.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\admin\Qodalis.Cli.Plugin.Admin.csproj" />
     <ProjectReference Include="..\..\plugins\users\Qodalis.Cli.Plugin.Users.csproj" />
   </ItemGroup>

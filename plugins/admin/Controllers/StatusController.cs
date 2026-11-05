@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Services;
 
@@ -68,6 +69,10 @@ public class StatusController : ControllerBase
 
         if (hasJobs)
             features.Add("jobs");
+
+        // The users plugin keeps the audit log (GET /api/v1/qcli/audit).
+        if (_serviceProvider.GetService<CliInstalledPlugins>()?.All.Any(p => p.Id == "Qodalis.Cli.Plugin.Users") == true)
+            features.Add("audit");
 
         return features;
     }

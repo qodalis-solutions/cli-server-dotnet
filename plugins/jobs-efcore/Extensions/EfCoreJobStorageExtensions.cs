@@ -18,10 +18,12 @@ public static class EfCoreJobStorageExtensions
     /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddEfCoreJobStorage(this CliBuilder builder, Action<DbContextOptionsBuilder> configure)
     {
+        builder.AddInstalledPlugin(typeof(JobStorageDbContext).Assembly);
         builder.Services.AddDbContextFactory<JobStorageDbContext>(configure);
 
         RemoveService(builder.Services, typeof(ICliJobStorageProvider));
-        builder.Services.AddSingleton<ICliJobStorageProvider, EfCoreJobStorageProvider>();
+        builder.Services.AddSingleton<EfCoreJobStorageProvider>();
+        builder.Services.AddSingleton<ICliJobStorageProvider>(sp => sp.GetRequiredService<EfCoreJobStorageProvider>());
 
         return builder;
     }

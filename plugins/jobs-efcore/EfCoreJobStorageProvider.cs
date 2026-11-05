@@ -1,4 +1,7 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
@@ -26,10 +29,42 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         if (!_initialized)
         {
-            await db.Database.EnsureCreatedAsync(cancellationToken);
+            await EnsureTablesAsync(db, cancellationToken);
             _initialized = true;
         }
         return db;
+    }
+
+    /// <summary>
+    /// Creates the database with the tables, or only the tables in a database that already exists (the host's own,
+    /// whose other tables make <c>EnsureCreated</c> do nothing). Tables the host created in its migrations are kept.
+    /// </summary>
+    private static async Task EnsureTablesAsync(JobStorageDbContext db, CancellationToken cancellationToken)
+    {
+        if (await db.Database.EnsureCreatedAsync(cancellationToken))
+            return;
+
+        try
+        {
+            _ = await db.States.AnyAsync(cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Deletes the executions (and their logs) that started before <paramref name="before"/>; returns how many.
+    /// Run it on a schedule to keep the history bounded.
+    /// </summary>
+    public async Task<int> PruneAsync(DateTime before, CancellationToken cancellationToken = default)
+    {
+        await using var db = await CreateDbContextAsync(cancellationToken);
+        var old = db.Executions.Where(e => e.StartedAt < before);
+
+        _ = await db.LogEntries.Where(l => old.Any(e => e.ExecutionId == l.ExecutionId)).ExecuteDeleteAsync(cancellationToken);
+        return await old.ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -47,6 +82,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
             entity.Duration = execution.Duration;
             entity.Error = execution.Error;
             entity.RetryAttempt = execution.RetryAttempt;
+            entity.Properties = SerializeProperties(execution.Properties);
 
             var existingCount = await db.LogEntries
                 .CountAsync(l => l.ExecutionId == execution.Id, cancellationToken);
@@ -76,6 +112,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
                 Duration = execution.Duration,
                 Error = execution.Error,
                 RetryAttempt = execution.RetryAttempt,
+                Properties = SerializeProperties(execution.Properties),
                 Logs = execution.Logs.Select(log => new JobLogEntryEntity
                 {
                     ExecutionId = execution.Id,
@@ -116,6 +153,35 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
 
         var items = entities.Select(ToJobExecution).ToList();
         return (items, total);
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(
+        JobExecutionQuery query, CancellationToken cancellationToken = default)
+    {
+        await using var db = await CreateDbContextAsync(cancellationToken);
+
+        var matches = db.Executions.AsQueryable();
+        if (query.JobIds != null)
+        {
+            var jobIds = query.JobIds.ToList();
+            matches = matches.Where(e => jobIds.Contains(e.JobId));
+        }
+        if (query.Status != null && Enum.TryParse<JobExecutionStatus>(query.Status, true, out var status))
+        {
+            var statusStr = status.ToString();
+            matches = matches.Where(e => e.Status == statusStr);
+        }
+
+        var total = await matches.CountAsync(cancellationToken);
+        var entities = await matches
+            .OrderByDescending(e => e.StartedAt)
+            .Skip(query.Offset)
+            .Take(query.Limit)
+            .Include(e => e.Logs)
+            .ToListAsync(cancellationToken);
+
+        return (entities.Select(ToJobExecution).ToList(), total);
     }
 
     /// <inheritdoc />
@@ -179,6 +245,9 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         return entities.ToDictionary(e => e.JobId, ToJobState);
     }
 
+    private static string? SerializeProperties(Dictionary<string, object?> properties) =>
+        properties.Count == 0 ? null : JsonSerializer.Serialize(properties);
+
     private static JobExecution ToJobExecution(JobExecutionEntity entity)
     {
         return new JobExecution
@@ -192,6 +261,8 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
             Duration = entity.Duration,
             Error = entity.Error,
             RetryAttempt = entity.RetryAttempt,
+            Properties = entity.Properties == null ? []
+                : JsonSerializer.Deserialize<Dictionary<string, object?>>(entity.Properties) ?? [],
             Logs = entity.Logs.OrderBy(l => l.Timestamp).Select(l => new JobLogEntry
             {
                 Timestamp = l.Timestamp,

@@ -40,6 +40,22 @@ public class AuditEntry
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ActorId { get; set; }
 
+    /// <summary>
+    /// What the event is about when it is not a user: a group (<c>group:admins</c>), a job, or a host's own
+    /// object such as a role or plan.
+    /// </summary>
+    [JsonPropertyName("target")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Target { get; set; }
+
+    /// <summary>
+    /// The host's own values for this entry (e.g. the old and new value of a setting), saved with it and returned
+    /// by the audit API. Values must serialize to JSON.
+    /// </summary>
+    [JsonPropertyName("properties")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object?>? Properties { get; set; }
+
     [JsonPropertyName("metadata")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AuditMetadata? Metadata { get; set; }

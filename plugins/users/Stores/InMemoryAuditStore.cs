@@ -64,6 +64,12 @@ public class InMemoryAuditStore : IAuditStore
             if (!string.IsNullOrEmpty(options?.Username))
                 query = query.Where(e => string.Equals(e.Username, options.Username, StringComparison.OrdinalIgnoreCase));
 
+            if (!string.IsNullOrEmpty(options?.Actor))
+                query = query.Where(e => string.Equals(e.Actor, options.Actor, StringComparison.OrdinalIgnoreCase));
+
+            if (options?.Offset is int offset and > 0)
+                query = query.Skip(offset);
+
             if (options?.Limit is int limit)
                 query = query.Take(limit);
 

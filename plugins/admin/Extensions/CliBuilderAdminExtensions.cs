@@ -22,6 +22,7 @@ public static class CliBuilderAdminExtensions
     /// </summary>
     public static CliBuilder AddAdmin(this CliBuilder builder, Action<AdminConfig>? configure = null)
     {
+        builder.AddInstalledPlugin(typeof(AdminConfig).Assembly);
         builder.Services.AddSingleton(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<AdminConfig>>();

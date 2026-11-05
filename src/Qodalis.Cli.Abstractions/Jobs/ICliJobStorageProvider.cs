@@ -25,6 +25,23 @@ public interface ICliJobStorageProvider
     Task<(List<JobExecution> Items, int Total)> GetExecutionsAsync(string jobId, int limit = 20, int offset = 0, string? statusFilter = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves the executions of several jobs (or of every job), newest first. The default merges
+    /// <see cref="GetExecutionsAsync"/> per job and needs <see cref="JobExecutionQuery.JobIds"/>; override it to query
+    /// the store once.
+    /// </summary>
+    async Task<(IReadOnlyList<JobExecution> Items, int Total)> QueryExecutionsAsync(JobExecutionQuery query, CancellationToken cancellationToken = default)
+    {
+        if (query.JobIds == null)
+            throw new NotSupportedException("Listing the executions of every job is not supported by this store");
+
+        return await query.MergeAsync(query.JobIds, async (jobId, limit, status) =>
+        {
+            var (items, total) = await GetExecutionsAsync(jobId, limit, 0, status, cancellationToken);
+            return (items, total);
+        });
+    }
+
+    /// <summary>
     /// Retrieves a single execution by its unique identifier.
     /// </summary>
     /// <param name="executionId">The execution identifier.</param>

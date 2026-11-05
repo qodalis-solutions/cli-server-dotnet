@@ -34,6 +34,13 @@ public class JobExecution
 
     /// <summary>Gets or sets the retry attempt number (0 for the initial attempt).</summary>
     public int RetryAttempt { get; set; } = 0;
+
+    /// <summary>
+    /// The host's own values for this execution, e.g. <c>items</c> and <c>changed</c> counts or the record it worked
+    /// on: set by the job (<see cref="ICliJobExecutionContext.Properties"/>), saved with the execution and returned by
+    /// the jobs API. Values must serialize to JSON.
+    /// </summary>
+    public Dictionary<string, object?> Properties { get; set; } = [];
 }
 
 /// <summary>

@@ -7,6 +7,7 @@ using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Mcp;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -50,6 +51,8 @@ public static class MvcBuilderExtensions
             }
             return registry;
         });
+
+        builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
 
         var serverOptions = cliBuilder.ServerOptions;
         builder.Services.AddSingleton(serverOptions);
