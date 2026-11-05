@@ -11,6 +11,9 @@ public class JobExecutionQuery
     /// <summary>Only executions with this status (e.g. <c>failed</c>), case-insensitive; null for any.</summary>
     public string? Status { get; set; }
 
+    /// <summary>Only executions started at or after this time (UTC); null for any.</summary>
+    public DateTime? Since { get; set; }
+
     /// <summary>Maximum number of executions to return.</summary>
     public int Limit { get; set; } = 20;
 
@@ -29,9 +32,10 @@ public class JobExecutionQuery
         var total = 0;
         foreach (var jobId in jobIds.Distinct())
         {
-            var (items, count) = await listJob(jobId, Offset + Limit, Status);
-            all.AddRange(items);
-            total += count;
+            var (items, count) = await listJob(jobId, Since == null ? Offset + Limit : int.MaxValue, Status);
+            var matching = Since == null ? items : items.Where(e => e.StartedAt >= Since).ToList();
+            all.AddRange(matching);
+            total += Since == null ? count : matching.Count;
         }
 
         return ([.. all.OrderByDescending(e => e.StartedAt).Skip(Offset).Take(Limit)], total);
