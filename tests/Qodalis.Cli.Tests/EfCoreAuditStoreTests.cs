@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,7 +6,7 @@ using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Jobs.EfCore;
-using Qodalis.Cli.Plugin.Users.EfCore;
+using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
@@ -126,7 +127,7 @@ public class EfCoreAuditStoreTests : IDisposable
             var sp = services.BuildServiceProvider();
 
             Assert.IsType<EfCoreAuditStore>(sp.GetRequiredService<IAuditStore>());
-            Assert.Contains(sp.GetRequiredService<CliInstalledPlugins>().All, p => p.Id == "Qodalis.Cli.Plugin.Users.EfCore");
+            Assert.Contains(sp.GetRequiredService<CliInstalledPlugins>().All, p => p.Id == "Qodalis.Cli.Plugin.Audit.EfCore");
         }
     }
 }

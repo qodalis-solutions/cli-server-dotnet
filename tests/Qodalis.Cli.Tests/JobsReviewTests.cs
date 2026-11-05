@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -6,7 +7,7 @@ using Moq;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Plugin.Jobs.EfCore;
-using Qodalis.Cli.Plugin.Users.EfCore;
+using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Services;
 

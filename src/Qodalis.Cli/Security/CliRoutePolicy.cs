@@ -24,6 +24,8 @@ public static class CliRoutePolicy
     public const string JobsRead = "jobs:read";
     public const string JobsManage = "jobs:manage";
     public const string LogsRead = "logs:read";
+    public const string AuditRead = "audit:read";
+    public const string AuditClear = "audit:clear";
     public const string ShellExecute = "shell:execute";
     public const string AdminAccess = "admin:access";
 
@@ -83,6 +85,7 @@ public static class CliRoutePolicy
         }
         if (IsUnder(path, "/api/qcli/data-explorer")) return new(true, false, DataQuery, false);
         if (IsUnder(path, "/api/v1/qcli/jobs")) return new(true, false, isGet ? JobsRead : JobsManage, false);
+        if (IsUnder(path, "/api/v1/qcli/audit")) return new(true, false, isGet ? AuditRead : AuditClear, false);
         if (AdminPrefixes.Any(p => IsUnder(path, p))) return new(true, false, AdminAccess, false);
 
         return new(true, false, null, false);
