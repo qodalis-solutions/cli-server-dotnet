@@ -16,7 +16,7 @@ public interface ICliJobScheduler
     /// Runs the job now. When <see cref="CliJobOptions.MaxConcurrentRuns"/> runs are going, its
     /// <see cref="CliJobOptions.OverlapPolicy"/> decides: <c>Skip</c> throws <see cref="InvalidOperationException"/>,
     /// <c>Queue</c> queues the run (it starts when a slot frees; at most one waits), <c>Cancel</c> cancels the oldest
-    /// run and starts this one in its slot.
+    /// run and starts this one once it ended.
     /// </summary>
     Task TriggerAsync(string jobId, CancellationToken cancellationToken = default);
 

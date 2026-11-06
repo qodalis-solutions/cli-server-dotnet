@@ -261,7 +261,8 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// <summary>
     /// Manually triggers immediate execution of the specified job. When <see cref="CliJobOptions.MaxConcurrentRuns"/>
     /// runs are going, the overlap policy decides: <c>Skip</c> throws <see cref="InvalidOperationException"/>,
-    /// <c>Queue</c> queues the run, <c>Cancel</c> cancels the oldest run and starts this one in its slot.
+    /// <c>Queue</c> queues the run, <c>Cancel</c> cancels the oldest run and starts this one once it ended (queued
+    /// meanwhile).
     /// </summary>
     /// <param name="jobId">The unique identifier of the job to trigger.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
@@ -500,13 +501,16 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                     reg.Pending = true;
                     outcome = DueOutcome.Queued;
                     break;
-                case JobOverlapPolicy.Cancel when reg.Runs.Count == reg.Options.MaxConcurrentRuns:
-                    // The oldest run gives its slot to the new one: it leaves the running runs now and ends on its
-                    // cancellation. Above a lowered limit nothing is cancelled: the due run is skipped.
-                    cancel = reg.Runs[0];
-                    reg.Runs.RemoveAt(0);
-                    StartRunLocked(reg);
-                    outcome = DueOutcome.Started;
+                case JobOverlapPolicy.Cancel:
+                    // The oldest run makes room; the new run waits until it ended, so the limit holds. A second due
+                    // run meanwhile joins the waiting one instead of cancelling another run.
+                    if (!reg.Pending)
+                    {
+                        cancel = reg.Runs.FirstOrDefault(r => !r.CancelRequested);
+                        if (cancel != null) cancel.CancelRequested = true;
+                    }
+                    reg.Pending = true;
+                    outcome = DueOutcome.Queued;
                     break;
                 default:
                     outcome = DueOutcome.Skipped;
@@ -547,6 +551,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             var any = reg.Runs.Count > 0 || reg.Pending;
             reg.Pending = false;
             runs = [.. reg.Runs];
+            foreach (var run in runs) run.CancelRequested = true;
             if (!any) return false;
         }
 
