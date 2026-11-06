@@ -501,9 +501,10 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                     reg.Pending = true;
                     outcome = DueOutcome.Queued;
                     break;
-                case JobOverlapPolicy.Cancel:
+                case JobOverlapPolicy.Cancel when reg.Runs.Count == reg.Options.MaxConcurrentRuns:
                     // The oldest run makes room; the new run waits until it ended, so the limit holds. A second due
-                    // run meanwhile joins the waiting one instead of cancelling another run.
+                    // run meanwhile joins the waiting one instead of cancelling another run. Above a lowered limit
+                    // nothing is cancelled: the due run is skipped (falls to the default).
                     if (!reg.Pending)
                     {
                         cancel = reg.Runs.FirstOrDefault(r => !r.CancelRequested);

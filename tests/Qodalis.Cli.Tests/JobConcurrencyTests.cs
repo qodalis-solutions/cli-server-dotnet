@@ -477,6 +477,29 @@ public class JobConcurrencyTests : IDisposable
         await IdleAsync(reg);
     }
 
+    [Fact]
+    public async Task Cancel_AboveALoweredLimit_CancelsNothing()
+    {
+        var job = new GatedJob();
+        var reg = Register(job, new CliJobOptions { MaxConcurrentRuns = 2, OverlapPolicy = JobOverlapPolicy.Cancel });
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _scheduler.TriggerAsync(reg.Id);
+        await _scheduler.TriggerAsync(reg.Id);
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "two runs execute");
+
+        await _scheduler.UpdateOptionsAsync(reg.Id, o => o.MaxConcurrentRuns = 1);
+        _scheduler.OnTimerFired(reg);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _scheduler.TriggerAsync(reg.Id));
+        Assert.False(reg.Queued);
+        Assert.Equal(2, RunCount(reg));
+        Assert.Equal(2, job.Calls);
+
+        job.Release();
+        await IdleAsync(reg);
+        Assert.Equal(2, job.Calls);
+        Assert.All((await _storage.GetExecutionsAsync(reg.Id)).Items, e => Assert.Equal(JobExecutionStatus.Completed, e.Status));
+    }
+
     [Theory]
     [InlineData("cancel")]
     [InlineData("stop")]
