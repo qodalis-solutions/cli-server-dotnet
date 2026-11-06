@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Mcp;
@@ -119,9 +120,10 @@ public static class CliBuilderJobExtensions
         builder.Services.AddSingleton<CliJobScheduler>(sp =>
         {
             var storage = sp.GetRequiredService<ICliJobStorageProvider>();
-            var eventSocket = sp.GetRequiredService<ICliEventSocketManager>();
+            var events = sp.GetRequiredService<ICliEventBus>();
             var logger = sp.GetRequiredService<ILogger<CliJobScheduler>>();
-            var scheduler = new CliJobScheduler(storage, eventSocket, logger, sp.GetRequiredService<IServiceScopeFactory>());
+            var scheduler = new CliJobScheduler(storage, events, logger, sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetService<TimeProvider>());
 
             foreach (var (job, jobType, options) in registrations)
             {

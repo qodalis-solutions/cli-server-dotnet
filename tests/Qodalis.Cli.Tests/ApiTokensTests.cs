@@ -612,7 +612,7 @@ public class ApiTokenSocketTests : IAsyncLifetime
         Assert.Equal(204, (int)(await _h.DeleteAsync($"tokens/{otherId}", _root)).StatusCode);
         await Task.Delay(100);
         await _h.Service<Qodalis.Cli.Services.ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await UsersTestHost.ReceiveTextAsync(socket));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(socket));
         await UsersTestHost.CloseAsync(socket);
     }
 

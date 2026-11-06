@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Controllers;
+using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Models;
@@ -70,6 +72,9 @@ public static class MvcBuilderExtensions
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
         builder.Services.AddSingleton<ICliServerInfoService, CliServerInfoService>();
         builder.Services.AddSingleton<CliMcpServer>();
+        // One event bus per server; the events WebSocket subscribes to it (a host may register its own bus first)
+        builder.Services.TryAddSingleton<ICliEventBus, CliEventBus>();
+        builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton<ICliEventSocketManager, CliEventSocketManager>();
         builder.Services.AddSingleton<ICliLogSocketManager, CliLogSocketManager>();
         builder.Services.AddSingleton<ILoggerProvider, WebSocketLoggerProvider>();
@@ -77,15 +82,10 @@ public static class MvcBuilderExtensions
         builder.Services.AddSingleton<ICliShellSessions>(sp => sp.GetRequiredService<CliShellSessionRegistry>());
         builder.Services.AddSingleton<IShellSessionManager, ShellSessionManager>();
 
-        // Register IFileStorageProvider as singleton
-        if (cliBuilder.FileStorageProvider != null)
-        {
-            builder.Services.AddSingleton<IFileStorageProvider>(cliBuilder.FileStorageProvider);
-        }
-        else
-        {
-            builder.Services.AddSingleton<IFileStorageProvider>(new InMemoryFileStorageProvider());
-        }
+        // Register IFileStorageProvider as singleton, publishing fs:changed after every change (API, MCP tools, ...)
+        var fileStorage = cliBuilder.FileStorageProvider ?? new InMemoryFileStorageProvider();
+        builder.Services.AddSingleton<IFileStorageProvider>(sp => new CliEventFileStorageProvider(
+            fileStorage, sp.GetRequiredService<ICliEventBus>(), sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
 
         // Register DataExplorer services (always register so the controller can resolve)
         builder.Services.AddSingleton<DataExplorerRegistry>(sp =>

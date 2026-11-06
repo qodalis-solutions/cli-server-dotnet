@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Insights;
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
@@ -14,15 +16,20 @@ namespace Qodalis.Cli.Plugin.Jobs;
 public class CliJobsController : ControllerBase
 {
     private readonly ICliJobManager _jobs;
+    private readonly ICliEventBus? _eventBus;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliJobsController"/> class.
     /// </summary>
     /// <param name="jobs">The job manager (by default the in-process scheduler).</param>
-    public CliJobsController(ICliJobManager jobs)
+    /// <param name="eventBus">Publishes <c>job:triggered</c>, <c>job:updated</c> and <c>job:runs-deleted</c>.</param>
+    public CliJobsController(ICliJobManager jobs, ICliEventBus? eventBus = null)
     {
         _jobs = jobs;
+        _eventBus = eventBus;
     }
+
+    private JobEvents Events => new(_eventBus, HttpContext?.GetCliPrincipal()?.UserName);
 
     /// <summary>
     /// Lists all jobs with their current status and configuration.
@@ -53,7 +60,12 @@ public class CliJobsController : ControllerBase
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/trigger")]
     public Task<IActionResult> TriggerJob(string id, CancellationToken ct) =>
-        RunAsync(() => _jobs.TriggerAsync(id, ct), "Job triggered", "JOB_ALREADY_RUNNING");
+        RunAsync(async () =>
+        {
+            var queued = await _jobs.TriggerWithOutcomeAsync(id, ct) == CliJobTriggerOutcome.Queued;
+            await Events.TriggeredAsync(id);
+            return new { message = queued ? "Job queued" : "Job triggered", queued };
+        }, "JOB_ALREADY_RUNNING");
 
     /// <summary>
     /// Pauses a job, preventing further scheduled executions.
@@ -83,7 +95,7 @@ public class CliJobsController : ControllerBase
         RunAsync(() => _jobs.StopAsync(id, ct), "Job stopped", "JOB_CONFLICT");
 
     /// <summary>
-    /// Cancels the currently running execution of a job.
+    /// Cancels every running execution of a job and drops a queued run.
     /// </summary>
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
@@ -102,23 +114,34 @@ public class CliJobsController : ControllerBase
     {
         if (request.Schedule != null && request.Interval != null)
             return BadRequest(new { error = "Cannot provide both schedule and interval", code = "SCHEDULE_CONFLICT" });
+        if (request.MaxConcurrentRuns is < 1)
+            return BadRequest(new { error = "maxConcurrentRuns must be an integer of at least 1", code = "INVALID_VALUE" });
 
         try
         {
-            return await RunAsync(() => _jobs.UpdateAsync(id, options =>
+            return await RunAsync(async () =>
             {
-                if (request.Description != null) options.Description = request.Description;
-                if (request.Group != null) options.Group = request.Group;
-                if (request.Schedule != null) { options.Schedule = request.Schedule; options.Interval = null; }
-                if (request.Interval != null) { options.Interval = IntervalParser.Parse(request.Interval); options.Schedule = null; }
-                if (request.MaxRetries.HasValue) options.MaxRetries = request.MaxRetries.Value;
-                if (request.RetryDelay != null) options.RetryDelay = IntervalParser.Parse(request.RetryDelay);
-                if (request.RetryStrategy != null && Enum.TryParse<JobRetryStrategy>(request.RetryStrategy, true, out var strategy))
-                    options.RetryStrategy = strategy;
-                if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
-                if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
-                    options.OverlapPolicy = policy;
-            }, ct), "Job updated", "JOB_CONFLICT");
+                await _jobs.UpdateAsync(id, options =>
+                {
+                    if (request.Description != null) options.Description = request.Description;
+                    if (request.Group != null) options.Group = request.Group;
+                    if (request.Schedule != null) { options.Schedule = request.Schedule; options.Interval = null; }
+                    if (request.Interval != null) { options.Interval = IntervalParser.Parse(request.Interval); options.Schedule = null; }
+                    if (request.MaxRetries.HasValue) options.MaxRetries = request.MaxRetries.Value;
+                    if (request.RetryDelay != null) options.RetryDelay = IntervalParser.Parse(request.RetryDelay);
+                    if (request.RetryStrategy != null && Enum.TryParse<JobRetryStrategy>(request.RetryStrategy, true, out var strategy))
+                        options.RetryStrategy = strategy;
+                    if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
+                    if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
+                        options.OverlapPolicy = policy;
+                    if (request.MaxConcurrentRuns.HasValue) options.MaxConcurrentRuns = request.MaxConcurrentRuns.Value;
+                }, ct);
+                await Events.UpdatedAsync(id);
+            }, "Job updated", "JOB_CONFLICT");
+        }
+        catch (ArgumentOutOfRangeException ex) when (ex.ParamName == nameof(CliJobOptions.MaxConcurrentRuns))
+        {
+            return BadRequest(new { error = "maxConcurrentRuns must be an integer of at least 1", code = "INVALID_VALUE" });
         }
         catch (ArgumentException ex)
         {
@@ -322,6 +345,7 @@ public class CliJobsController : ControllerBase
         try
         {
             await _jobs.DeleteExecutionAsync(id, execId, ct);
+            await Events.RunDeletedAsync(id, execId);
             return Ok(new { message = "Run deleted" });
         }
         catch (KeyNotFoundException)
@@ -354,6 +378,7 @@ public class CliJobsController : ControllerBase
         try
         {
             var deleted = await _jobs.DeleteExecutionsAsync(id, string.IsNullOrWhiteSpace(status) ? null : status, ct);
+            await Events.RunsDeletedAsync(id, deleted);
             return Ok(new { deleted });
         }
         catch (KeyNotFoundException)
@@ -370,12 +395,19 @@ public class CliJobsController : ControllerBase
     /// Runs a job action and maps the manager's exceptions: unknown job 404, refused by the job's state 409,
     /// not offered by the manager 501.
     /// </summary>
-    private async Task<IActionResult> RunAsync(Func<Task> action, string done, string conflictCode)
+    private Task<IActionResult> RunAsync(Func<Task> action, string done, string conflictCode) =>
+        RunAsync(async () =>
+        {
+            await action();
+            return new { message = done };
+        }, conflictCode);
+
+    /// <summary>Runs a job action whose answer is the action's result, mapping the manager's exceptions.</summary>
+    private async Task<IActionResult> RunAsync(Func<Task<object>> action, string conflictCode)
     {
         try
         {
-            await action();
-            return Ok(new { message = done });
+            return Ok(await action());
         }
         catch (KeyNotFoundException)
         {
@@ -408,7 +440,12 @@ public class CliJobsController : ControllerBase
         retryStrategy = j.RetryStrategy.ToString().ToLowerInvariant(),
         timeout = (long?)j.Timeout?.TotalMilliseconds,
         overlapPolicy = j.OverlapPolicy.ToString().ToLowerInvariant(),
+        maxConcurrentRuns = j.MaxConcurrentRuns,
         currentExecutionId = j.CurrentExecutionId,
+        runningExecutionIds = j.RunningExecutionIds.Count == 0 && j.CurrentExecutionId != null
+            ? [j.CurrentExecutionId]
+            : j.RunningExecutionIds,
+        queued = j.Queued,
         nextRunAt = j.NextRunAt,
         lastRunAt = j.LastRunAt,
         lastRunStatus = j.LastRunStatus,
@@ -440,4 +477,6 @@ public class UpdateJobRequest
     public string? Timeout { get; set; }
     /// <summary>Overlap policy: "skip", "cancel", or "queue".</summary>
     public string? OverlapPolicy { get; set; }
+    /// <summary>How many runs of the job may go at the same time (an integer, at least 1).</summary>
+    public int? MaxConcurrentRuns { get; set; }
 }

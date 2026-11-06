@@ -398,7 +398,7 @@ public class UsersSecurityTests : IAsyncLifetime
 
         // The root socket gets the next broadcast, not the kick.
         await _h.Service<ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await ReceiveTextAsync(rootSocket));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(rootSocket));
 
         await CloseAsync(victimSocket);
         await CloseAsync(rootSocket);
@@ -463,7 +463,7 @@ public class UsersSecurityTests : IAsyncLifetime
 
         // The other session's socket stays open.
         await _h.Service<ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await ReceiveTextAsync(otherEvents));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(otherEvents));
 
         events.Dispose();
         logs.Dispose();

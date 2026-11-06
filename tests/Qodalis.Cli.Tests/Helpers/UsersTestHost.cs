@@ -216,6 +216,20 @@ public sealed class UsersTestHost : IAsyncDisposable
         return Encoding.UTF8.GetString(buffer, 0, result.Count);
     }
 
+    /// <summary>
+    /// The next message that is not a server event (<c>namespace:name</c>, e.g. <c>audit:recorded</c>): control
+    /// messages such as <c>session-kicked</c> and test markers.
+    /// </summary>
+    public static async Task<string> ReceiveControlAsync(WebSocket socket, int timeoutMs = 5000)
+    {
+        while (true)
+        {
+            var text = await ReceiveTextAsync(socket, timeoutMs);
+            var type = JsonSerializer.Deserialize<JsonElement>(text).GetProperty("type").GetString() ?? "";
+            if (!type.Contains(':')) return text;
+        }
+    }
+
     public static async Task CloseAsync(WebSocket socket)
     {
         try

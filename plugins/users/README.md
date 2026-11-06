@@ -182,6 +182,22 @@ claude mcp add --transport http qcli http://localhost:8046/api/qcli/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
+## Events
+
+The plugin publishes its changes on the server's event bus (`ICliEventBus`, see the main README); the events
+WebSocket sends them to the sockets allowed to see them. Every event carries `actor` (who did it) when known.
+
+| Type | Fields | Audience |
+|---|---|---|
+| `user:created`, `user:updated`, `user:deleted` | userId, username | `users:read` |
+| `group:created`, `group:updated`, `group:deleted` | group | `groups:read` |
+| `token:created`, `token:revoked` | tokenId, name, userId | `tokens:read` or the token's owner |
+| `session:opened`, `session:closed` | userId, username, sessionId | `sessions:read` |
+
+`user:updated` covers profile, password, enabled/disabled and group membership changes (deleting a group publishes it
+for each member). `session:closed` covers sign-out, expiry (on use or by the idle sweep) and revocation; deleting a user
+publishes `token:revoked` for each of their tokens. The user-scoped `session-kicked` signal below stays as it is.
+
 ## Session kick event
 
 Every revoked session (explicit revoke, user deleted/disabled, password changed) is sent on the events WebSocket — only to sockets authenticated as that user:
