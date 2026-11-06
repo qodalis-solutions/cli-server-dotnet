@@ -53,6 +53,14 @@ e.g. `group:admins`), `Details`, `Metadata` (address, session) and the applicati
 The permissions apply on a protected server (users plugin, `ProtectServer`). A store of your own receives the time
 range as `AuditQueryOptions.From`/`To`.
 
+## Events
+
+Every recorded entry, the users plugin's and the application's own alike, is published as `audit:recorded` on the
+server's event bus (`ICliEventBus`) and sent on the events WebSocket to sockets with `audit:read`: the entry as the API
+returns it, flat, with its time as the event's `timestamp` (ISO 8601). The plugin wraps the registered store in
+`CliEventAuditStore` (`CliEventAuditStore.Unwrap(store)` returns yours); register your store before `AddCli` finishes
+(`SetAuditStore`, or in the service collection before `AddAudit`/`AddUsers`).
+
 ## Storage
 
 The default store keeps the latest 1000 entries in memory (failed sign-ins apart, at most 200, so a flood of them keeps
