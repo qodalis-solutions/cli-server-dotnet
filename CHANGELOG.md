@@ -5,6 +5,8 @@ Every package shares one version with the Node and Python servers.
 
 ## 1.0.0-beta.21
 
+- The admin plugin embeds dashboard 1.0.0-beta.16: delete job runs (one, a result's or every finished one), older log
+  entries load when scrolling up with stable paging (Seq and in-memory), and themed dropdown arrows.
 - Jobs: delete runs. `DELETE /api/v1/qcli/jobs/{id}/history/{execId}` deletes a finished run and its logs (404
   `EXECUTION_NOT_FOUND`, 409 `EXECUTION_RUNNING`); `DELETE /api/v1/qcli/jobs/{id}/history?status=failed` deletes the
   job's finished runs, or those with a status, and answers `{ deleted }`. Running runs are never deleted. The same on
