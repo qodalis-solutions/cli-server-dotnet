@@ -192,7 +192,10 @@ public enum CliJobTriggerOutcome
 {
     /// <summary>A run started.</summary>
     Started,
-    /// <summary>Every slot was taken and the overlap policy is <c>Queue</c>: the run waits for a free slot.</summary>
+    /// <summary>
+    /// Every slot was taken and the run waits for a free slot: overlap policy <c>Queue</c>, or <c>Cancel</c> until the
+    /// cancelled run ended.
+    /// </summary>
     Queued,
 }
 

@@ -38,7 +38,10 @@ public class JobRegistration
         }
     }
 
-    /// <summary>Whether a run waits for a free slot (<see cref="JobOverlapPolicy.Queue"/>).</summary>
+    /// <summary>
+    /// Whether a run waits for a free slot (<see cref="JobOverlapPolicy.Queue"/>, or <see cref="JobOverlapPolicy.Cancel"/>
+    /// until the cancelled run ended).
+    /// </summary>
     public bool Queued
     {
         get
@@ -88,6 +91,9 @@ internal sealed class JobRun
 
     /// <summary>Cancels the run: its running attempt or its retry delay.</summary>
     public CancellationTokenSource Cancellation { get; } = new();
+
+    /// <summary>The run was asked to cancel (by <c>cancel</c>, <c>stop</c> or the <c>Cancel</c> overlap policy).</summary>
+    public bool CancelRequested { get; set; }
 
     /// <summary>The run's task, done once the run released its slot.</summary>
     public Task Task { get; set; } = Task.CompletedTask;
