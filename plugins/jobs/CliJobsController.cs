@@ -94,7 +94,7 @@ public class CliJobsController : ControllerBase
         RunAsync(() => _jobs.StopAsync(id, ct), "Job stopped", "JOB_CONFLICT");
 
     /// <summary>
-    /// Cancels the currently running execution of a job.
+    /// Cancels every running execution of a job and drops a queued run.
     /// </summary>
     /// <param name="id">The job identifier.</param>
     /// <param name="ct">A cancellation token.</param>
@@ -113,6 +113,8 @@ public class CliJobsController : ControllerBase
     {
         if (request.Schedule != null && request.Interval != null)
             return BadRequest(new { error = "Cannot provide both schedule and interval", code = "SCHEDULE_CONFLICT" });
+        if (request.MaxConcurrentRuns is < 1)
+            return BadRequest(new { error = "maxConcurrentRuns must be an integer of at least 1", code = "INVALID_VALUE" });
 
         try
         {
@@ -131,9 +133,14 @@ public class CliJobsController : ControllerBase
                     if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
                     if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
                         options.OverlapPolicy = policy;
+                    if (request.MaxConcurrentRuns.HasValue) options.MaxConcurrentRuns = request.MaxConcurrentRuns.Value;
                 }, ct);
                 await Events.UpdatedAsync(id);
             }, "Job updated", "JOB_CONFLICT");
+        }
+        catch (ArgumentOutOfRangeException ex) when (ex.ParamName == nameof(CliJobOptions.MaxConcurrentRuns))
+        {
+            return BadRequest(new { error = "maxConcurrentRuns must be an integer of at least 1", code = "INVALID_VALUE" });
         }
         catch (ArgumentException ex)
         {
@@ -425,7 +432,12 @@ public class CliJobsController : ControllerBase
         retryStrategy = j.RetryStrategy.ToString().ToLowerInvariant(),
         timeout = (long?)j.Timeout?.TotalMilliseconds,
         overlapPolicy = j.OverlapPolicy.ToString().ToLowerInvariant(),
+        maxConcurrentRuns = j.MaxConcurrentRuns,
         currentExecutionId = j.CurrentExecutionId,
+        runningExecutionIds = j.RunningExecutionIds.Count == 0 && j.CurrentExecutionId != null
+            ? [j.CurrentExecutionId]
+            : j.RunningExecutionIds,
+        queued = j.Queued,
         nextRunAt = j.NextRunAt,
         lastRunAt = j.LastRunAt,
         lastRunStatus = j.LastRunStatus,
@@ -457,4 +469,6 @@ public class UpdateJobRequest
     public string? Timeout { get; set; }
     /// <summary>Overlap policy: "skip", "cancel", or "queue".</summary>
     public string? OverlapPolicy { get; set; }
+    /// <summary>How many runs of the job may go at the same time (an integer, at least 1).</summary>
+    public int? MaxConcurrentRuns { get; set; }
 }

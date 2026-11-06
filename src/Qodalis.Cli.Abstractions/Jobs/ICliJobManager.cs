@@ -20,7 +20,10 @@ public interface ICliJobManager
     async Task<CliJobInfo?> GetJobAsync(string jobId, CancellationToken cancellationToken) =>
         (await GetJobsAsync(cancellationToken)).FirstOrDefault(j => j.Id == jobId);
 
-    /// <summary>Runs the job now (or queues it, for a manager whose jobs run elsewhere).</summary>
+    /// <summary>
+    /// Runs the job now, or queues it (overlap policy <c>Queue</c>, or a manager whose jobs run elsewhere). Throw
+    /// <see cref="InvalidOperationException"/> when the job is running and the run is refused (409).
+    /// </summary>
     Task TriggerAsync(string jobId, CancellationToken cancellationToken);
 
     /// <summary>Pauses the job's schedule.</summary>
@@ -33,7 +36,7 @@ public interface ICliJobManager
     Task StopAsync(string jobId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Stopping jobs is not supported");
 
-    /// <summary>Cancels the job's running execution.</summary>
+    /// <summary>Cancels every running execution of the job and drops a queued run.</summary>
     Task CancelAsync(string jobId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Cancelling a running job is not supported");
 
@@ -138,8 +141,20 @@ public class CliJobInfo
     /// <summary>Gets or sets what happens when a run is due while one is running.</summary>
     public JobOverlapPolicy OverlapPolicy { get; set; } = JobOverlapPolicy.Skip;
 
-    /// <summary>Gets or sets the running execution's id, if one is running.</summary>
+    /// <summary>Gets or sets how many runs of the job may go at the same time. A manager without the option reports 1.</summary>
+    public int MaxConcurrentRuns { get; set; } = 1;
+
+    /// <summary>Gets or sets the newest running execution's id, if one is running.</summary>
     public string? CurrentExecutionId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the running executions' ids, oldest first; empty when idle. When a manager leaves it empty but
+    /// sets <see cref="CurrentExecutionId"/>, the API reports that one.
+    /// </summary>
+    public IReadOnlyList<string> RunningExecutionIds { get; set; } = [];
+
+    /// <summary>Gets or sets whether a run is queued, waiting for a free slot.</summary>
+    public bool Queued { get; set; }
 
     /// <summary>Gets or sets the next scheduled run (UTC).</summary>
     public DateTime? NextRunAt { get; set; }
