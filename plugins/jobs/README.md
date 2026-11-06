@@ -106,17 +106,20 @@ When a run is due (timer, trigger, run on start) and every slot is taken, `Overl
 
 - `Skip`: the due run is dropped; a trigger is refused (`409 JOB_ALREADY_RUNNING`).
 - `Queue`: the run waits and starts when a slot frees. At most one run waits per job: several due runs while full make
-  one more run, not a backlog. A trigger is accepted (`200`).
-- `Cancel`: the oldest running run is cancelled; the new one starts once it ended (so the limit holds), and a trigger
-  is accepted.
+  one more run, not a backlog. A trigger is accepted: `200 { "message": "Job queued", "queued": true }` (a run that
+  started answers `{ "message": "Job triggered", "queued": false }`; MCP `jobs_trigger` says "Job queued").
+- `Cancel`: the oldest running run is cancelled and gives its slot to the new run, which starts at once. (Above a
+  lowered limit nothing is cancelled and the due run is skipped.)
 
 Lowering `MaxConcurrentRuns` cancels nothing: runs finish, and new runs start once fewer are going. Raising it starts a
 queued run. `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables
-the schedule.
+the schedule. A run cancelled that way ends `cancelled` (`job:cancelled`), also when the job has a `Timeout`; only a
+real timeout ends `timedout` (`job:timed_out`).
 
 Job info (`GET /jobs`, `GET /jobs/{id}`, `jobs_list`, `jobs_get`, `CliJobInfo`) carries `maxConcurrentRuns`,
-`runningExecutionIds` (oldest first; empty when idle; a run waiting for its retry shows its failed attempt),
-`currentExecutionId` (the newest running run, or null) and `queued` (a run waits for a slot).
+`runningExecutionIds` (the attempts executing now, oldest first; empty when idle; a run waiting for its retry keeps
+its slot but has no entry), `currentExecutionId` (the newest executing attempt, or null) and `queued` (a run waits for
+a slot).
 
 ## Run on start
 
@@ -135,7 +138,7 @@ fired, so a tick that fires a few milliseconds early never runs an occurrence tw
 
 When the scheduler starts, the runs of its registered jobs that its store still has as `running` (left by a process
 that stopped during them) are finished as `cancelled` with the error `Interrupted: the server stopped during the run`,
-completed at their start time. Only at start and only in the scheduler's own store; no events are published for them.
+completed at their last log entry when that is later than their start, else at their start. Only at start and only in the scheduler's own store; no events are published for them.
 Several server processes sharing one store therefore finish each other's runs when one of them starts: run a job's
 schedule in one process only.
 
@@ -147,7 +150,7 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 |--------|----------|-------------|
 | GET | `/` | List all jobs |
 | GET | `/{id}` | Get job details |
-| POST | `/{id}/trigger` | Trigger immediate execution |
+| POST | `/{id}/trigger` | Trigger immediate execution: `{ message, queued }` (`queued: true` when the run waits for a slot) |
 | POST | `/{id}/pause` | Pause scheduled execution |
 | POST | `/{id}/resume` | Resume a paused job |
 | POST | `/{id}/stop` | Stop job: cancel every running run, drop a queued one, disable the schedule |
@@ -225,7 +228,8 @@ cli.SetJobManager<MyJobManager>();   // scoped: it may use the request's service
 
 Implement `GetJobsAsync`, `TriggerAsync`, `PauseAsync`, `ResumeAsync`, `GetExecutionsAsync` and
 `GetExecutionAsync` (`QueryExecutionsAsync` defaults to merging `GetExecutionsAsync` per job). Map
-`MaxConcurrentRuns`, `RunningExecutionIds` and `Queued` on `CliJobInfo` when your jobs have them; the defaults (1, empty,
+`MaxConcurrentRuns`, `RunningExecutionIds` and `Queued` on `CliJobInfo` when your jobs have them, and implement
+`TriggerWithOutcomeAsync` to report a queued trigger (the default calls `TriggerAsync` and reports a started run); the defaults (1, empty,
 false) suit a manager without the option, and with `RunningExecutionIds` empty the API reports `CurrentExecutionId`
 as the one running run. `StopAsync`, `CancelAsync` and `UpdateAsync` default to `NotSupportedException` (501); set
 `CliJobInfo.Actions` so clients hide what a job does not offer. Throw `KeyNotFoundException` for an unknown job
