@@ -17,28 +17,28 @@ public class JobRegistration
     /// <summary>Current lifecycle status of the job.</summary>
     public JobStatus Status { get; internal set; } = JobStatus.Active;
 
-    /// <summary>Identifier of the newest running execution, or null if idle.</summary>
+    /// <summary>Identifier of the newest executing attempt, or null if none is executing.</summary>
     public string? CurrentExecutionId
     {
         get
         {
-            lock (Gate) return Runs.Count == 0 ? null : Runs[^1].ExecutionId;
+            lock (Gate) return Runs.LastOrDefault(r => r.ExecutionId != null)?.ExecutionId;
         }
     }
 
     /// <summary>
-    /// The executions of the running runs, oldest first; empty when idle. A run waiting for its retry shows its failed
-    /// attempt, since it keeps its slot until the retry.
+    /// The attempts executing now, oldest first; empty when idle. A run waiting for its retry keeps its slot but has no
+    /// entry.
     /// </summary>
     public IReadOnlyList<string> RunningExecutionIds
     {
         get
         {
-            lock (Gate) return [.. Runs.Select(r => r.ExecutionId)];
+            lock (Gate) return [.. Runs.Where(r => r.ExecutionId != null).Select(r => r.ExecutionId!)];
         }
     }
 
-    /// <summary>Whether a run waits for a free slot (<see cref="JobOverlapPolicy.Queue"/> or <see cref="JobOverlapPolicy.Cancel"/>).</summary>
+    /// <summary>Whether a run waits for a free slot (<see cref="JobOverlapPolicy.Queue"/>).</summary>
     public bool Queued
     {
         get
@@ -73,7 +73,7 @@ public class JobRegistration
     /// <summary>The runs holding a slot, oldest first (a run holds it across its retries and their delays).</summary>
     internal List<JobRun> Runs { get; } = [];
 
-    /// <summary>A run waits for a slot; several due runs while full coalesce into this one.</summary>
+    /// <summary>A queued run waits for a slot; several due runs while full coalesce into this one.</summary>
     internal bool Pending { get; set; }
 
     /// <summary>Bumped whenever the timer is replaced or stopped, so a callback of an old timer does nothing.</summary>
@@ -83,23 +83,11 @@ public class JobRegistration
 /// <summary>One run of a job: its first attempt and its retries, with one cancellation for all of them.</summary>
 internal sealed class JobRun
 {
-    public JobRun(JobExecution first)
-    {
-        First = first;
-        ExecutionId = first.Id;
-    }
-
-    /// <summary>The first attempt's execution, created when the run takes its slot.</summary>
-    public JobExecution First { get; }
-
-    /// <summary>The execution of the current (or, during a retry delay, the last) attempt.</summary>
-    public string ExecutionId { get; set; }
+    /// <summary>The execution of the attempt executing now; null before the first and between attempts.</summary>
+    public string? ExecutionId { get; set; }
 
     /// <summary>Cancels the run: its running attempt or its retry delay.</summary>
     public CancellationTokenSource Cancellation { get; } = new();
-
-    /// <summary>The run was asked to cancel (by <c>cancel</c>, <c>stop</c> or the <c>Cancel</c> overlap policy).</summary>
-    public bool CancelRequested { get; set; }
 
     /// <summary>The run's task, done once the run released its slot.</summary>
     public Task Task { get; set; } = Task.CompletedTask;

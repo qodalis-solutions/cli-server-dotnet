@@ -62,9 +62,10 @@ public class CliJobsController : ControllerBase
     public Task<IActionResult> TriggerJob(string id, CancellationToken ct) =>
         RunAsync(async () =>
         {
-            await _jobs.TriggerAsync(id, ct);
+            var queued = await _jobs.TriggerWithOutcomeAsync(id, ct) == CliJobTriggerOutcome.Queued;
             await Events.TriggeredAsync(id);
-        }, "Job triggered", "JOB_ALREADY_RUNNING");
+            return new { message = queued ? "Job queued" : "Job triggered", queued };
+        }, "JOB_ALREADY_RUNNING");
 
     /// <summary>
     /// Pauses a job, preventing further scheduled executions.
@@ -394,12 +395,19 @@ public class CliJobsController : ControllerBase
     /// Runs a job action and maps the manager's exceptions: unknown job 404, refused by the job's state 409,
     /// not offered by the manager 501.
     /// </summary>
-    private async Task<IActionResult> RunAsync(Func<Task> action, string done, string conflictCode)
+    private Task<IActionResult> RunAsync(Func<Task> action, string done, string conflictCode) =>
+        RunAsync(async () =>
+        {
+            await action();
+            return new { message = done };
+        }, conflictCode);
+
+    /// <summary>Runs a job action whose answer is the action's result, mapping the manager's exceptions.</summary>
+    private async Task<IActionResult> RunAsync(Func<Task<object>> action, string conflictCode)
     {
         try
         {
-            await action();
-            return Ok(new { message = done });
+            return Ok(await action());
         }
         catch (KeyNotFoundException)
         {

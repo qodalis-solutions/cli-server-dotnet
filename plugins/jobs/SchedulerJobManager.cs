@@ -33,6 +33,10 @@ public sealed class SchedulerJobManager : ICliJobManager
         _scheduler.TriggerAsync(jobId, cancellationToken);
 
     /// <inheritdoc />
+    public Task<CliJobTriggerOutcome> TriggerWithOutcomeAsync(string jobId, CancellationToken cancellationToken) =>
+        _scheduler.TriggerWithOutcomeAsync(jobId, cancellationToken);
+
+    /// <inheritdoc />
     public Task PauseAsync(string jobId, CancellationToken cancellationToken) =>
         _scheduler.PauseAsync(jobId, cancellationToken);
 
@@ -96,7 +100,7 @@ public sealed class SchedulerJobManager : ICliJobManager
         bool queued;
         lock (r.Gate)
         {
-            running = [.. r.Runs.Select(run => run.ExecutionId)];
+            running = [.. r.Runs.Where(run => run.ExecutionId != null).Select(run => run.ExecutionId!)];
             queued = r.Pending;
         }
 

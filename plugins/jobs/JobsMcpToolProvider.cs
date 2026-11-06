@@ -67,7 +67,10 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
                 Annotations = McpToolAnnotations.ReadOnly,
                 CallAsync = Scoped(HistoryAsync),
             },
-            Action("jobs_trigger", "Run a job now", "Job triggered", (jobs, jid, ct) => jobs.TriggerAsync(jid, ct),
+            Action("jobs_trigger", "Run a job now (queued when every slot is taken and the overlap policy is queue)",
+                async (jobs, jid, ct) => await jobs.TriggerWithOutcomeAsync(jid, ct) == CliJobTriggerOutcome.Queued
+                    ? "Job queued"
+                    : "Job triggered",
                 published: (events, jid) => events.TriggeredAsync(jid)),
             Action("jobs_pause", "Pause a job's schedule", "Job paused", (jobs, jid, ct) => jobs.PauseAsync(jid, ct)),
             Action("jobs_resume", "Resume a paused job", "Job resumed", (jobs, jid, ct) => jobs.ResumeAsync(jid, ct)),
@@ -95,6 +98,16 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
 
     private McpToolDefinition Action(string name, string description, string done,
         Func<ICliJobManager, string, CancellationToken, Task> run, McpToolAnnotations? annotations = null,
+        Func<JobEvents, string, Task>? published = null) =>
+        Action(name, description, async (jobs, jid, ct) =>
+        {
+            await run(jobs, jid, ct);
+            return done;
+        }, annotations, published);
+
+    /// <summary>A job action whose answer (<c>"{answer}: {jobId}"</c>) comes from the action.</summary>
+    private McpToolDefinition Action(string name, string description,
+        Func<ICliJobManager, string, CancellationToken, Task<string>> run, McpToolAnnotations? annotations = null,
         Func<JobEvents, string, Task>? published = null) => new()
     {
         Name = name,
@@ -108,7 +121,7 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
             if (error != null) return error;
             try
             {
-                await run(jobs, jobId!, ct);
+                var done = await run(jobs, jobId!, ct);
                 if (published != null) await published(events, jobId!);
                 return McpToolResult.Ok($"{done}: {jobId}");
             }
