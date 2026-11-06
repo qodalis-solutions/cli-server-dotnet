@@ -281,7 +281,8 @@ public class CliJobSchedulerTests : IDisposable
     [Fact]
     public async Task Trigger_OverlapSkip_Throws()
     {
-        var job = new DummyJob(delay: TimeSpan.FromSeconds(1));
+        // Held until released, so the first run is still going whatever the machine's speed
+        var job = new GatedJob();
         _scheduler.Register(job, new CliJobOptions
         {
             Name = "t",
@@ -292,8 +293,8 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(50);
         await Assert.ThrowsAsync<InvalidOperationException>(() => _scheduler.TriggerAsync(id));
+        job.Release();
         await _scheduler.StopAsync(CancellationToken.None);
     }
 
