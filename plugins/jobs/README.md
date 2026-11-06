@@ -134,6 +134,25 @@ A custom job manager deletes runs by implementing `DeleteExecutionAsync`; `Delet
 the history and deletes each finished run (override it to delete in one query). Without it the delete endpoints answer
 `501`. The default scheduler deletes through `ICliJobStorageProvider.DeleteExecutionAsync` (in-memory and EF Core).
 
+## Events
+
+Job changes are published on the server's event bus (`ICliEventBus`) and sent on the events WebSocket to sockets with
+`jobs:read`, as flat messages (`{ "type": "job:completed", "timestamp": "…", "jobId": "…", "executionId": "…", "duration": 1520 }`):
+
+| Type | Fields | Published by |
+|---|---|---|
+| `job:started`, `job:cancelled`, `job:timed_out` | jobId, executionId | scheduler |
+| `job:completed` | jobId, executionId, duration | scheduler, after the run is saved |
+| `job:failed` | jobId, executionId, error | scheduler |
+| `job:retrying` | jobId, executionId, attempt, maxRetries, delayMs | scheduler |
+| `job:paused`, `job:resumed`, `job:stopped` | jobId, status (`paused`, `active`, `stopped`) | scheduler |
+| `job:triggered`, `job:updated` | jobId, actor | REST API and MCP tools |
+| `job:runs-deleted` | jobId, executionId (one run) or count (bulk, when runs were deleted), actor | REST API and MCP tools |
+
+`job:triggered`, `job:updated` and `job:runs-deleted` are published by the API layer, so a custom job manager (see
+below) gets them without publishing anything. A manager whose jobs run elsewhere can publish its own run events through
+`ICliEventBus` with `CliEventAudience.WithPermission("jobs:read")`.
+
 ## Custom Storage
 
 By default, execution history is stored in memory. Use [Qodalis.Cli.Plugin.Jobs.EfCore](../jobs-efcore/README.md) for a

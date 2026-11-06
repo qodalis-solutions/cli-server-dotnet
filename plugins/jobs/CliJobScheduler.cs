@@ -2,6 +2,7 @@ using Cronos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Services;
 
@@ -15,12 +16,32 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
     private readonly ICliJobStorageProvider _storage;
-    private readonly ICliEventSocketManager _eventSocket;
+    private readonly ICliEventBus _events;
     private readonly ILogger<CliJobScheduler> _logger;
     private readonly IServiceScopeFactory? _scopes;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class.
+    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class whose runs get a service scope each.
+    /// </summary>
+    /// <param name="storage">The storage provider for persisting job state and execution history.</param>
+    /// <param name="events">The event bus the job events (<c>job:*</c>, audience <c>jobs:read</c>) are published on.</param>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="scopes">Creates a service scope per run (<see cref="ICliJobExecutionContext.Services"/>); null for none.</param>
+    public CliJobScheduler(
+        ICliJobStorageProvider storage,
+        ICliEventBus events,
+        ILogger<CliJobScheduler> logger,
+        IServiceScopeFactory? scopes = null)
+    {
+        _storage = storage;
+        _events = events;
+        _logger = logger;
+        _scopes = scopes;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class that broadcasts its events to every socket
+    /// of <paramref name="eventSocket"/> (no audience). Kept for compatibility: prefer the <see cref="ICliEventBus"/> overload.
     /// </summary>
     /// <param name="storage">The storage provider for persisting job state and execution history.</param>
     /// <param name="eventSocket">The WebSocket manager for broadcasting job events.</param>
@@ -34,7 +55,9 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class whose runs get a service scope each.
+    /// Initializes a new instance of the <see cref="CliJobScheduler"/> class whose runs get a service scope each and
+    /// that broadcasts its events to every socket of <paramref name="eventSocket"/> (no audience). Kept for
+    /// compatibility: prefer the <see cref="ICliEventBus"/> overload.
     /// </summary>
     /// <param name="storage">The storage provider for persisting job state and execution history.</param>
     /// <param name="eventSocket">The WebSocket manager for broadcasting job events.</param>
@@ -45,11 +68,15 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         ICliEventSocketManager eventSocket,
         ILogger<CliJobScheduler> logger,
         IServiceScopeFactory? scopes)
+        : this(storage, BroadcastingBus(eventSocket), logger, scopes)
     {
-        _storage = storage;
-        _eventSocket = eventSocket;
-        _logger = logger;
-        _scopes = scopes;
+    }
+
+    private static CliEventBus BroadcastingBus(ICliEventSocketManager eventSocket)
+    {
+        var bus = new CliEventBus();
+        bus.Subscribe("*", (e, _) => eventSocket.BroadcastMessageAsync(CliEventBus.Serialize(e)));
+        return bus;
     }
 
     /// <summary>
@@ -180,7 +207,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         reg.Timer = null;
 
         await PersistState(reg, cancellationToken);
-        await BroadcastAsync("job:paused", new { jobId });
+        await PublishAsync("job:paused", new { jobId, status = "paused" });
     }
 
     /// <summary>
@@ -198,7 +225,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         StartTimer(reg);
 
         await PersistState(reg, cancellationToken);
-        await BroadcastAsync("job:resumed", new { jobId });
+        await PublishAsync("job:resumed", new { jobId, status = "active" });
     }
 
     /// <summary>
@@ -220,7 +247,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         }
 
         await PersistState(reg, cancellationToken);
-        await BroadcastAsync("job:stopped", new { jobId });
+        await PublishAsync("job:stopped", new { jobId, status = "stopped" });
     }
 
     /// <summary>
@@ -348,7 +375,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                 };
                 _logger.LogInformation("Retrying job {JobName} in {Delay} (attempt {Attempt}/{MaxRetries})",
                     reg.Options.Name, delay, attempt + 1, reg.Options.MaxRetries);
-                await BroadcastAsync("job:retrying", new
+                await PublishAsync("job:retrying", new
                 {
                     jobId = reg.Id,
                     executionId = execution.Id,
@@ -389,14 +416,17 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         var context = new CliJobExecutionContext(logger, scope?.ServiceProvider ?? EmptyServices.Instance);
 
         await _storage.SaveExecutionAsync(execution);
-        await BroadcastAsync("job:started", new { jobId = reg.Id, executionId = execution.Id, timestamp = DateTime.UtcNow });
+        await PublishAsync("job:started", new { jobId = reg.Id, executionId = execution.Id });
 
+        // Published once the run is saved, so a client reloading on the event sees the finished run.
+        string finishedEvent;
+        object? finishedData = null;
         try
         {
             await reg.Job.ExecuteAsync(context, cts.Token);
 
             execution.Status = JobExecutionStatus.Completed;
-            await BroadcastAsync("job:completed", new { jobId = reg.Id, executionId = execution.Id, duration = execution.Duration });
+            finishedEvent = "job:completed";
         }
         catch (OperationCanceledException)
         {
@@ -404,14 +434,15 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                 ? JobExecutionStatus.TimedOut
                 : JobExecutionStatus.Cancelled;
 
-            var eventType = execution.Status == JobExecutionStatus.TimedOut ? "job:timed_out" : "job:cancelled";
-            await BroadcastAsync(eventType, new { jobId = reg.Id, executionId = execution.Id });
+            finishedEvent = execution.Status == JobExecutionStatus.TimedOut ? "job:timed_out" : "job:cancelled";
+            finishedData = new { jobId = reg.Id, executionId = execution.Id };
         }
         catch (Exception ex)
         {
             execution.Status = JobExecutionStatus.Failed;
             execution.Error = ex.Message;
-            await BroadcastAsync("job:failed", new { jobId = reg.Id, executionId = execution.Id, error = ex.Message });
+            finishedEvent = "job:failed";
+            finishedData = new { jobId = reg.Id, executionId = execution.Id, error = ex.Message };
         }
         finally
         {
@@ -428,6 +459,9 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             await SaveFinishedAsync(execution, context.Discarded);
             await TryPersistStateAsync(reg);
         }
+
+        finishedData ??= new { jobId = reg.Id, executionId = execution.Id, duration = execution.Duration };
+        await PublishAsync(finishedEvent, finishedData);
 
         return execution;
     }
@@ -488,18 +522,16 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         }, ct);
     }
 
-    private async Task BroadcastAsync(string type, object data)
+    /// <summary>Publishes a job event (audience <c>jobs:read</c>); never fails the scheduler.</summary>
+    private async Task PublishAsync(string type, object data)
     {
         try
         {
-            var payload = System.Text.Json.JsonSerializer.Serialize(
-                new { type, data },
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
-            await _eventSocket.BroadcastMessageAsync(payload);
+            await _events.PublishAsync(type, data, JobEvents.Audience);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast job event {Type}", type);
+            _logger.LogWarning(ex, "Failed to publish job event {Type}", type);
         }
     }
 
