@@ -26,6 +26,17 @@ public interface ICliJobManager
     /// </summary>
     Task TriggerAsync(string jobId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Runs the job now like <see cref="TriggerAsync"/> and tells whether the run started or was queued (overlap
+    /// policy <c>Queue</c>, every slot taken); the jobs API and MCP answer "Job queued" for the latter. The default
+    /// calls <see cref="TriggerAsync"/> and reports <see cref="CliJobTriggerOutcome.Started"/>.
+    /// </summary>
+    async Task<CliJobTriggerOutcome> TriggerWithOutcomeAsync(string jobId, CancellationToken cancellationToken)
+    {
+        await TriggerAsync(jobId, cancellationToken);
+        return CliJobTriggerOutcome.Started;
+    }
+
     /// <summary>Pauses the job's schedule.</summary>
     Task PauseAsync(string jobId, CancellationToken cancellationToken);
 
@@ -144,12 +155,13 @@ public class CliJobInfo
     /// <summary>Gets or sets how many runs of the job may go at the same time. A manager without the option reports 1.</summary>
     public int MaxConcurrentRuns { get; set; } = 1;
 
-    /// <summary>Gets or sets the newest running execution's id, if one is running.</summary>
+    /// <summary>Gets or sets the newest executing attempt's id, if one is executing.</summary>
     public string? CurrentExecutionId { get; set; }
 
     /// <summary>
-    /// Gets or sets the running executions' ids, oldest first; empty when idle. When a manager leaves it empty but
-    /// sets <see cref="CurrentExecutionId"/>, the API reports that one.
+    /// Gets or sets the ids of the attempts executing now, oldest first; empty when idle. A run waiting for its retry
+    /// keeps its slot but has no entry. When a manager leaves it empty but sets <see cref="CurrentExecutionId"/>, the
+    /// API reports that one.
     /// </summary>
     public IReadOnlyList<string> RunningExecutionIds { get; set; } = [];
 
@@ -173,6 +185,15 @@ public class CliJobInfo
     /// Clients hide the others.
     /// </summary>
     public IReadOnlyList<string>? Actions { get; set; }
+}
+
+/// <summary>What a manual trigger did: started a run, or queued one that starts when a slot frees.</summary>
+public enum CliJobTriggerOutcome
+{
+    /// <summary>A run started.</summary>
+    Started,
+    /// <summary>Every slot was taken and the overlap policy is <c>Queue</c>: the run waits for a free slot.</summary>
+    Queued,
 }
 
 /// <summary>Names of the job actions, for <see cref="CliJobInfo.Actions"/>.</summary>

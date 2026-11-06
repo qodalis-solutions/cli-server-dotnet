@@ -84,7 +84,7 @@ public enum JobOverlapPolicy
     /// every slot is taken make one more run.
     /// </summary>
     Queue,
-    /// <summary>Cancel the oldest running run; the due run starts once it ended.</summary>
+    /// <summary>Cancel the oldest running run; the due run takes its slot and starts at once.</summary>
     Cancel,
 }
 

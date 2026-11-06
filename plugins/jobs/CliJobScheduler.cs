@@ -194,8 +194,8 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
 
     /// <summary>
     /// Finishes the runs of the registered jobs that the store still has as running: a previous process stopped during
-    /// them. They become cancelled, completed at their start (the stop time is unknown). No events: no client is
-    /// connected yet.
+    /// them. They become cancelled, completed at their last log entry when that is later than their start, else at
+    /// their start (the stop time is unknown). No events: no client is connected yet.
     /// </summary>
     private async Task FinishInterruptedRunsAsync(CancellationToken cancellationToken)
     {
@@ -216,8 +216,12 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                     {
                         execution.Status = JobExecutionStatus.Cancelled;
                         execution.Error = InterruptedError;
-                        execution.CompletedAt ??= execution.StartedAt;
-                        execution.Duration = Math.Max(0, (long)(execution.CompletedAt.Value - execution.StartedAt).TotalMilliseconds);
+                        var startedAt = JobExecutionQuery.AsUtc(execution.StartedAt);
+                        var lastLog = execution.Logs.Count == 0
+                            ? startedAt
+                            : execution.Logs.Max(l => JobExecutionQuery.AsUtc(l.Timestamp));
+                        execution.CompletedAt = lastLog > startedAt ? lastLog : startedAt;
+                        execution.Duration = (long)(execution.CompletedAt.Value - startedAt).TotalMilliseconds;
                         await _storage.SaveExecutionAsync(execution, cancellationToken);
                     }
 
@@ -257,18 +261,25 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// <summary>
     /// Manually triggers immediate execution of the specified job. When <see cref="CliJobOptions.MaxConcurrentRuns"/>
     /// runs are going, the overlap policy decides: <c>Skip</c> throws <see cref="InvalidOperationException"/>,
-    /// <c>Queue</c> queues the run, <c>Cancel</c> cancels the oldest run and starts this one when it ended.
+    /// <c>Queue</c> queues the run, <c>Cancel</c> cancels the oldest run and starts this one in its slot.
     /// </summary>
     /// <param name="jobId">The unique identifier of the job to trigger.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    public Task TriggerAsync(string jobId, CancellationToken cancellationToken = default)
+    public Task TriggerAsync(string jobId, CancellationToken cancellationToken = default) =>
+        TriggerWithOutcomeAsync(jobId, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<CliJobTriggerOutcome> TriggerWithOutcomeAsync(string jobId, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
         if (_stopping)
             throw new InvalidOperationException("The job scheduler is stopping");
-        if (RunDue(reg) == DueOutcome.Skipped)
-            throw new InvalidOperationException("Job is already running");
-        return Task.CompletedTask;
+        return RunDue(reg) switch
+        {
+            DueOutcome.Started => Task.FromResult(CliJobTriggerOutcome.Started),
+            DueOutcome.Queued => Task.FromResult(CliJobTriggerOutcome.Queued),
+            _ => throw new InvalidOperationException("Job is already running"),
+        };
     }
 
     /// <summary>
@@ -489,16 +500,13 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                     reg.Pending = true;
                     outcome = DueOutcome.Queued;
                     break;
-                case JobOverlapPolicy.Cancel:
-                    // The oldest run makes room; the new run starts when it ended, so the limit holds. A second due
-                    // run meanwhile joins the waiting one instead of cancelling another run.
-                    if (!reg.Pending)
-                    {
-                        cancel = reg.Runs.FirstOrDefault(r => !r.CancelRequested);
-                        if (cancel != null) cancel.CancelRequested = true;
-                    }
-                    reg.Pending = true;
-                    outcome = DueOutcome.Queued;
+                case JobOverlapPolicy.Cancel when reg.Runs.Count == reg.Options.MaxConcurrentRuns:
+                    // The oldest run gives its slot to the new one: it leaves the running runs now and ends on its
+                    // cancellation. Above a lowered limit nothing is cancelled: the due run is skipped.
+                    cancel = reg.Runs[0];
+                    reg.Runs.RemoveAt(0);
+                    StartRunLocked(reg);
+                    outcome = DueOutcome.Started;
                     break;
                 default:
                     outcome = DueOutcome.Skipped;
@@ -516,7 +524,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// <summary>Takes a slot and starts a run in the background. Call with <see cref="JobRegistration.Gate"/> held.</summary>
     private void StartRunLocked(JobRegistration reg)
     {
-        var run = new JobRun(new JobExecution { JobId = reg.Id, JobName = reg.Options.Name! });
+        var run = new JobRun();
         reg.Runs.Add(run);
         // Off the caller's path (a timer callback, a request, the host's startup): the run may take a while
         run.Task = Task.Run(() => RunAsync(reg, run), CancellationToken.None);
@@ -539,7 +547,6 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             var any = reg.Runs.Count > 0 || reg.Pending;
             reg.Pending = false;
             runs = [.. reg.Runs];
-            foreach (var run in runs) run.CancelRequested = true;
             if (!any) return false;
         }
 
@@ -620,22 +627,26 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// <summary>One attempt of a run, in its own service scope (disposed when the attempt ends, before any retry).</summary>
     private async Task<JobExecution> ExecuteOnceAsync(JobRegistration reg, JobRun run, int retryAttempt)
     {
-        var execution = retryAttempt == 0
-            ? run.First
-            : new JobExecution { JobId = reg.Id, JobName = reg.Options.Name! };
-        execution.RetryAttempt = retryAttempt;
-        execution.StartedAt = Now;
+        var execution = new JobExecution
+        {
+            JobId = reg.Id,
+            JobName = reg.Options.Name!,
+            RetryAttempt = retryAttempt,
+            StartedAt = Now,
+        };
         lock (reg.Gate)
         {
             run.ExecutionId = execution.Id;
         }
 
-        // The run's cancellation (cancel, stop, the Cancel policy) and this attempt's timeout
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(run.Cancellation.Token);
+        // The attempt's timeout has its own source, so a timeout and a cancel by hand (cancel, stop, the Cancel
+        // policy: the run's cancellation) are told apart
+        using var timeout = new CancellationTokenSource();
         if (reg.Options.Timeout.HasValue)
         {
-            cts.CancelAfter(reg.Options.Timeout.Value);
+            timeout.CancelAfter(reg.Options.Timeout.Value);
         }
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(run.Cancellation.Token, timeout.Token);
 
         var logger = new CliJobLogger();
         await using var scope = _scopes?.CreateAsyncScope();
@@ -656,7 +667,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         }
         catch (OperationCanceledException)
         {
-            execution.Status = cts.IsCancellationRequested && !run.Cancellation.IsCancellationRequested
+            execution.Status = timeout.IsCancellationRequested && !run.Cancellation.IsCancellationRequested
                 ? JobExecutionStatus.TimedOut
                 : JobExecutionStatus.Cancelled;
 
@@ -672,6 +683,12 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         }
         finally
         {
+            // The attempt is no longer executing (before it is saved as finished); a retry delay keeps the slot
+            // without an entry
+            lock (reg.Gate)
+            {
+                run.ExecutionId = null;
+            }
             execution.CompletedAt = Now;
             execution.Duration = (long)(execution.CompletedAt.Value - execution.StartedAt).TotalMilliseconds;
             execution.Logs = logger.Entries.ToList();
