@@ -3,6 +3,33 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+### Server events
+
+One event bus per server, events for every change, and delivery scoped to who may see them (the same on the Node and
+Python servers; spec `web-cli/docs/superpowers/specs/2026-11-06-server-events-design.md`).
+
+- `ICliEventBus` (`Qodalis.Cli.Abstractions.Events`, with `CliEvent`, `CliEventAudience` and `CliEventPattern`),
+  registered as a singleton by `AddCli` (`CliEventBus`). `PublishAsync(type, data, audience)` and
+  `Subscribe(pattern, handler)` (`*`, `ns:*` or a type). Handlers run in subscription order; their exceptions are
+  logged and never fail the publisher. In-process subscribers receive every event.
+- The events WebSocket subscribes to the bus and sends one flat JSON object per event (`type`, ISO 8601 `timestamp`,
+  the fields) to the sockets of its audience: everyone, a permission, a user, or the user or the permission. Each
+  socket keeps its principal; on a server without authentication every socket gets every event.
+  `ICliEventSocketManager.BroadcastMessageAsync`/`SendToUserAsync` still send raw messages.
+- New events: `job:triggered`, `job:updated`, `job:runs-deleted` (jobs API and MCP tools, so a custom
+  `ICliJobManager` gets them); `user:*`, `group:*`, `token:*`, `session:*` (users plugin); `fs:changed` (every write
+  through `IFileStorageProvider`, now wrapped in `CliEventFileStorageProvider`); `command:executed` (REST, stream and
+  MCP executions of known commands: the processor name only); `audit:recorded` (every entry, through
+  `CliEventAuditStore`). See the README's "Server events" for fields and audiences.
+- Fix: the jobs scheduler sent its events nested (`{ type, data: { jobId } }`), so the dashboard's job pages never
+  refreshed live on .NET. They are now flat, sent to `jobs:read` only, `job:paused`/`job:resumed`/`job:stopped` carry
+  `status`, `job:completed` carries the run's real `duration`, and the run events are published once the run is
+  saved. `CliJobScheduler` takes an `ICliEventBus`; the `ICliEventSocketManager` constructors remain.
+- `IAuditStore` and `IFileStorageProvider` resolve to the wrapping `CliEventAuditStore`/`CliEventFileStorageProvider`
+  (`Inner`, `CliEventAuditStore.Unwrap`).
+
 ## 1.0.0-beta.22
 
 - The admin plugin embeds dashboard 1.0.0-beta.17: logs jump to newest, pause, copy an entry and collapsed exceptions; jobs run again and delete runs from the recent runs table.

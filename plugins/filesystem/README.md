@@ -58,6 +58,13 @@ All providers implement the `IFileStorageProvider` interface:
 | `GetDownloadStreamAsync(path)` | Open a download stream |
 | `UploadFileAsync(path, content)` | Upload binary content |
 
+## Events
+
+`AddCli` wraps the provider in `CliEventFileStorageProvider`, which publishes `fs:changed` on the server's event bus
+after every change: `{ action, path, newPath?, actor? }` with action `upload`, `mkdir`, `delete`, `write`, `move` or
+`copy` (`newPath` for move and copy). The events WebSocket sends it to sockets with `files:read`. The filesystem API, the
+MCP `fs_*` tools and any other caller of the registered `IFileStorageProvider` publish it, whatever the provider.
+
 ## Custom Provider
 
 Implement `IFileStorageProvider` and assign it to the options:
