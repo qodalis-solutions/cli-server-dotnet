@@ -503,7 +503,8 @@ public class ServerEventsJobsTests
     [Fact]
     public async Task JobsApi_FailedAction_PublishesNothing()
     {
-        var manager = new Mock<ICliJobManager>();
+        // CallBase: the API triggers through TriggerWithOutcomeAsync, whose default calls TriggerAsync
+        var manager = new Mock<ICliJobManager> { CallBase = true };
         manager.Setup(m => m.TriggerAsync("x", It.IsAny<CancellationToken>())).ThrowsAsync(new KeyNotFoundException());
         var bus = new CliEventBus();
         using var recorder = new EventRecorder(bus);
