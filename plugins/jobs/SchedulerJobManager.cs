@@ -79,6 +79,17 @@ public sealed class SchedulerJobManager : ICliJobManager
         return execution?.JobId == jobId ? execution : null;
     }
 
+    /// <inheritdoc />
+    public async Task DeleteExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken)
+    {
+        if (!_scheduler.Jobs.ContainsKey(jobId)) throw new KeyNotFoundException($"Job '{jobId}' not found");
+        var execution = await _storage.GetExecutionAsync(executionId, cancellationToken);
+        if (execution?.JobId != jobId) throw new KeyNotFoundException($"Run '{executionId}' not found");
+        if (execution.Status == JobExecutionStatus.Running) throw new InvalidOperationException("The run is still running");
+        if (!await _storage.DeleteExecutionAsync(executionId, cancellationToken))
+            throw new NotSupportedException("The job store does not delete runs");
+    }
+
     internal static CliJobInfo ToInfo(JobRegistration r) => new()
     {
         Id = r.Id,

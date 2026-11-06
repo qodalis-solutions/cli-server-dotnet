@@ -9,7 +9,8 @@ namespace Qodalis.Cli.Plugin.Jobs;
 
 /// <summary>
 /// MCP tools of the jobs plugin: <c>jobs_list</c>, <c>jobs_get</c>, <c>jobs_history</c> (<c>jobs:read</c>) and
-/// <c>jobs_trigger</c>, <c>jobs_pause</c>, <c>jobs_resume</c>, <c>jobs_stop</c>, <c>jobs_cancel</c> (<c>jobs:manage</c>).
+/// <c>jobs_trigger</c>, <c>jobs_pause</c>, <c>jobs_resume</c>, <c>jobs_stop</c>, <c>jobs_cancel</c>, <c>jobs_delete_runs</c>
+/// (<c>jobs:manage</c>).
 /// They use the same <see cref="ICliJobManager"/> as <c>/api/v1/qcli/jobs</c>.
 /// </summary>
 public sealed class JobsMcpToolProvider : IMcpToolProvider
@@ -72,6 +73,20 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
                 (jobs, jid, ct) => jobs.StopAsync(jid, ct), McpToolAnnotations.Destructive),
             Action("jobs_cancel", "Cancel a job's running execution", "Execution cancelled",
                 (jobs, jid, ct) => jobs.CancelAsync(jid, ct), McpToolAnnotations.Destructive),
+            new()
+            {
+                Name = "jobs_delete_runs",
+                Description = "Delete a job's finished runs and their logs: one run (executionId), the runs with a status (e.g. failed), or all of them",
+                InputSchema = McpSchema.Object(new JsonObject
+                {
+                    ["id"] = McpSchema.Property("string", "Job id or unique job name (see jobs_list)"),
+                    ["executionId"] = McpSchema.Property("string", "Delete only this run (see jobs_history)"),
+                    ["status"] = McpSchema.Property("string", "Delete only the runs with this status: completed, failed, cancelled or timedout"),
+                }, "id"),
+                RequiredPermissions = [CliRoutePolicy.JobsManage],
+                Annotations = McpToolAnnotations.Destructive,
+                CallAsync = Scoped(DeleteRunsAsync),
+            },
         ];
         return Task.FromResult(tools);
     }
@@ -103,6 +118,32 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
             }
         }),
     };
+
+    private static async Task<McpToolResult> DeleteRunsAsync(ICliJobManager jobs, JsonObject args, CancellationToken ct)
+    {
+        var (jobId, error) = await ResolveAsync(jobs, McpSchema.GetString(args, "id")!, ct);
+        if (error != null) return error;
+        var executionId = McpSchema.GetString(args, "executionId");
+        try
+        {
+            if (!string.IsNullOrEmpty(executionId))
+            {
+                await jobs.DeleteExecutionAsync(jobId!, executionId, ct);
+                return McpToolResult.Ok($"Run deleted: {executionId}");
+            }
+            var status = McpSchema.GetString(args, "status");
+            var deleted = await jobs.DeleteExecutionsAsync(jobId!, string.IsNullOrWhiteSpace(status) ? null : status, ct);
+            return McpToolResult.Ok($"Deleted {deleted} run(s) of {jobId}");
+        }
+        catch (KeyNotFoundException)
+        {
+            return McpToolResult.Error(string.IsNullOrEmpty(executionId) ? $"Job not found: {jobId}" : $"Run not found: {executionId}");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+        {
+            return McpToolResult.Error(ex.Message);
+        }
+    }
 
     /// <summary>Runs a tool call with the job manager of a new scope (the manager may be scoped).</summary>
     private Func<JsonObject, McpToolContext, CancellationToken, Task<McpToolResult>> Scoped(
