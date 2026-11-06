@@ -147,6 +147,7 @@ public class UsersService
 
             await _auth.AuditAsync(AuditEvents.UserCreated, user.Name, null, caller.User.Name,
                 userId: user.Id, actorId: caller.User.Id);
+            await _auth.Events.UserAsync(UsersEvents.UserCreated, user, caller.User.Name);
             return user;
         }
         finally
@@ -251,6 +252,7 @@ public class UsersService
 
             // After a disable's revoke, so bound event sockets get session-kicked before they close.
             _auth.NotifyPermissionsChanged();
+            await _auth.Events.UserAsync(UsersEvents.UserUpdated, updated, actor);
             return updated;
         }
         finally
@@ -275,11 +277,12 @@ public class UsersService
                 actorId: caller.User.Id);
             await _userStore.DeleteUserAsync(target.Id);
             await _credentialStore.DeleteCredentialsAsync(target.Id);
-            await _auth.DeleteUserApiTokensAsync(target.Id);
+            await _auth.DeleteUserApiTokensAsync(target.Id, caller.User.Name);
             _auth.ClearLockout(target.Id);
 
             await _auth.AuditAsync(AuditEvents.UserDeleted, target.Name, null, caller.User.Name,
                 userId: target.Id, actorId: caller.User.Id);
+            await _auth.Events.UserAsync(UsersEvents.UserDeleted, target, caller.User.Name);
         }
         finally
         {
@@ -337,6 +340,7 @@ public class UsersService
 
         await _auth.RevokeUserSessionsAsync(target.Id, AuthService.RevokeReasons.PasswordChanged, caller.User.Name,
             exceptSessionId: isSelf ? caller.Session?.Id : null, actorId: caller.User.Id);
+        await _auth.Events.UserAsync(UsersEvents.UserUpdated, target, caller.User.Name);
     }
 
     // =========================================================================
@@ -385,6 +389,7 @@ public class UsersService
 
             await _auth.AuditAsync(AuditEvents.GroupCreated, caller.User.Name, $"group '{group.Name}' created",
                 caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
+            await _auth.Events.GroupAsync(UsersEvents.GroupCreated, group.Name, caller.User.Name);
             return group;
         }
         finally
@@ -427,6 +432,7 @@ public class UsersService
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupUpdated, caller.User.Name, $"group '{updated.Name}' updated",
                 caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{updated.Name}");
+            await _auth.Events.GroupAsync(UsersEvents.GroupUpdated, updated.Name, caller.User.Name);
             return updated;
         }
         finally
@@ -445,7 +451,8 @@ public class UsersService
                 throw UsersApiException.Conflict($"built-in group '{group.Name}' cannot be deleted");
 
             // A read-only user store keeps its memberships (the host owns them).
-            foreach (var user in _auth.Options.UsersReadOnly ? [] : await GetGroupMembersAsync(group))
+            var members = _auth.Options.UsersReadOnly ? [] : await GetGroupMembersAsync(group);
+            foreach (var user in members)
             {
                 await _userStore.UpdateUserAsync(user.Id, new UpdateUserDto
                 {
@@ -457,6 +464,9 @@ public class UsersService
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupDeleted, caller.User.Name, $"group '{group.Name}' deleted",
                 caller.User.Name, userId: caller.User.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
+            await _auth.Events.GroupAsync(UsersEvents.GroupDeleted, group.Name, caller.User.Name);
+            foreach (var user in members)
+                await _auth.Events.UserAsync(UsersEvents.UserUpdated, user, caller.User.Name);
         }
         finally
         {
@@ -482,6 +492,7 @@ public class UsersService
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberAdded, user.Name, $"added to group '{group.Name}'",
                 caller.User.Name, userId: user.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
+            await _auth.Events.UserAsync(UsersEvents.UserUpdated, user, caller.User.Name);
         }
         finally
         {
@@ -514,6 +525,7 @@ public class UsersService
             _auth.NotifyPermissionsChanged();
             await _auth.AuditAsync(AuditEvents.GroupMemberRemoved, user.Name, $"removed from group '{group.Name}'",
                 caller.User.Name, userId: user.Id, actorId: caller.User.Id, target: $"group:{group.Name}");
+            await _auth.Events.UserAsync(UsersEvents.UserUpdated, user, caller.User.Name);
         }
         finally
         {
