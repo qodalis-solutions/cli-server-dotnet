@@ -309,6 +309,54 @@ public class ServerEventsAudienceTests
         await UsersTestHost.CloseAsync(plainSocket);
     }
 
+    /// <summary>An open socket that accepts the first send (<c>connected</c>) and never completes the later ones.</summary>
+    private sealed class StalledWebSocket : WebSocket
+    {
+        private int _sends;
+        public override WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override WebSocketState State => WebSocketState.Open;
+        public override string? SubProtocol => null;
+        public override void Abort() { }
+        public override Task CloseAsync(WebSocketCloseStatus s, string? d, CancellationToken ct) => Task.CompletedTask;
+        public override Task CloseOutputAsync(WebSocketCloseStatus s, string? d, CancellationToken ct) => Task.CompletedTask;
+        public override void Dispose() { }
+
+        public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("unreachable");
+        }
+
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType type, bool end, CancellationToken ct) =>
+            Interlocked.Increment(ref _sends) == 1 ? Task.CompletedTask : Task.Delay(Timeout.Infinite, ct);
+    }
+
+    [Fact]
+    public async Task Publish_DoesNotWaitForASlowSocket()
+    {
+        var bus = new CliEventBus();
+        using var manager = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance, bus);
+        using var cts = new CancellationTokenSource();
+        _ = manager.HandleConnectionAsync(new StalledWebSocket(), cts.Token);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (manager.GetClients().Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(10);
+
+        var publish = Task.WhenAll(Enumerable.Range(0, 3).Select(i => bus.PublishAsync($"test:slow-{i}")));
+        Assert.Same(publish, await Task.WhenAny(publish, Task.Delay(2000)));
+        cts.Cancel();
+    }
+
+    [Fact]
+    public void CanReceive_ReadsRequireAuthentication_Live()
+    {
+        var options = new CliServerOptions();
+        var manager = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance, new CliEventBus(), options);
+        Assert.True(manager.CanReceive(CliEventAudience.WithPermission("jobs:read"), null));
+        options.RequireAuthentication = true;
+        Assert.False(manager.CanReceive(CliEventAudience.WithPermission("jobs:read"), null));
+    }
+
     [Fact]
     public void CanReceive_WithoutPrincipal_OnlyEveryoneOnAProtectedServer()
     {

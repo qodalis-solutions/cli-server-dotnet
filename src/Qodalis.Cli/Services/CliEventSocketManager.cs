@@ -43,7 +43,7 @@ public class CliEventSocketManager : ICliEventSocketManager
     private readonly ConcurrentDictionary<string, CliPrincipal> _bound = new();
     private readonly ConcurrentDictionary<string, CliPrincipal> _principals = new();
     private readonly ILogger<CliEventSocketManager> _logger;
-    private readonly bool _requireAuthentication;
+    private readonly CliServerOptions? _serverOptions;
     private readonly IDisposable? _subscription;
 
     /// <summary>
@@ -52,12 +52,12 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <param name="logger">The logger instance.</param>
     /// <param name="eventBus">The bus whose events are sent to the sockets; none when null.</param>
     /// <param name="serverOptions">Server options: on a protected server, a socket without a principal receives only
-    /// the events for everyone.</param>
+    /// the events for everyone (read on every event, so a later change applies).</param>
     public CliEventSocketManager(ILogger<CliEventSocketManager> logger, ICliEventBus? eventBus = null,
         CliServerOptions? serverOptions = null)
     {
         _logger = logger;
-        _requireAuthentication = serverOptions?.RequireAuthentication ?? false;
+        _serverOptions = serverOptions;
         _subscription = eventBus?.Subscribe("*", (e, _) => SendEventAsync(e));
     }
 
@@ -137,28 +137,28 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <summary>
     /// Sends an event to the open sockets of its audience: every socket for everyone; otherwise the sockets whose
     /// principal has the permission or is the user. Without authentication (no principal) every socket receives it.
-    /// A failed send to one socket does not stop the others.
+    /// Returns at once: the sends run in the background (failures logged), so a slow client never slows the
+    /// publisher. Each socket's sends are serialized in call order, so it receives the events in publish order.
     /// </summary>
-    public async Task SendEventAsync(CliEvent cliEvent)
+    public Task SendEventAsync(CliEvent cliEvent)
     {
         var bytes = CliEventBus.SerializeToUtf8Bytes(cliEvent);
-        var tasks = new List<Task>();
 
         foreach (var (id, sender) in _clients)
         {
             if (sender.Socket.State != WebSocketState.Open) continue;
             if (!CanReceive(cliEvent.Audience, _principals.GetValueOrDefault(id))) continue;
-            tasks.Add(SendQuietlyAsync(id, sender, bytes));
+            _ = SendQuietlyAsync(id, sender, bytes);
         }
 
-        await Task.WhenAll(tasks);
+        return Task.CompletedTask;
     }
 
     /// <summary>Whether a socket authenticated as <paramref name="principal"/> (null: none) receives an event for <paramref name="audience"/>.</summary>
     public bool CanReceive(CliEventAudience audience, CliPrincipal? principal)
     {
         if (audience.IsEveryone) return true;
-        if (principal == null) return !_requireAuthentication;
+        if (principal == null) return _serverOptions?.RequireAuthentication != true;
         return (audience.Permission != null && principal.Can(audience.Permission)) ||
                (audience.UserId != null && audience.UserId == principal.UserId);
     }
@@ -172,6 +172,10 @@ public class CliEventSocketManager : ICliEventSocketManager
         catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException)
         {
             _logger.LogDebug(ex, "Sending an event to WebSocket client {ClientId} failed", id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Sending an event to WebSocket client {ClientId} failed", id);
         }
     }
 
