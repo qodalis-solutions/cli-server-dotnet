@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions.Audit;
+using Qodalis.Cli.Abstractions.Events;
 using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
@@ -120,8 +121,10 @@ public partial class AuthService
         ILogger<AuthService>? logger = null,
         ICliShellSessions? shellSessions = null,
         ICliLogSocketManager? logSocketManager = null,
-        IApiTokenStore? apiTokenStore = null)
+        IApiTokenStore? apiTokenStore = null,
+        ICliEventBus? eventBus = null)
     {
+        Events = new UsersEvents(eventBus);
         _userStore = userStore;
         _sessionStore = sessionStore;
         _credentialStore = credentialStore;
@@ -138,6 +141,9 @@ public partial class AuthService
     }
 
     public UsersModuleOptions Options => _options;
+
+    /// <summary>Publishes the plugin's server events (<c>user:*</c>, <c>group:*</c>, <c>token:*</c>, <c>session:*</c>).</summary>
+    public UsersEvents Events { get; }
 
     /// <summary>Current time in epoch milliseconds (from the configured <see cref="TimeProvider"/>).</summary>
     public long Now() => _time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -380,6 +386,7 @@ public partial class AuthService
         await AuditAsync(AuditEvents.Login, user.Name, "login successful",
             metadata: new AuditMetadata { RemoteAddress = metadata.RemoteAddress, SessionId = session.Id },
             userId: user.Id);
+        await Events.SessionAsync(UsersEvents.SessionOpened, session, user.Name);
 
         return new LoginResponse
         {
@@ -407,6 +414,7 @@ public partial class AuthService
         await AuditAsync(AuditEvents.Logout, session.UserName, "user logged out",
             actor: session.UserName, metadata: new AuditMetadata { SessionId = session.Id },
             userId: session.UserId, actorId: session.UserId);
+        await Events.SessionAsync(UsersEvents.SessionClosed, session, session.UserName);
     }
 
     /// <summary>Ends the session associated with a raw bearer token.</summary>
@@ -465,6 +473,7 @@ public partial class AuthService
         if (now - session.LastActivity > SessionTimeoutMs || now - session.LoginTime > MaxSessionLifetimeMs)
         {
             await _sessionStore.DeleteSessionByIdAsync(session.Id);
+            await Events.SessionAsync(UsersEvents.SessionClosed, session);
             throw UsersApiException.Unauthorized("session expired");
         }
 
@@ -472,6 +481,7 @@ public partial class AuthService
         if (user == null || user.Id != session.UserId)
         {
             await _sessionStore.DeleteSessionByIdAsync(session.Id);
+            await Events.SessionAsync(UsersEvents.SessionClosed, session);
             throw UsersApiException.Unauthorized("invalid or expired token");
         }
 
@@ -641,6 +651,7 @@ public partial class AuthService
         _shells?.CloseBySession(session.Id);
         await AuditAsync(AuditEvents.SessionRevoked, session.UserName, reason, actor,
             new AuditMetadata { SessionId = session.Id }, session.UserId, actorId);
+        await Events.SessionAsync(UsersEvents.SessionClosed, session, actor);
         await SendSessionKickedAsync(session, reason);
         await CloseEndedSessionSocketsAsync();
     }
@@ -736,6 +747,7 @@ public partial class AuthService
         if (now - session.LastActivity > SessionTimeoutMs || now - session.LoginTime > MaxSessionLifetimeMs)
         {
             await _sessionStore.DeleteSessionByIdAsync(session.Id);
+            await Events.SessionAsync(UsersEvents.SessionClosed, session);
             return null;
         }
 
@@ -840,7 +852,11 @@ public partial class AuthService
     /// </summary>
     public async Task SweepIdleSessionsAsync()
     {
-        await _sessionStore.DeleteIdleSessionsAsync(Now() - SessionTimeoutMs);
+        var cutoff = Now() - SessionTimeoutMs;
+        var idle = (await _sessionStore.GetActiveSessionsAsync()).Where(s => s.LastActivity < cutoff).ToList();
+        await _sessionStore.DeleteIdleSessionsAsync(cutoff);
+        foreach (var session in idle)
+            await Events.SessionAsync(UsersEvents.SessionClosed, session);
         await CloseEndedSessionSocketsAsync();
     }
 
@@ -1011,6 +1027,7 @@ public partial class AuthService
             await AuditAsync(AuditEvents.TokenCreated, caller.User.Name, $"{apiToken.Name} ({apiToken.Id})",
                 caller.User.Name, new AuditMetadata { TokenId = apiToken.Id, TokenName = apiToken.Name },
                 caller.User.Id, caller.User.Id);
+            await Events.TokenAsync(UsersEvents.TokenCreated, apiToken, caller.User.Name);
             return (token, apiToken);
         }
         finally
@@ -1036,15 +1053,19 @@ public partial class AuthService
             : (await _userStore.GetUserAsync(token.UserId))?.Name ?? token.UserId;
         await AuditAsync(AuditEvents.TokenRevoked, ownerName, $"{token.Name} ({token.Id})", caller.User.Name,
             new AuditMetadata { TokenId = token.Id, TokenName = token.Name }, token.UserId, caller.User.Id);
+        await Events.TokenAsync(UsersEvents.TokenRevoked, token, caller.User.Name);
 
         NotifyApiTokensChanged();
         await CloseEndedSessionSocketsAsync();
     }
 
     /// <summary>Deletes every token of a user (user deletion) and closes the sockets opened with them.</summary>
-    public async Task DeleteUserApiTokensAsync(string userId)
+    public async Task DeleteUserApiTokensAsync(string userId, string? actor = null)
     {
+        var tokens = await _apiTokens.GetTokensAsync(userId);
         await _apiTokens.DeleteUserTokensAsync(userId);
+        foreach (var token in tokens)
+            await Events.TokenAsync(UsersEvents.TokenRevoked, token, actor);
         NotifyApiTokensChanged();
         await CloseEndedSessionSocketsAsync();
     }

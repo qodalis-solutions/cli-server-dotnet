@@ -3,6 +3,74 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.23
+
+- The admin plugin embeds dashboard 1.0.0-beta.18: pages update live from the server events (jobs, job detail, files, audit, overview, events), a run's full error in a details dialog, max concurrent runs in the job editor, and no session token in WebSocket URLs when the ticket request fails.
+
+### Server events
+
+One event bus per server, events for every change, and delivery scoped to who may see them (the same on the Node and
+Python servers; spec `web-cli/docs/superpowers/specs/2026-11-06-server-events-design.md`).
+
+- `ICliEventBus` (`Qodalis.Cli.Abstractions.Events`, with `CliEvent`, `CliEventAudience` and `CliEventPattern`),
+  registered as a singleton by `AddCli` (`CliEventBus`). `PublishAsync(type, data, audience)` and
+  `Subscribe(pattern, handler)` (`*`, `ns:*` or a type). Handlers run in subscription order; their exceptions are
+  logged and never fail the publisher. In-process subscribers receive every event.
+- The events WebSocket subscribes to the bus and sends one flat JSON object per event (`type`, ISO 8601 `timestamp`,
+  the fields) to the sockets of its audience: everyone, a permission, a user, or the user or the permission. Each
+  socket keeps its principal; on a server without authentication every socket gets every event. Sends run in the
+  background (in order per socket), so a slow client never slows the request that published.
+  `ICliEventSocketManager.BroadcastMessageAsync`/`SendToUserAsync` still send raw messages.
+- New events: `job:triggered`, `job:updated`, `job:runs-deleted` (jobs API and MCP tools, so a custom
+  `ICliJobManager` gets them); `user:*`, `group:*`, `token:*`, `session:*` (users plugin); `fs:changed` (every write
+  through `IFileStorageProvider`, now wrapped in `CliEventFileStorageProvider`); `command:executed` (REST, stream and
+  MCP executions of known commands: the processor name only); `audit:recorded` (every entry, through
+  `CliEventAuditStore`). See the README's "Server events" for fields and audiences.
+- Fix: the jobs scheduler sent its events nested (`{ type, data: { jobId } }`), so the dashboard's job pages never
+  refreshed live on .NET. They are now flat, sent to `jobs:read` only, `job:paused`/`job:resumed`/`job:stopped` carry
+  `status`, `job:completed` carries the run's real `duration`, and the run events are published once the run is
+  saved. `CliJobScheduler` takes an `ICliEventBus`; the `ICliEventSocketManager` constructors remain.
+- `IAuditStore` and `IFileStorageProvider` resolve to the wrapping `CliEventAuditStore`/`CliEventFileStorageProvider`
+  (`Inner`, `CliEventAuditStore.Unwrap`).
+
+### Jobs: max concurrent runs, and no job started twice
+
+Spec `web-cli/docs/superpowers/specs/2026-11-06-job-concurrency-design.md` (the same on the Node and Python servers).
+
+- `CliJobOptions.MaxConcurrentRuns` (default 1, at least 1): up to N runs of a job at the same time. A run holds its
+  slot until it ends, including its retries and the delays before them. When the slots are full, `OverlapPolicy`
+  decides: `Skip` drops the due run (a trigger is refused, `409 JOB_ALREADY_RUNNING`), `Queue` queues one run (several
+  due runs coalesce into one; a trigger is accepted), `Cancel` cancels the oldest run and starts the new one once it
+  ended (queued meanwhile, so the limit holds; above a lowered limit it cancels nothing and skips). Lowering the limit cancels nothing; raising it starts a queued run.
+- Job info (`GET /jobs`, `GET /jobs/{id}`, MCP `jobs_list`/`jobs_get`, `CliJobInfo`): `maxConcurrentRuns`,
+  `runningExecutionIds` (the attempts executing now, oldest first: a run in its retry delay has no entry), `queued`;
+  `currentExecutionId` is the newest executing attempt. `PUT /jobs/{id}` accepts `maxConcurrentRuns`, an integer >= 1
+  (below 1 is `400 INVALID_VALUE`, a non-integer is `400` too). New `CliJobInfo` members default to 1, empty and false,
+  so custom `ICliJobManager` implementations keep compiling.
+- `POST /jobs/{id}/trigger` answers `{ "message": "Job triggered", "queued": false }`, or `{ "message": "Job queued",
+  "queued": true }` when the run was queued (`Queue`, or `Cancel` while the cancelled run ends); MCP `jobs_trigger`
+  says "Job queued". New default member `ICliJobManager.TriggerWithOutcomeAsync` (and
+  `ICliJobScheduler.TriggerWithOutcomeAsync`) returns `CliJobTriggerOutcome`; its default calls `TriggerAsync` and
+  reports `Started`.
+- `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables the schedule.
+- Fix: `RunOnStart` ran every job on every start. Now an interval job runs on start only when it never ran or its next
+  run is due, a cron job only when it never ran or missed an occurrence; a job without a schedule still runs on every
+  start.
+- Fix: between a failed attempt and its retry the job counted as idle, so a tick or a trigger started a second run.
+- Fix: `OverlapPolicy.Queue` started the new run at once, in parallel; it now waits for a free slot.
+- Fix: timer ticks and triggers checked "is it running" without a lock, so two at the same moment both started a run.
+  Taking a slot is atomic per job.
+- Fix: a cron tick that fired a few milliseconds early ran the same occurrence again; the next occurrence is computed
+  from the one that fired. A stale timer callback (after an update, pause or stop replaced the timer) does nothing.
+- Fix: runs cut off by a restart stayed `running` forever. On start the scheduler finishes its jobs' leftover running
+  executions as `cancelled` (`Interrupted: the server stopped during the run`, completed at their last log entry when
+  that is later than their start, else at their start).
+- Fix: a run cancelled by hand (cancel, stop, the `Cancel` overlap policy) of a job with a `Timeout` was recorded as
+  `timedout` and published `job:timed_out`. The timeout has its own cancellation source now: a cancel by hand is
+  `cancelled` / `job:cancelled`, only a real timeout is `timedout` / `job:timed_out`.
+- `CliJobScheduler` takes an optional `TimeProvider` (from DI when registered) for its clock, timers and retry delays.
+  `JobRegistration` gains `RunningExecutionIds` and `Queued`; its `Timer` is an `ITimer`.
+
 ## 1.0.0-beta.22
 
 - The admin plugin embeds dashboard 1.0.0-beta.17: logs jump to newest, pause, copy an entry and collapsed exceptions; jobs run again and delete runs from the recent runs table.

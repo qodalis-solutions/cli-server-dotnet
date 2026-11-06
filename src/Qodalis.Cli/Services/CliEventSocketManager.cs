@@ -3,6 +3,8 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Events;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Services;
 
@@ -32,26 +34,36 @@ public class CliWebSocketClientInfo
 /// Manages WebSocket connections for server-push event broadcasting to connected clients.
 /// Sends to one socket are serialized (broadcasts and user-targeted messages may run concurrently).
 /// Sockets authenticated with a session are bound to it (see <see cref="ICliSessionBoundSockets"/>).
+/// Subscribes to every event of the <see cref="ICliEventBus"/> and sends each one to the sockets of its audience.
 /// </summary>
 public class CliEventSocketManager : ICliEventSocketManager
 {
     private readonly ConcurrentDictionary<string, SerializedWebSocketSender> _clients = new();
     private readonly ConcurrentDictionary<string, CliWebSocketClientInfo> _clientInfo = new();
-    private readonly ConcurrentDictionary<string, Qodalis.Cli.Security.CliPrincipal> _bound = new();
+    private readonly ConcurrentDictionary<string, CliPrincipal> _bound = new();
+    private readonly ConcurrentDictionary<string, CliPrincipal> _principals = new();
     private readonly ILogger<CliEventSocketManager> _logger;
+    private readonly CliServerOptions? _serverOptions;
+    private readonly IDisposable? _subscription;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliEventSocketManager"/>.
     /// </summary>
     /// <param name="logger">The logger instance.</param>
-    public CliEventSocketManager(ILogger<CliEventSocketManager> logger)
+    /// <param name="eventBus">The bus whose events are sent to the sockets; none when null.</param>
+    /// <param name="serverOptions">Server options: on a protected server, a socket without a principal receives only
+    /// the events for everyone (read on every event, so a later change applies).</param>
+    public CliEventSocketManager(ILogger<CliEventSocketManager> logger, ICliEventBus? eventBus = null,
+        CliServerOptions? serverOptions = null)
     {
         _logger = logger;
+        _serverOptions = serverOptions;
+        _subscription = eventBus?.Subscribe("*", (e, _) => SendEventAsync(e));
     }
 
     /// <inheritdoc />
     public async Task HandleConnectionAsync(WebSocket socket, CancellationToken cancellationToken, string? remoteAddress = null,
-        Qodalis.Cli.Security.CliPrincipal? principal = null)
+        CliPrincipal? principal = null)
     {
         var id = Guid.NewGuid().ToString();
         var sender = new SerializedWebSocketSender(socket);
@@ -64,6 +76,7 @@ public class CliEventSocketManager : ICliEventSocketManager
             Type = "events",
             UserId = principal?.UserId,
         });
+        if (principal != null) _principals.TryAdd(id, principal);
         if (SessionBoundSockets.IsBound(principal)) _bound.TryAdd(id, principal!);
 
         _logger.LogInformation("Event WebSocket client connected (id={ClientId})", id);
@@ -96,6 +109,7 @@ public class CliEventSocketManager : ICliEventSocketManager
         finally
         {
             _bound.TryRemove(id, out _);
+            _principals.TryRemove(id, out _);
             _clients.TryRemove(id, out _);
             _clientInfo.TryRemove(id, out _);
             sender.Dispose();
@@ -118,6 +132,51 @@ public class CliEventSocketManager : ICliEventSocketManager
         }
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Sends an event to the open sockets of its audience: every socket for everyone; otherwise the sockets whose
+    /// principal has the permission or is the user. Without authentication (no principal) every socket receives it.
+    /// Returns at once: the sends run in the background (failures logged), so a slow client never slows the
+    /// publisher. Each socket's sends are serialized in call order, so it receives the events in publish order.
+    /// </summary>
+    public Task SendEventAsync(CliEvent cliEvent)
+    {
+        var bytes = CliEventBus.SerializeToUtf8Bytes(cliEvent);
+
+        foreach (var (id, sender) in _clients)
+        {
+            if (sender.Socket.State != WebSocketState.Open) continue;
+            if (!CanReceive(cliEvent.Audience, _principals.GetValueOrDefault(id))) continue;
+            _ = SendQuietlyAsync(id, sender, bytes);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Whether a socket authenticated as <paramref name="principal"/> (null: none) receives an event for <paramref name="audience"/>.</summary>
+    public bool CanReceive(CliEventAudience audience, CliPrincipal? principal)
+    {
+        if (audience.IsEveryone) return true;
+        if (principal == null) return _serverOptions?.RequireAuthentication != true;
+        return (audience.Permission != null && principal.Can(audience.Permission)) ||
+               (audience.UserId != null && audience.UserId == principal.UserId);
+    }
+
+    private async Task SendQuietlyAsync(string id, SerializedWebSocketSender sender, byte[] bytes)
+    {
+        try
+        {
+            await sender.SendTextAsync(bytes);
+        }
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Sending an event to WebSocket client {ClientId} failed", id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Sending an event to WebSocket client {ClientId} failed", id);
+        }
     }
 
     /// <inheritdoc />
@@ -159,7 +218,7 @@ public class CliEventSocketManager : ICliEventSocketManager
     }
 
     /// <inheritdoc />
-    public async Task CloseEndedSessionsAsync(Func<Qodalis.Cli.Security.CliPrincipal, Task<bool>> isSessionActive)
+    public async Task CloseEndedSessionsAsync(Func<CliPrincipal, Task<bool>> isSessionActive)
     {
         await Task.WhenAll(_bound.ToArray().Select(async entry =>
         {
@@ -168,6 +227,7 @@ public class CliEventSocketManager : ICliEventSocketManager
 
             // Stop delivering to it, then close after any send in progress.
             _clientInfo.TryRemove(entry.Key, out _);
+            _principals.TryRemove(entry.Key, out _);
             if (_clients.TryRemove(entry.Key, out var sender))
             {
                 _logger.LogInformation("Closing event WebSocket client of an ended session (id={ClientId})", entry.Key);
@@ -199,6 +259,7 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// <inheritdoc />
     public void Dispose()
     {
+        _subscription?.Dispose();
         foreach (var (_, sender) in _clients)
         {
             sender.Socket.Dispose();

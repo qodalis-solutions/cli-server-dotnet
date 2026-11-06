@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
@@ -27,6 +28,7 @@ public class CliController : ControllerBase
     private readonly ILogger<CliController> _logger;
     private readonly CliServerOptions _serverOptions;
     private readonly CliCommandUsage? _usage;
+    private readonly ICliEventBus? _events;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliController"/>.
@@ -37,15 +39,18 @@ public class CliController : ControllerBase
     /// <param name="logger">The logger instance.</param>
     /// <param name="serverOptions">Server options.</param>
     /// <param name="usage">The command execution counters (<c>GET commands/stats</c>).</param>
+    /// <param name="eventBus">Publishes <c>command:executed</c> for the executions the executor does not run.</param>
     public CliController(
         ICliCommandRegistry registry,
         ICliCommandExecutorService executor,
         ICliServerInfoService serverInfo,
         ILogger<CliController> logger,
         CliServerOptions? serverOptions = null,
-        CliCommandUsage? usage = null)
+        CliCommandUsage? usage = null,
+        ICliEventBus? eventBus = null)
     {
         _usage = usage;
+        _events = eventBus;
         _serverOptions = serverOptions ?? new CliServerOptions();
         _registry = registry;
         _executor = executor;
@@ -242,7 +247,11 @@ public class CliController : ControllerBase
         finally
         {
             if (countedHere == true)
-                _usage?.Record(command.Command, known, System.Diagnostics.Stopwatch.GetElapsedTime(started), failed);
+            {
+                var duration = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+                _usage?.Record(command.Command, known, duration, failed);
+                await CliCommandEvents.PublishAsync(_events, command.Command, known, !failed, duration, HttpContext?.GetCliPrincipal());
+            }
         }
     }
 }

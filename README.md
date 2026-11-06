@@ -408,11 +408,67 @@ Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter
 | GET | `/api/qcli/data-explorer/sources`, `schema` | Data explorer, with a provider registered |
 | POST | `/api/qcli/data-explorer/execute` | Run a query |
 | POST | `/api/qcli/mcp` | MCP endpoint, with `AddMcp()` |
-| WS | `/ws/v1/qcli/events` | Server-push events |
+| WS | `/ws/v1/qcli/events` | Server events (see [Server events](#server-events)) |
 | WS | `/ws/v1/qcli/logs` | Log stream (`?level=` filter) |
 | WS | `/ws/v1/qcli/shell` | Interactive PTY shell, with `EnableShell()` |
 
 Every WebSocket is also served without the version segment (`/ws/qcli/events`, ...). The jobs, admin, audit and users plugins add routes under `/api/v1/qcli` (see their READMEs), among them the dashboard's chart data: `jobs/stats`, `logs/histogram` and `status/history`.
+
+## Server events
+
+Every server has one event bus, `ICliEventBus` (`Qodalis.Cli.Abstractions.Events`, registered by `AddCli`). Plugins
+publish their changes on it, and your app can publish its own events and react to any of them in code. The events
+WebSocket (`/ws/v1/qcli/events`) is one subscriber: it sends each event to the sockets of its audience as one flat
+JSON object.
+
+```json
+{ "type": "job:completed", "timestamp": "2026-11-06T10:15:00.000Z", "jobId": "cleanup", "executionId": "…", "duration": 1520 }
+```
+
+```csharp
+using Qodalis.Cli.Abstractions.Events;
+
+var bus = app.Services.GetRequiredService<ICliEventBus>();
+
+// React in code: "*" is every event, "user:*" every type starting with "user:", anything else one type.
+// In-process handlers get every event whatever its audience; a handler's exception is logged and never fails the publisher.
+using var subscription = bus.Subscribe("user:*", async (e, ct) =>
+    logger.LogInformation("{Type} {User} by {Actor}", e.Type, e.Data["username"], e.Data.GetValueOrDefault("actor")));
+
+// Publish: the fields (anonymous object, dictionary or POCO) are serialized camelCase and merged into the message.
+await bus.PublishAsync("plan:changed", new { planId = "pro", actor = "alice" },
+    CliEventAudience.WithPermission("plans:read"));
+```
+
+**Audience** (not sent on the wire): everyone (the default), `CliEventAudience.WithPermission("jobs:read")` (sockets
+whose user has the permission), `CliEventAudience.User(userId)` (that user's sockets) or both,
+`new CliEventAudience("tokens:read", userId)` (the user or anyone with the permission). On a server without
+authentication every socket receives every event. A socket keeps the permissions it was opened with.
+
+**Catalog** (published at the layer every caller goes through: REST API, MCP tools and commands alike, so a host's own
+job manager, user store or file storage provider gets them too; `actor` is the user name when known):
+
+| Type | Fields | Audience |
+|---|---|---|
+| `job:started` | jobId, executionId | `jobs:read` |
+| `job:completed` | jobId, executionId, duration | `jobs:read` |
+| `job:failed` | jobId, executionId, error | `jobs:read` |
+| `job:cancelled`, `job:timed_out` | jobId, executionId | `jobs:read` |
+| `job:retrying` | jobId, executionId, attempt, maxRetries, delayMs | `jobs:read` |
+| `job:paused`, `job:resumed`, `job:stopped` | jobId, status (`paused`, `active`, `stopped`) | `jobs:read` |
+| `job:triggered`, `job:updated` | jobId | `jobs:read` |
+| `job:runs-deleted` | jobId, executionId (one run) or count (bulk) | `jobs:read` |
+| `user:created`, `user:updated`, `user:deleted` | userId, username | `users:read` |
+| `group:created`, `group:updated`, `group:deleted` | group | `groups:read` |
+| `token:created`, `token:revoked` | tokenId, name, userId | `tokens:read` or the owner |
+| `session:opened`, `session:closed` | userId, username, sessionId | `sessions:read` |
+| `fs:changed` | action (`upload`, `mkdir`, `delete`, `write`, `move`, `copy`), path, newPath (move, copy) | `files:read` |
+| `command:executed` | command (the processor name only, never arguments), success, durationMs, userId | `audit:read` |
+| `audit:recorded` | the audit entry as the audit API returns it (its time is the event's `timestamp`) | `audit:read` |
+
+`user:updated` covers profile, password, enabled/disabled and group membership changes; `session:closed` covers
+sign-out, expiry and revocation. The control messages `connected`, `disconnect` and `session-kicked` are unchanged.
+`ICliEventSocketManager.BroadcastMessageAsync` and `SendToUserAsync` still send raw messages.
 
 ## Plugins
 
@@ -430,7 +486,7 @@ Every WebSocket is also served without the version segment (`/ws/qcli/events`, .
 | [`Qodalis.Cli.Plugin.DataExplorer.Mongo`](plugins/data-explorer-mongo) | MongoDB | `cli.AddDataExplorerMongo(...)` |
 | [`Qodalis.Cli.Plugin.DataExplorer.Redis`](plugins/data-explorer-redis) | Redis | `cli.AddDataExplorerRedis(...)` |
 | [`Qodalis.Cli.Plugin.DataExplorer.Elasticsearch`](plugins/data-explorer-elasticsearch) | Elasticsearch | `cli.AddDataExplorerElasticsearch(...)` |
-| [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs | `cli.AddJob<T>(...)` |
+| [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs (cron or interval, retries, overlap policy, `MaxConcurrentRuns`) | `cli.AddJob<T>(...)` |
 | [`Qodalis.Cli.Plugin.Jobs.EfCore`](plugins/jobs-efcore) | EF Core job history storage | `cli.AddEfCoreJobStorage(...)` |
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |
@@ -452,7 +508,7 @@ The image runs the bundled host (`src/Qodalis.Cli.Server`) on port 8046. `./dock
 
 ## Versioning
 
-Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.22` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
+Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.23` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
 
 ## Development
 

@@ -86,7 +86,7 @@ public class ExternalAuthSocketRecheckTests
         Assert.True(Volatile.Read(ref state.Calls) > before, "the adapter should be consulted by the re-checks");
 
         await h.Service<Qodalis.Cli.Services.ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await ReceiveTextAsync(socket));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(socket));
         await CloseAsync(socket);
     }
 
@@ -137,7 +137,7 @@ public class ExternalAuthSocketRecheckTests
         Assert.Equal(4401, (await ShellTestClient.ReadUntilCloseAsync(erin, 10000)).Code);
 
         await h.Service<Qodalis.Cli.Services.ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await ReceiveTextAsync(frank));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(frank));
         await CloseAsync(frank);
     }
 

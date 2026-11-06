@@ -20,8 +20,22 @@ public interface ICliJobManager
     async Task<CliJobInfo?> GetJobAsync(string jobId, CancellationToken cancellationToken) =>
         (await GetJobsAsync(cancellationToken)).FirstOrDefault(j => j.Id == jobId);
 
-    /// <summary>Runs the job now (or queues it, for a manager whose jobs run elsewhere).</summary>
+    /// <summary>
+    /// Runs the job now, or queues it (overlap policy <c>Queue</c>, or a manager whose jobs run elsewhere). Throw
+    /// <see cref="InvalidOperationException"/> when the job is running and the run is refused (409).
+    /// </summary>
     Task TriggerAsync(string jobId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs the job now like <see cref="TriggerAsync"/> and tells whether the run started or was queued (overlap
+    /// policy <c>Queue</c>, every slot taken); the jobs API and MCP answer "Job queued" for the latter. The default
+    /// calls <see cref="TriggerAsync"/> and reports <see cref="CliJobTriggerOutcome.Started"/>.
+    /// </summary>
+    async Task<CliJobTriggerOutcome> TriggerWithOutcomeAsync(string jobId, CancellationToken cancellationToken)
+    {
+        await TriggerAsync(jobId, cancellationToken);
+        return CliJobTriggerOutcome.Started;
+    }
 
     /// <summary>Pauses the job's schedule.</summary>
     Task PauseAsync(string jobId, CancellationToken cancellationToken);
@@ -33,7 +47,7 @@ public interface ICliJobManager
     Task StopAsync(string jobId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Stopping jobs is not supported");
 
-    /// <summary>Cancels the job's running execution.</summary>
+    /// <summary>Cancels every running execution of the job and drops a queued run.</summary>
     Task CancelAsync(string jobId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Cancelling a running job is not supported");
 
@@ -138,8 +152,21 @@ public class CliJobInfo
     /// <summary>Gets or sets what happens when a run is due while one is running.</summary>
     public JobOverlapPolicy OverlapPolicy { get; set; } = JobOverlapPolicy.Skip;
 
-    /// <summary>Gets or sets the running execution's id, if one is running.</summary>
+    /// <summary>Gets or sets how many runs of the job may go at the same time. A manager without the option reports 1.</summary>
+    public int MaxConcurrentRuns { get; set; } = 1;
+
+    /// <summary>Gets or sets the newest executing attempt's id, if one is executing.</summary>
     public string? CurrentExecutionId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the ids of the attempts executing now, oldest first; empty when idle. A run waiting for its retry
+    /// keeps its slot but has no entry. When a manager leaves it empty but sets <see cref="CurrentExecutionId"/>, the
+    /// API reports that one.
+    /// </summary>
+    public IReadOnlyList<string> RunningExecutionIds { get; set; } = [];
+
+    /// <summary>Gets or sets whether a run is queued, waiting for a free slot.</summary>
+    public bool Queued { get; set; }
 
     /// <summary>Gets or sets the next scheduled run (UTC).</summary>
     public DateTime? NextRunAt { get; set; }
@@ -158,6 +185,18 @@ public class CliJobInfo
     /// Clients hide the others.
     /// </summary>
     public IReadOnlyList<string>? Actions { get; set; }
+}
+
+/// <summary>What a manual trigger did: started a run, or queued one that starts when a slot frees.</summary>
+public enum CliJobTriggerOutcome
+{
+    /// <summary>A run started.</summary>
+    Started,
+    /// <summary>
+    /// Every slot was taken and the run waits for a free slot: overlap policy <c>Queue</c>, or <c>Cancel</c> until the
+    /// cancelled run ended.
+    /// </summary>
+    Queued,
 }
 
 /// <summary>Names of the job actions, for <see cref="CliJobInfo.Actions"/>.</summary>
