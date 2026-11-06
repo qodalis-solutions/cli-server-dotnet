@@ -38,17 +38,18 @@ Spec `web-cli/docs/superpowers/specs/2026-11-06-job-concurrency-design.md` (the 
 - `CliJobOptions.MaxConcurrentRuns` (default 1, at least 1): up to N runs of a job at the same time. A run holds its
   slot until it ends, including its retries and the delays before them. When the slots are full, `OverlapPolicy`
   decides: `Skip` drops the due run (a trigger is refused, `409 JOB_ALREADY_RUNNING`), `Queue` queues one run (several
-  due runs coalesce into one; a trigger is accepted), `Cancel` cancels the oldest run, which gives its slot to the new
-  one. Lowering the limit cancels nothing; raising it starts a queued run.
+  due runs coalesce into one; a trigger is accepted), `Cancel` cancels the oldest run and starts the new one once it
+  ended (queued meanwhile, so the limit holds). Lowering the limit cancels nothing; raising it starts a queued run.
 - Job info (`GET /jobs`, `GET /jobs/{id}`, MCP `jobs_list`/`jobs_get`, `CliJobInfo`): `maxConcurrentRuns`,
   `runningExecutionIds` (the attempts executing now, oldest first: a run in its retry delay has no entry), `queued`;
-  `currentExecutionId` is the newest executing attempt. `PUT /jobs/{id}` accepts `maxConcurrentRuns` (an integer >= 1,
-  else `400 INVALID_VALUE`). New `CliJobInfo` members default to 1, empty and false, so custom `ICliJobManager`
-  implementations keep compiling.
+  `currentExecutionId` is the newest executing attempt. `PUT /jobs/{id}` accepts `maxConcurrentRuns`, an integer >= 1
+  (below 1 is `400 INVALID_VALUE`, a non-integer is `400` too). New `CliJobInfo` members default to 1, empty and false,
+  so custom `ICliJobManager` implementations keep compiling.
 - `POST /jobs/{id}/trigger` answers `{ "message": "Job triggered", "queued": false }`, or `{ "message": "Job queued",
-  "queued": true }` when the run was queued; MCP `jobs_trigger` says "Job queued". New default member
-  `ICliJobManager.TriggerWithOutcomeAsync` (and `ICliJobScheduler.TriggerWithOutcomeAsync`) returns
-  `CliJobTriggerOutcome`; its default calls `TriggerAsync` and reports `Started`.
+  "queued": true }` when the run was queued (`Queue`, or `Cancel` while the cancelled run ends); MCP `jobs_trigger`
+  says "Job queued". New default member `ICliJobManager.TriggerWithOutcomeAsync` (and
+  `ICliJobScheduler.TriggerWithOutcomeAsync`) returns `CliJobTriggerOutcome`; its default calls `TriggerAsync` and
+  reports `Started`.
 - `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables the schedule.
 - Fix: `RunOnStart` ran every job on every start. Now an interval job runs on start only when it never ran or its next
   run is due, a cron job only when it never ran or missed an occurrence; a job without a schedule still runs on every

@@ -108,8 +108,9 @@ When a run is due (timer, trigger, run on start) and every slot is taken, `Overl
 - `Queue`: the run waits and starts when a slot frees. At most one run waits per job: several due runs while full make
   one more run, not a backlog. A trigger is accepted: `200 { "message": "Job queued", "queued": true }` (a run that
   started answers `{ "message": "Job triggered", "queued": false }`; MCP `jobs_trigger` says "Job queued").
-- `Cancel`: the oldest running run is cancelled and gives its slot to the new run, which starts at once. (Above a
-  lowered limit nothing is cancelled and the due run is skipped.)
+- `Cancel`: the oldest running run is cancelled; the new run waits (`queued`, and a trigger answers `"Job queued"`)
+  and starts once the cancelled run ended, so the limit holds. A further due run meanwhile joins the waiting one
+  instead of cancelling another run.
 
 Lowering `MaxConcurrentRuns` cancels nothing: runs finish, and new runs start once fewer are going. Raising it starts a
 queued run. `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables
@@ -155,7 +156,7 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | POST | `/{id}/resume` | Resume a paused job |
 | POST | `/{id}/stop` | Stop job: cancel every running run, drop a queued one, disable the schedule |
 | POST | `/{id}/cancel` | Cancel every running run and drop a queued one (`409 JOB_NOT_RUNNING` when idle) |
-| PUT | `/{id}` | Update job options: `description`, `group`, `schedule`, `interval`, `maxRetries`, `retryDelay`, `retryStrategy`, `timeout`, `overlapPolicy`, `maxConcurrentRuns` (an integer >= 1, else `400 INVALID_VALUE`) |
+| PUT | `/{id}` | Update job options: `description`, `group`, `schedule`, `interval`, `maxRetries`, `retryDelay`, `retryStrategy`, `timeout`, `overlapPolicy`, `maxConcurrentRuns` (an integer >= 1: below 1 is `400 INVALID_VALUE`, a non-integer is `400` too) |
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 | DELETE | `/{id}/history/{execId}` | Delete a finished run and its logs (`404 EXECUTION_NOT_FOUND`, `409 EXECUTION_RUNNING`) |
