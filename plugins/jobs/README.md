@@ -89,11 +89,55 @@ To run a job from your own code (e.g. when something happened), resolve `ICliJob
 | `Group` | `string?` | `null` | Logical grouping |
 | `Schedule` | `string?` | `null` | Cron expression (5-field) |
 | `Interval` | `TimeSpan?` | `null` | Fixed interval between runs; across restarts the next run is the last run plus the interval |
-| `RunOnStart` | `bool` | `false` | Run once right after the scheduler starts (active jobs only) |
+| `RunOnStart` | `bool` | `false` | Run when the scheduler starts unless the job ran recently (active jobs only; see [Run on start](#run-on-start)) |
 | `Enabled` | `bool` | `true` | Whether the job starts active. `false` keeps it stopped whatever state was saved; otherwise a saved pause or stop (made from the API) is kept across restarts |
 | `MaxRetries` | `int` | `1` | Retry count on failure |
 | `Timeout` | `TimeSpan?` | `null` | Max execution duration |
-| `OverlapPolicy` | `JobOverlapPolicy` | `Skip` | `Skip`, `Queue`, or `Cancel` |
+| `OverlapPolicy` | `JobOverlapPolicy` | `Skip` | What a due run does when `MaxConcurrentRuns` runs are going: `Skip`, `Queue`, or `Cancel` |
+| `MaxConcurrentRuns` | `int` | `1` | How many runs of the job may go at the same time (at least 1) |
+
+## Concurrent runs
+
+A job runs at most `MaxConcurrentRuns` times at once. A run holds its slot from its start until it ends, **including
+its retries and the delays before them**, so a timer tick or a trigger during a retry delay does not start a second
+run. Taking a slot is atomic: ticks and triggers at the same moment never exceed the limit.
+
+When a run is due (timer, trigger, run on start) and every slot is taken, `OverlapPolicy` decides:
+
+- `Skip`: the due run is dropped; a trigger is refused (`409 JOB_ALREADY_RUNNING`).
+- `Queue`: the run waits and starts when a slot frees. At most one run waits per job: several due runs while full make
+  one more run, not a backlog. A trigger is accepted (`200`).
+- `Cancel`: the oldest running run is cancelled; the new one starts once it ended (so the limit holds), and a trigger
+  is accepted.
+
+Lowering `MaxConcurrentRuns` cancels nothing: runs finish, and new runs start once fewer are going. Raising it starts a
+queued run. `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables
+the schedule.
+
+Job info (`GET /jobs`, `GET /jobs/{id}`, `jobs_list`, `jobs_get`, `CliJobInfo`) carries `maxConcurrentRuns`,
+`runningExecutionIds` (oldest first; empty when idle; a run waiting for its retry shows its failed attempt),
+`currentExecutionId` (the newest running run, or null) and `queued` (a run waits for a slot).
+
+## Run on start
+
+`RunOnStart` runs a job when the server starts unless it ran recently, so a restart, a crash loop or a double deploy
+does not run every job again:
+
+- Interval job: only when it never ran or its next run is due (last run plus the interval has passed); otherwise the
+  timer keeps the rhythm from the last run.
+- Cron job: only when it never ran or missed an occurrence (one between the last run and now).
+- A job without a schedule (run on request only): on every start.
+
+The run goes through the same slots as any due run. Cron timers compute the next occurrence from the one that just
+fired, so a tick that fires a few milliseconds early never runs an occurrence twice.
+
+## Interrupted runs
+
+When the scheduler starts, the runs of its registered jobs that its store still has as `running` (left by a process
+that stopped during them) are finished as `cancelled` with the error `Interrupted: the server stopped during the run`,
+completed at their start time. Only at start and only in the scheduler's own store; no events are published for them.
+Several server processes sharing one store therefore finish each other's runs when one of them starts: run a job's
+schedule in one process only.
 
 ## REST API
 
@@ -106,9 +150,9 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | POST | `/{id}/trigger` | Trigger immediate execution |
 | POST | `/{id}/pause` | Pause scheduled execution |
 | POST | `/{id}/resume` | Resume a paused job |
-| POST | `/{id}/stop` | Stop job and cancel if running |
-| POST | `/{id}/cancel` | Cancel current execution only |
-| PUT | `/{id}` | Update job options |
+| POST | `/{id}/stop` | Stop job: cancel every running run, drop a queued one, disable the schedule |
+| POST | `/{id}/cancel` | Cancel every running run and drop a queued one (`409 JOB_NOT_RUNNING` when idle) |
+| PUT | `/{id}` | Update job options: `description`, `group`, `schedule`, `interval`, `maxRetries`, `retryDelay`, `retryStrategy`, `timeout`, `overlapPolicy`, `maxConcurrentRuns` (an integer >= 1, else `400 INVALID_VALUE`) |
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 | DELETE | `/{id}/history/{execId}` | Delete a finished run and its logs (`404 EXECUTION_NOT_FOUND`, `409 EXECUTION_RUNNING`) |
@@ -180,7 +224,10 @@ cli.SetJobManager<MyJobManager>();   // scoped: it may use the request's service
 ```
 
 Implement `GetJobsAsync`, `TriggerAsync`, `PauseAsync`, `ResumeAsync`, `GetExecutionsAsync` and
-`GetExecutionAsync` (`QueryExecutionsAsync` defaults to merging `GetExecutionsAsync` per job). `StopAsync`, `CancelAsync` and `UpdateAsync` default to `NotSupportedException` (501); set
+`GetExecutionAsync` (`QueryExecutionsAsync` defaults to merging `GetExecutionsAsync` per job). Map
+`MaxConcurrentRuns`, `RunningExecutionIds` and `Queued` on `CliJobInfo` when your jobs have them; the defaults (1, empty,
+false) suit a manager without the option, and with `RunningExecutionIds` empty the API reports `CurrentExecutionId`
+as the one running run. `StopAsync`, `CancelAsync` and `UpdateAsync` default to `NotSupportedException` (501); set
 `CliJobInfo.Actions` so clients hide what a job does not offer. Throw `KeyNotFoundException` for an unknown job
 (404) and `InvalidOperationException` when the job's state refuses the action (409).
 

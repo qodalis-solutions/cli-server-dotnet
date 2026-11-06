@@ -31,6 +31,35 @@ Python servers; spec `web-cli/docs/superpowers/specs/2026-11-06-server-events-de
 - `IAuditStore` and `IFileStorageProvider` resolve to the wrapping `CliEventAuditStore`/`CliEventFileStorageProvider`
   (`Inner`, `CliEventAuditStore.Unwrap`).
 
+### Jobs: max concurrent runs, and no job started twice
+
+Spec `web-cli/docs/superpowers/specs/2026-11-06-job-concurrency-design.md` (the same on the Node and Python servers).
+
+- `CliJobOptions.MaxConcurrentRuns` (default 1, at least 1): up to N runs of a job at the same time. A run holds its
+  slot until it ends, including its retries and the delays before them. When the slots are full, `OverlapPolicy`
+  decides: `Skip` drops the due run (a trigger is refused, `409 JOB_ALREADY_RUNNING`), `Queue` queues one run (several
+  due runs coalesce into one; a trigger is accepted), `Cancel` cancels the oldest run and starts the new one once it
+  ended. Lowering the limit cancels nothing; raising it starts a queued run.
+- Job info (`GET /jobs`, `GET /jobs/{id}`, MCP `jobs_list`/`jobs_get`, `CliJobInfo`): `maxConcurrentRuns`,
+  `runningExecutionIds` (oldest first), `queued`; `currentExecutionId` is the newest running run. `PUT /jobs/{id}`
+  accepts `maxConcurrentRuns` (an integer >= 1, else `400 INVALID_VALUE`). New `CliJobInfo` members default to 1,
+  empty and false, so custom `ICliJobManager` implementations keep compiling.
+- `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables the schedule.
+- Fix: `RunOnStart` ran every job on every start. Now an interval job runs on start only when it never ran or its next
+  run is due, a cron job only when it never ran or missed an occurrence; a job without a schedule still runs on every
+  start.
+- Fix: between a failed attempt and its retry the job counted as idle, so a tick or a trigger started a second run.
+- Fix: `OverlapPolicy.Queue` started the new run at once, in parallel; it now waits for a free slot.
+- Fix: timer ticks and triggers checked "is it running" without a lock, so two at the same moment both started a run.
+  Taking a slot is atomic per job.
+- Fix: a cron tick that fired a few milliseconds early ran the same occurrence again; the next occurrence is computed
+  from the one that fired. A stale timer callback (after an update, pause or stop replaced the timer) does nothing.
+- Fix: runs cut off by a restart stayed `running` forever. On start the scheduler finishes its jobs' leftover running
+  executions as `cancelled` (`Interrupted: the server stopped during the run`, completed at their start time).
+- Fix: a run cancelled by hand while the job had a `Timeout` was recorded as timed out.
+- `CliJobScheduler` takes an optional `TimeProvider` (from DI when registered) for its clock, timers and retry delays.
+  `JobRegistration` gains `RunningExecutionIds` and `Queued`; its `Timer` is an `ITimer`.
+
 ## 1.0.0-beta.22
 
 - The admin plugin embeds dashboard 1.0.0-beta.17: logs jump to newest, pause, copy an entry and collapsed exceptions; jobs run again and delete runs from the recent runs table.
