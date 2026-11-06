@@ -59,6 +59,44 @@ public interface ICliJobManager
 
     /// <summary>One execution of the job with its logs, or <c>null</c>.</summary>
     Task<JobExecution?> GetExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a finished execution of the job and its logs. Throw <see cref="KeyNotFoundException"/> for an unknown
+    /// job or execution and <see cref="InvalidOperationException"/> for a running one.
+    /// </summary>
+    Task DeleteExecutionAsync(string jobId, string executionId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Deleting runs is not supported");
+
+    /// <summary>
+    /// Deletes the job's finished executions, or only those with <paramref name="status"/>; returns how many. Running
+    /// executions are kept. The default pages through <see cref="GetExecutionsAsync"/> and deletes each one with
+    /// <see cref="DeleteExecutionAsync"/>.
+    /// </summary>
+    async Task<int> DeleteExecutionsAsync(string jobId, string? status, CancellationToken cancellationToken)
+    {
+        const int pageSize = 100;
+        var deleted = 0;
+        var offset = 0;
+        while (true)
+        {
+            var (items, _) = await GetExecutionsAsync(jobId, pageSize, offset, status, cancellationToken);
+            if (items.Count == 0) return deleted;
+            var kept = 0;
+            foreach (var execution in items)
+            {
+                if (execution.Status == JobExecutionStatus.Running)
+                {
+                    kept++;
+                    continue;
+                }
+                await DeleteExecutionAsync(jobId, execution.Id, cancellationToken);
+                deleted++;
+            }
+            // Deleted runs leave the list, so the next page starts after the kept ones.
+            offset += kept;
+            if (items.Count < pageSize) return deleted;
+        }
+    }
 }
 
 /// <summary>A job as <see cref="ICliJobManager"/> reports it.</summary>
@@ -131,4 +169,5 @@ public static class CliJobActions
     public const string Stop = "stop";
     public const string Cancel = "cancel";
     public const string Update = "update";
+    public const string DeleteRuns = "delete-runs";
 }
