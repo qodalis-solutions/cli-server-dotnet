@@ -32,7 +32,7 @@ public class AuditPluginTests
     {
         using var sp = Build(cli => cli.AddAudit().AddAudit());
 
-        Assert.IsType<InMemoryAuditStore>(sp.GetRequiredService<IAuditStore>());
+        Assert.IsType<InMemoryAuditStore>(CliEventAuditStore.Unwrap(sp.GetRequiredService<IAuditStore>()));
         Assert.Single(InstalledIds(sp), id => id == "Qodalis.Cli.Plugin.Audit");
     }
 
@@ -45,10 +45,10 @@ public class AuditPluginTests
         using var option = Build(cli => cli.AddUsers(o => o.SetAuditStore<CustomAuditStore>()));
 
         Assert.Contains("Qodalis.Cli.Plugin.Audit", InstalledIds(users));
-        Assert.IsType<InMemoryAuditStore>(users.GetRequiredService<IAuditStore>());
-        Assert.IsType<CustomAuditStore>(before.GetRequiredService<IAuditStore>());
-        Assert.IsType<CustomAuditStore>(after.GetRequiredService<IAuditStore>());
-        Assert.IsType<CustomAuditStore>(option.GetRequiredService<IAuditStore>());
+        Assert.IsType<InMemoryAuditStore>(CliEventAuditStore.Unwrap(users.GetRequiredService<IAuditStore>()));
+        Assert.IsType<CustomAuditStore>(CliEventAuditStore.Unwrap(before.GetRequiredService<IAuditStore>()));
+        Assert.IsType<CustomAuditStore>(CliEventAuditStore.Unwrap(after.GetRequiredService<IAuditStore>()));
+        Assert.IsType<CustomAuditStore>(CliEventAuditStore.Unwrap(option.GetRequiredService<IAuditStore>()));
     }
 
     [Fact]

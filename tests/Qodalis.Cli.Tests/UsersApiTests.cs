@@ -426,7 +426,7 @@ public class UsersApiTests
         var store = Assert.IsType<DiUserStore>(provider.GetRequiredService<IUserStore>());
         Assert.Same(provider.GetRequiredService<StoreDependency>(), store.Dependency);
         Assert.Same(store, provider.GetRequiredService<IUserStore>());
-        Assert.Equal(10, Assert.IsType<InMemoryAuditStore>(provider.GetRequiredService<IAuditStore>()).MaxEntries);
+        Assert.Equal(10, Assert.IsType<InMemoryAuditStore>(CliEventAuditStore.Unwrap(provider.GetRequiredService<IAuditStore>())).MaxEntries);
         Assert.IsType<InMemoryGroupStore>(provider.GetRequiredService<IGroupStore>());
         Assert.NotNull(provider.GetRequiredService<UsersService>());
     }

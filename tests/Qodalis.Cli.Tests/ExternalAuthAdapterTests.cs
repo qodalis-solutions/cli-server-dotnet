@@ -267,7 +267,7 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
         await Task.Delay(100);
 
         await h.Service<Qodalis.Cli.Services.ICliEventSocketManager>().BroadcastMessageAsync("{\"type\":\"marker\"}");
-        Assert.Contains("marker", await ReceiveTextAsync(socket));
+        Assert.Contains("marker", await UsersTestHost.ReceiveControlAsync(socket));
         await CloseAsync(socket);
     }
 
