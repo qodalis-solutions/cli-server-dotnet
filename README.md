@@ -323,7 +323,7 @@ The endpoint is MCP Streamable HTTP, stateless, with JSON responses (`initialize
 | commands | one per leaf command, value-taking or parameterized processor (`weather_current`, `math_add`, ...) | `commands:execute` + `RequiredPermissions` |
 | file system | `fs_list`, `fs_stat`, `fs_read`, `fs_write`, `fs_mkdir`, `fs_delete` | `files:read` / `files:write` |
 | data explorer | `data_sources`, `data_schema`, `data_query` | `data:query` |
-| jobs plugin | `jobs_list`, `jobs_get`, `jobs_history`, `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel` | `jobs:read` / `jobs:manage` |
+| jobs plugin | `jobs_list`, `jobs_get`, `jobs_history`, `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel`, `jobs_delete_runs` | `jobs:read` / `jobs:manage` |
 
 With the users plugin, requests authenticate with a session or an API token (`Authorization: Bearer qcli_pat_...`) and `tools/list` only lists what the caller may call. Plugins add tools by implementing `IMcpToolProvider` and calling `services.AddMcpToolProvider<T>()`.
 
@@ -452,7 +452,7 @@ The image runs the bundled host (`src/Qodalis.Cli.Server`) on port 8046. `./dock
 
 ## Versioning
 
-Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.20` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
+Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.21` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
 
 ## Development
 

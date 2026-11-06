@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Audit</RootNamespace>
-    <Version>1.0.0-beta.20</Version>
+    <Version>1.0.0-beta.21</Version>
     <Description>Audit log plugin for Qodalis CLI Server: who did what and when, with an API for the dashboard and the CLI</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>

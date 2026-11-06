@@ -6,7 +6,7 @@ using Qodalis.Cli.Abstractions.Jobs;
 namespace Qodalis.Cli.Plugin.Jobs;
 
 /// <summary>
-/// REST API controller for managing jobs (list, trigger, pause, resume, stop, cancel, update, history), through the
+/// REST API controller for managing jobs (list, trigger, pause, resume, stop, cancel, update, history, deleting runs), through the
 /// registered <see cref="ICliJobManager"/>.
 /// </summary>
 [ApiController]
@@ -304,6 +304,66 @@ public class CliJobsController : ControllerBase
             properties = execution.Properties,
             logs = execution.Logs.Select(l => new { l.Timestamp, l.Level, l.Message }),
         });
+    }
+
+    /// <summary>
+    /// Deletes a finished run of a job and its logs: 404 for an unknown job or run, 409 while it runs, 501 when the
+    /// manager or its store does not delete runs.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="execId">The execution identifier.</param>
+    /// <param name="ct">A cancellation token.</param>
+    [HttpDelete("{id}/history/{execId}")]
+    public async Task<IActionResult> DeleteExecution(string id, string execId, CancellationToken ct)
+    {
+        if (await _jobs.GetJobAsync(id, ct) == null)
+            return JobNotFound();
+
+        try
+        {
+            await _jobs.DeleteExecutionAsync(id, execId, ct);
+            return Ok(new { message = "Run deleted" });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Execution not found", code = "EXECUTION_NOT_FOUND" });
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message, code = "EXECUTION_RUNNING" });
+        }
+    }
+
+    /// <summary>
+    /// Deletes the job's finished runs, or only those with <paramref name="status"/> (e.g. <c>failed</c>); running
+    /// runs are kept. Answers <c>{ deleted }</c>.
+    /// </summary>
+    /// <param name="id">The job identifier.</param>
+    /// <param name="status">Optional status of the runs to delete.</param>
+    /// <param name="ct">A cancellation token.</param>
+    [HttpDelete("{id}/history")]
+    public async Task<IActionResult> DeleteHistory(string id, [FromQuery] string? status = null, CancellationToken ct = default)
+    {
+        if (await _jobs.GetJobAsync(id, ct) == null)
+            return JobNotFound();
+
+        try
+        {
+            var deleted = await _jobs.DeleteExecutionsAsync(id, string.IsNullOrWhiteSpace(status) ? null : status, ct);
+            return Ok(new { deleted });
+        }
+        catch (KeyNotFoundException)
+        {
+            return JobNotFound();
+        }
+        catch (NotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message, code = "NOT_SUPPORTED" });
+        }
     }
 
     /// <summary>

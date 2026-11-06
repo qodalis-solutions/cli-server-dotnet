@@ -973,7 +973,7 @@ public class McpFeatureToolsTests
             cli.AddMcp();
         });
         var tools = await Mcp.ToolsAsync(h.Client);
-        string[] expected = ["jobs_list", "jobs_get", "jobs_history", "jobs_trigger", "jobs_pause", "jobs_resume", "jobs_stop", "jobs_cancel"];
+        string[] expected = ["jobs_list", "jobs_get", "jobs_history", "jobs_trigger", "jobs_pause", "jobs_resume", "jobs_stop", "jobs_cancel", "jobs_delete_runs"];
         foreach (var name in expected) Assert.Contains(tools, t => t.GetProperty("name").GetString() == name);
         Assert.True(tools.Single(t => t.GetProperty("name").GetString() == "jobs_cancel").GetProperty("annotations").GetProperty("destructiveHint").GetBoolean());
 
@@ -1239,7 +1239,7 @@ public class McpProviderPermissionTests : IAsyncLifetime
     private static readonly string[] FsWrite = ["fs_write", "fs_mkdir", "fs_delete"];
     private static readonly string[] Data = ["data_sources", "data_schema", "data_query"];
     private static readonly string[] JobsRead = ["jobs_list", "jobs_get", "jobs_history"];
-    private static readonly string[] JobsManage = ["jobs_trigger", "jobs_pause", "jobs_resume", "jobs_stop", "jobs_cancel"];
+    private static readonly string[] JobsManage = ["jobs_trigger", "jobs_pause", "jobs_resume", "jobs_stop", "jobs_cancel", "jobs_delete_runs"];
 
     private async Task<List<string>> NamesForAsync(string name, params string[] permissions) =>
         await Mcp.ToolNamesAsync(_h.Client, await _h.UserWithPermissionsAsync(_root, name, ["commands:execute", .. permissions]));
