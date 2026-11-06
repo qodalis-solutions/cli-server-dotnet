@@ -16,7 +16,8 @@ Python servers; spec `web-cli/docs/superpowers/specs/2026-11-06-server-events-de
   logged and never fail the publisher. In-process subscribers receive every event.
 - The events WebSocket subscribes to the bus and sends one flat JSON object per event (`type`, ISO 8601 `timestamp`,
   the fields) to the sockets of its audience: everyone, a permission, a user, or the user or the permission. Each
-  socket keeps its principal; on a server without authentication every socket gets every event.
+  socket keeps its principal; on a server without authentication every socket gets every event. Sends run in the
+  background (in order per socket), so a slow client never slows the request that published.
   `ICliEventSocketManager.BroadcastMessageAsync`/`SendToUserAsync` still send raw messages.
 - New events: `job:triggered`, `job:updated`, `job:runs-deleted` (jobs API and MCP tools, so a custom
   `ICliJobManager` gets them); `user:*`, `group:*`, `token:*`, `session:*` (users plugin); `fs:changed` (every write
