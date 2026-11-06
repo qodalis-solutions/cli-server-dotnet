@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Security;
@@ -66,7 +67,8 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
                 Annotations = McpToolAnnotations.ReadOnly,
                 CallAsync = Scoped(HistoryAsync),
             },
-            Action("jobs_trigger", "Run a job now", "Job triggered", (jobs, jid, ct) => jobs.TriggerAsync(jid, ct)),
+            Action("jobs_trigger", "Run a job now", "Job triggered", (jobs, jid, ct) => jobs.TriggerAsync(jid, ct),
+                published: (events, jid) => events.TriggeredAsync(jid)),
             Action("jobs_pause", "Pause a job's schedule", "Job paused", (jobs, jid, ct) => jobs.PauseAsync(jid, ct)),
             Action("jobs_resume", "Resume a paused job", "Job resumed", (jobs, jid, ct) => jobs.ResumeAsync(jid, ct)),
             Action("jobs_stop", "Stop a job (cancels a running execution and disables its schedule)", "Job stopped",
@@ -92,20 +94,22 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
     }
 
     private McpToolDefinition Action(string name, string description, string done,
-        Func<ICliJobManager, string, CancellationToken, Task> run, McpToolAnnotations? annotations = null) => new()
+        Func<ICliJobManager, string, CancellationToken, Task> run, McpToolAnnotations? annotations = null,
+        Func<JobEvents, string, Task>? published = null) => new()
     {
         Name = name,
         Description = description,
         InputSchema = McpSchema.Object(new JsonObject { ["id"] = McpSchema.Property("string", "Job id or unique job name (see jobs_list)") }, "id"),
         RequiredPermissions = [CliRoutePolicy.JobsManage],
         Annotations = annotations,
-        CallAsync = Scoped(async (jobs, args, ct) =>
+        CallAsync = Scoped(async (jobs, events, args, ct) =>
         {
             var (jobId, error) = await ResolveAsync(jobs, McpSchema.GetString(args, "id")!, ct);
             if (error != null) return error;
             try
             {
                 await run(jobs, jobId!, ct);
+                if (published != null) await published(events, jobId!);
                 return McpToolResult.Ok($"{done}: {jobId}");
             }
             catch (KeyNotFoundException)
@@ -119,7 +123,8 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
         }),
     };
 
-    private static async Task<McpToolResult> DeleteRunsAsync(ICliJobManager jobs, JsonObject args, CancellationToken ct)
+    private static async Task<McpToolResult> DeleteRunsAsync(ICliJobManager jobs, JobEvents events, JsonObject args,
+        CancellationToken ct)
     {
         var (jobId, error) = await ResolveAsync(jobs, McpSchema.GetString(args, "id")!, ct);
         if (error != null) return error;
@@ -129,10 +134,12 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
             if (!string.IsNullOrEmpty(executionId))
             {
                 await jobs.DeleteExecutionAsync(jobId!, executionId, ct);
+                await events.RunDeletedAsync(jobId!, executionId);
                 return McpToolResult.Ok($"Run deleted: {executionId}");
             }
             var status = McpSchema.GetString(args, "status");
             var deleted = await jobs.DeleteExecutionsAsync(jobId!, string.IsNullOrWhiteSpace(status) ? null : status, ct);
+            await events.RunsDeletedAsync(jobId!, deleted);
             return McpToolResult.Ok($"Deleted {deleted} run(s) of {jobId}");
         }
         catch (KeyNotFoundException)
@@ -147,10 +154,16 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
 
     /// <summary>Runs a tool call with the job manager of a new scope (the manager may be scoped).</summary>
     private Func<JsonObject, McpToolContext, CancellationToken, Task<McpToolResult>> Scoped(
-        Func<ICliJobManager, JsonObject, CancellationToken, Task<McpToolResult>> call) => async (args, _, ct) =>
+        Func<ICliJobManager, JsonObject, CancellationToken, Task<McpToolResult>> call) =>
+        Scoped((jobs, _, args, ct) => call(jobs, args, ct));
+
+    /// <summary>Runs a tool call with the job manager of a new scope and the job events of the caller.</summary>
+    private Func<JsonObject, McpToolContext, CancellationToken, Task<McpToolResult>> Scoped(
+        Func<ICliJobManager, JobEvents, JsonObject, CancellationToken, Task<McpToolResult>> call) => async (args, context, ct) =>
     {
         await using var scope = _scopes.CreateAsyncScope();
-        return await call(scope.ServiceProvider.GetRequiredService<ICliJobManager>(), args, ct);
+        var events = new JobEvents(scope.ServiceProvider.GetService<ICliEventBus>(), context.Principal?.UserName);
+        return await call(scope.ServiceProvider.GetRequiredService<ICliJobManager>(), events, args, ct);
     };
 
     private static async Task<McpToolResult> ListAsync(ICliJobManager jobManager, CancellationToken ct)

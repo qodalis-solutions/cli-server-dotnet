@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Insights;
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Jobs;
 
@@ -14,15 +16,20 @@ namespace Qodalis.Cli.Plugin.Jobs;
 public class CliJobsController : ControllerBase
 {
     private readonly ICliJobManager _jobs;
+    private readonly ICliEventBus? _eventBus;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CliJobsController"/> class.
     /// </summary>
     /// <param name="jobs">The job manager (by default the in-process scheduler).</param>
-    public CliJobsController(ICliJobManager jobs)
+    /// <param name="eventBus">Publishes <c>job:triggered</c>, <c>job:updated</c> and <c>job:runs-deleted</c>.</param>
+    public CliJobsController(ICliJobManager jobs, ICliEventBus? eventBus = null)
     {
         _jobs = jobs;
+        _eventBus = eventBus;
     }
+
+    private JobEvents Events => new(_eventBus, HttpContext?.GetCliPrincipal()?.UserName);
 
     /// <summary>
     /// Lists all jobs with their current status and configuration.
@@ -53,7 +60,11 @@ public class CliJobsController : ControllerBase
     /// <param name="ct">A cancellation token.</param>
     [HttpPost("{id}/trigger")]
     public Task<IActionResult> TriggerJob(string id, CancellationToken ct) =>
-        RunAsync(() => _jobs.TriggerAsync(id, ct), "Job triggered", "JOB_ALREADY_RUNNING");
+        RunAsync(async () =>
+        {
+            await _jobs.TriggerAsync(id, ct);
+            await Events.TriggeredAsync(id);
+        }, "Job triggered", "JOB_ALREADY_RUNNING");
 
     /// <summary>
     /// Pauses a job, preventing further scheduled executions.
@@ -105,20 +116,24 @@ public class CliJobsController : ControllerBase
 
         try
         {
-            return await RunAsync(() => _jobs.UpdateAsync(id, options =>
+            return await RunAsync(async () =>
             {
-                if (request.Description != null) options.Description = request.Description;
-                if (request.Group != null) options.Group = request.Group;
-                if (request.Schedule != null) { options.Schedule = request.Schedule; options.Interval = null; }
-                if (request.Interval != null) { options.Interval = IntervalParser.Parse(request.Interval); options.Schedule = null; }
-                if (request.MaxRetries.HasValue) options.MaxRetries = request.MaxRetries.Value;
-                if (request.RetryDelay != null) options.RetryDelay = IntervalParser.Parse(request.RetryDelay);
-                if (request.RetryStrategy != null && Enum.TryParse<JobRetryStrategy>(request.RetryStrategy, true, out var strategy))
-                    options.RetryStrategy = strategy;
-                if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
-                if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
-                    options.OverlapPolicy = policy;
-            }, ct), "Job updated", "JOB_CONFLICT");
+                await _jobs.UpdateAsync(id, options =>
+                {
+                    if (request.Description != null) options.Description = request.Description;
+                    if (request.Group != null) options.Group = request.Group;
+                    if (request.Schedule != null) { options.Schedule = request.Schedule; options.Interval = null; }
+                    if (request.Interval != null) { options.Interval = IntervalParser.Parse(request.Interval); options.Schedule = null; }
+                    if (request.MaxRetries.HasValue) options.MaxRetries = request.MaxRetries.Value;
+                    if (request.RetryDelay != null) options.RetryDelay = IntervalParser.Parse(request.RetryDelay);
+                    if (request.RetryStrategy != null && Enum.TryParse<JobRetryStrategy>(request.RetryStrategy, true, out var strategy))
+                        options.RetryStrategy = strategy;
+                    if (request.Timeout != null) options.Timeout = IntervalParser.Parse(request.Timeout);
+                    if (request.OverlapPolicy != null && Enum.TryParse<JobOverlapPolicy>(request.OverlapPolicy, true, out var policy))
+                        options.OverlapPolicy = policy;
+                }, ct);
+                await Events.UpdatedAsync(id);
+            }, "Job updated", "JOB_CONFLICT");
         }
         catch (ArgumentException ex)
         {
@@ -322,6 +337,7 @@ public class CliJobsController : ControllerBase
         try
         {
             await _jobs.DeleteExecutionAsync(id, execId, ct);
+            await Events.RunDeletedAsync(id, execId);
             return Ok(new { message = "Run deleted" });
         }
         catch (KeyNotFoundException)
@@ -354,6 +370,7 @@ public class CliJobsController : ControllerBase
         try
         {
             var deleted = await _jobs.DeleteExecutionsAsync(id, string.IsNullOrWhiteSpace(status) ? null : status, ct);
+            await Events.RunsDeletedAsync(id, deleted);
             return Ok(new { deleted });
         }
         catch (KeyNotFoundException)
