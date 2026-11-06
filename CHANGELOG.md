@@ -3,6 +3,10 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.22
+
+- The admin plugin embeds dashboard 1.0.0-beta.17: logs jump to newest, pause, copy an entry and collapsed exceptions; jobs run again and delete runs from the recent runs table.
+
 ## 1.0.0-beta.21
 
 - The admin plugin embeds dashboard 1.0.0-beta.16: delete job runs (one, a result's or every finished one), older log
