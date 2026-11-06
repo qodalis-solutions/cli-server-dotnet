@@ -31,8 +31,10 @@ public class CliJobOptions
     public TimeSpan? Interval { get; set; }
 
     /// <summary>
-    /// Runs the job once right after the scheduler starts, whatever its schedule (also for jobs that only run on
-    /// demand). Not for paused or stopped jobs. Default is <c>false</c>.
+    /// Runs the job when the scheduler starts unless it ran recently: an interval job when it never ran or its next
+    /// run is due (the last run plus the interval has passed), a cron job when it never ran or missed an occurrence
+    /// since its last run, a job without a schedule on every start. Not for paused or stopped jobs. Default is
+    /// <c>false</c>.
     /// </summary>
     public bool RunOnStart { get; set; }
 
@@ -55,8 +57,19 @@ public class CliJobOptions
     /// <summary>Gets or sets the maximum execution time before the job is cancelled.</summary>
     public TimeSpan? Timeout { get; set; }
 
-    /// <summary>Gets or sets the behavior when a new execution is triggered while one is already running.</summary>
+    /// <summary>
+    /// Gets or sets what happens when a run is due (schedule, trigger, run on start) while
+    /// <see cref="MaxConcurrentRuns"/> runs are going.
+    /// </summary>
     public JobOverlapPolicy OverlapPolicy { get; set; } = JobOverlapPolicy.Skip;
+
+    /// <summary>
+    /// Gets or sets how many runs of the job may go at the same time, at least 1. Default is 1. A run holds its slot
+    /// from its start until it ends, including its retries and the delays before them; when every slot is taken,
+    /// <see cref="OverlapPolicy"/> decides. Lowering it cancels nothing: runs finish, and new runs start once fewer
+    /// are going.
+    /// </summary>
+    public int MaxConcurrentRuns { get; set; } = 1;
 }
 
 /// <summary>
@@ -64,11 +77,14 @@ public class CliJobOptions
 /// </summary>
 public enum JobOverlapPolicy
 {
-    /// <summary>Skip the new execution if the previous one is still running.</summary>
+    /// <summary>Drop the due run (a manual trigger is refused).</summary>
     Skip,
-    /// <summary>Queue the new execution to run after the current one completes.</summary>
+    /// <summary>
+    /// Queue the due run: it starts when a slot frees. At most one run waits per job, so several due runs while
+    /// every slot is taken make one more run.
+    /// </summary>
     Queue,
-    /// <summary>Cancel the current execution and start the new one.</summary>
+    /// <summary>Cancel the oldest running run; the due run starts once it ended.</summary>
     Cancel,
 }
 

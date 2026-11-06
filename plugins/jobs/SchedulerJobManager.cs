@@ -90,24 +90,38 @@ public sealed class SchedulerJobManager : ICliJobManager
             throw new NotSupportedException("The job store does not delete runs");
     }
 
-    internal static CliJobInfo ToInfo(JobRegistration r) => new()
+    internal static CliJobInfo ToInfo(JobRegistration r)
     {
-        Id = r.Id,
-        Name = r.Options.Name ?? r.Id,
-        Description = r.Options.Description,
-        Group = r.Options.Group,
-        Status = r.Status,
-        Schedule = r.Options.Schedule,
-        Interval = r.Options.Interval,
-        MaxRetries = r.Options.MaxRetries,
-        RetryDelay = r.Options.RetryDelay,
-        RetryStrategy = r.Options.RetryStrategy,
-        Timeout = r.Options.Timeout,
-        OverlapPolicy = r.Options.OverlapPolicy,
-        CurrentExecutionId = r.CurrentExecutionId,
-        NextRunAt = r.NextRunAt,
-        LastRunAt = r.LastRunAt,
-        LastRunStatus = r.LastRunStatus,
-        LastRunDuration = r.LastRunDuration,
-    };
+        IReadOnlyList<string> running;
+        bool queued;
+        lock (r.Gate)
+        {
+            running = [.. r.Runs.Select(run => run.ExecutionId)];
+            queued = r.Pending;
+        }
+
+        return new()
+        {
+            Id = r.Id,
+            Name = r.Options.Name ?? r.Id,
+            Description = r.Options.Description,
+            Group = r.Options.Group,
+            Status = r.Status,
+            Schedule = r.Options.Schedule,
+            Interval = r.Options.Interval,
+            MaxRetries = r.Options.MaxRetries,
+            RetryDelay = r.Options.RetryDelay,
+            RetryStrategy = r.Options.RetryStrategy,
+            Timeout = r.Options.Timeout,
+            OverlapPolicy = r.Options.OverlapPolicy,
+            MaxConcurrentRuns = r.Options.MaxConcurrentRuns,
+            CurrentExecutionId = running.Count == 0 ? null : running[^1],
+            RunningExecutionIds = running,
+            Queued = queued,
+            NextRunAt = r.NextRunAt,
+            LastRunAt = r.LastRunAt,
+            LastRunStatus = r.LastRunStatus,
+            LastRunDuration = r.LastRunDuration,
+        };
+    }
 }

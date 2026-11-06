@@ -13,9 +13,10 @@ public interface ICliJobScheduler
     IReadOnlyDictionary<string, JobRegistration> Jobs { get; }
 
     /// <summary>
-    /// Runs the job now. When it is running, its <see cref="CliJobOptions.OverlapPolicy"/> decides: <c>Skip</c> throws
-    /// <see cref="InvalidOperationException"/>, <c>Cancel</c> cancels the running execution first, <c>Queue</c> starts
-    /// another run.
+    /// Runs the job now. When <see cref="CliJobOptions.MaxConcurrentRuns"/> runs are going, its
+    /// <see cref="CliJobOptions.OverlapPolicy"/> decides: <c>Skip</c> throws <see cref="InvalidOperationException"/>,
+    /// <c>Queue</c> queues the run (it starts when a slot frees; at most one waits), <c>Cancel</c> cancels the oldest
+    /// run and starts this one once it ended.
     /// </summary>
     Task TriggerAsync(string jobId, CancellationToken cancellationToken = default);
 
@@ -25,10 +26,10 @@ public interface ICliJobScheduler
     /// <summary>Resumes a paused job's schedule.</summary>
     Task ResumeAsync(string jobId, CancellationToken cancellationToken = default);
 
-    /// <summary>Stops the job: cancels a running execution and disables its schedule.</summary>
+    /// <summary>Stops the job: cancels every running run, drops a queued one and disables its schedule.</summary>
     Task StopJobAsync(string jobId, CancellationToken cancellationToken = default);
 
-    /// <summary>Cancels the job's running execution.</summary>
+    /// <summary>Cancels every running run of the job and drops a queued one.</summary>
     Task CancelCurrentAsync(string jobId, CancellationToken cancellationToken = default);
 
     /// <summary>Changes the job's options and restarts its schedule.</summary>
