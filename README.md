@@ -486,7 +486,7 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.DataExplorer.Mongo`](plugins/data-explorer-mongo) | MongoDB | `cli.AddDataExplorerMongo(...)` |
 | [`Qodalis.Cli.Plugin.DataExplorer.Redis`](plugins/data-explorer-redis) | Redis | `cli.AddDataExplorerRedis(...)` |
 | [`Qodalis.Cli.Plugin.DataExplorer.Elasticsearch`](plugins/data-explorer-elasticsearch) | Elasticsearch | `cli.AddDataExplorerElasticsearch(...)` |
-| [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs | `cli.AddJob<T>(...)` |
+| [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs (cron or interval, retries, overlap policy, `MaxConcurrentRuns`) | `cli.AddJob<T>(...)` |
 | [`Qodalis.Cli.Plugin.Jobs.EfCore`](plugins/jobs-efcore) | EF Core job history storage | `cli.AddEfCoreJobStorage(...)` |
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |
