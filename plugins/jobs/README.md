@@ -110,7 +110,8 @@ When a run is due (timer, trigger, run on start) and every slot is taken, `Overl
   started answers `{ "message": "Job triggered", "queued": false }`; MCP `jobs_trigger` says "Job queued").
 - `Cancel`: the oldest running run is cancelled; the new run waits (`queued`, and a trigger answers `"Job queued"`)
   and starts once the cancelled run ended, so the limit holds. A further due run meanwhile joins the waiting one
-  instead of cancelling another run.
+  instead of cancelling another run. Above a lowered limit nothing is cancelled: the due run is skipped (a trigger gets
+  `409 JOB_ALREADY_RUNNING`).
 
 Lowering `MaxConcurrentRuns` cancels nothing: runs finish, and new runs start once fewer are going. Raising it starts a
 queued run. `cancel` cancels every running run of the job and drops a queued one; `stop` does the same and disables

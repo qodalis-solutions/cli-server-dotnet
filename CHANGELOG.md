@@ -39,7 +39,7 @@ Spec `web-cli/docs/superpowers/specs/2026-11-06-job-concurrency-design.md` (the 
   slot until it ends, including its retries and the delays before them. When the slots are full, `OverlapPolicy`
   decides: `Skip` drops the due run (a trigger is refused, `409 JOB_ALREADY_RUNNING`), `Queue` queues one run (several
   due runs coalesce into one; a trigger is accepted), `Cancel` cancels the oldest run and starts the new one once it
-  ended (queued meanwhile, so the limit holds). Lowering the limit cancels nothing; raising it starts a queued run.
+  ended (queued meanwhile, so the limit holds; above a lowered limit it cancels nothing and skips). Lowering the limit cancels nothing; raising it starts a queued run.
 - Job info (`GET /jobs`, `GET /jobs/{id}`, MCP `jobs_list`/`jobs_get`, `CliJobInfo`): `maxConcurrentRuns`,
   `runningExecutionIds` (the attempts executing now, oldest first: a run in its retry delay has no entry), `queued`;
   `currentExecutionId` is the newest executing attempt. `PUT /jobs/{id}` accepts `maxConcurrentRuns`, an integer >= 1
