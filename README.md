@@ -323,7 +323,7 @@ The endpoint is MCP Streamable HTTP, stateless, with JSON responses (`initialize
 | commands | one per leaf command, value-taking or parameterized processor (`weather_current`, `math_add`, ...) | `commands:execute` + `RequiredPermissions` |
 | file system | `fs_list`, `fs_stat`, `fs_read`, `fs_write`, `fs_mkdir`, `fs_delete` | `files:read` / `files:write` |
 | data explorer | `data_sources`, `data_schema`, `data_query` | `data:query` |
-| jobs plugin | `jobs_list`, `jobs_get`, `jobs_history`, `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel` | `jobs:read` / `jobs:manage` |
+| jobs plugin | `jobs_list`, `jobs_get`, `jobs_history`, `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel`, `jobs_delete_runs` | `jobs:read` / `jobs:manage` |
 
 With the users plugin, requests authenticate with a session or an API token (`Authorization: Bearer qcli_pat_...`) and `tools/list` only lists what the caller may call. Plugins add tools by implementing `IMcpToolProvider` and calling `services.AddMcpToolProvider<T>()`.
 

@@ -111,20 +111,28 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | PUT | `/{id}` | Update job options |
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
+| DELETE | `/{id}/history/{execId}` | Delete a finished run and its logs (`404 EXECUTION_NOT_FOUND`, `409 EXECUTION_RUNNING`) |
+| DELETE | `/{id}/history` | Delete the job's finished runs, or only those of `?status=` (e.g. `failed`); answers `{ deleted }` |
 | GET | `/executions` | Executions across jobs, newest first: `?job=a,b&group=&status=&since=&limit=&offset=` |
 | GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs); `job` and `group` as in `/executions` |
 
 Jobs without a schedule or interval run only on request (`trigger`). Executions carry `properties`, the job's own
 values. Keep job ids stable (`Id`): saved pauses and history are found again by id after a restart.
 
-Each job carries `actions`: the actions it offers (`trigger`, `pause`, `resume`, `stop`, `cancel`, `update`), or
+Each job carries `actions`: the actions it offers (`trigger`, `pause`, `resume`, `stop`, `cancel`, `update`,
+`delete-runs`), or
 `null` for all of them. An action the job manager does not offer answers `501` with code `NOT_SUPPORTED`.
 
 ## MCP tools
 
 When the server's MCP endpoint is enabled (`cli.AddMcp()`), the plugin contributes `jobs_list`, `jobs_get {id}`,
 `jobs_history {id, limit?=20}` (`jobs:read`) and `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`,
-`jobs_cancel` `{id}` (`jobs:manage`; `id` is a job id or a unique job name), backed by the same job manager as the REST API.
+`jobs_cancel` `{id}` and `jobs_delete_runs` `{id, executionId?, status?}` (`jobs:manage`; `id` is a job id or a unique
+job name), backed by the same job manager as the REST API.
+
+A custom job manager deletes runs by implementing `DeleteExecutionAsync`; `DeleteExecutionsAsync` then pages through
+the history and deletes each finished run (override it to delete in one query). Without it the delete endpoints answer
+`501`. The default scheduler deletes through `ICliJobStorageProvider.DeleteExecutionAsync` (in-memory and EF Core).
 
 ## Custom Storage
 
