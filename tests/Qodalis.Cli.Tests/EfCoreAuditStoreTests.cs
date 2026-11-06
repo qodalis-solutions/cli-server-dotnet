@@ -7,6 +7,7 @@ using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Jobs.EfCore;
+using Qodalis.Cli.Plugin.Audit;
 using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -127,7 +128,7 @@ public class EfCoreAuditStoreTests : IDisposable
             });
             var sp = services.BuildServiceProvider();
 
-            Assert.IsType<EfCoreAuditStore>(sp.GetRequiredService<IAuditStore>());
+            Assert.IsType<EfCoreAuditStore>(CliEventAuditStore.Unwrap(sp.GetRequiredService<IAuditStore>()));
             Assert.Contains(sp.GetRequiredService<CliInstalledPlugins>().All, p => p.Id == "Qodalis.Cli.Plugin.Audit.EfCore");
         }
     }
