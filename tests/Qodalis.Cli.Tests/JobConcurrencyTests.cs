@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Plugin.Jobs.EfCore;
 using Qodalis.Cli.Services;
@@ -211,8 +215,24 @@ public class JobConcurrencyTests : IDisposable
         return _scheduler.Jobs[options.Name];
     }
 
+    /// <summary>The job took a slot (synchronous on a due run); its attempt then executes.</summary>
+    private static async Task RunsOnceAsync(JobRegistration reg, GatedJob job)
+    {
+        Assert.Equal(1, RunCount(reg));
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 1, "the run executes");
+        job.Release();
+        await IdleAsync(reg);
+        Assert.Equal(1, job.Calls);
+    }
+
     private static Task IdleAsync(JobRegistration reg) =>
-        Until.TrueAsync(() => reg.RunningExecutionIds.Count == 0 && !reg.Queued, "the job is idle");
+        Until.TrueAsync(() => RunCount(reg) == 0 && !reg.Queued, "the job is idle");
+
+    /// <summary>The runs holding a slot (an executing attempt or a retry delay, or about to start).</summary>
+    private static int RunCount(JobRegistration reg)
+    {
+        lock (reg.Gate) return reg.Runs.Count;
+    }
 
     // --- Slots ---
 
@@ -276,9 +296,11 @@ public class JobConcurrencyTests : IDisposable
         var failed = Assert.Single((await _storage.GetExecutionsAsync(reg.Id)).Items);
         Assert.Equal(JobExecutionStatus.Failed, failed.Status);
 
-        // The run still holds its slot: a tick is dropped, a trigger refused
-        Assert.Equal([failed.Id], reg.RunningExecutionIds);
-        Assert.Equal(failed.Id, reg.CurrentExecutionId);
+        // The run still holds its slot, but no attempt is executing: no entry, the failed attempt never shows
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 0, "the failed attempt left the running ones");
+        Assert.Null(reg.CurrentExecutionId);
+        Assert.Equal(1, RunCount(reg));
+        // A tick is dropped, a trigger refused
         _scheduler.OnTimerFired(reg);
         await Assert.ThrowsAsync<InvalidOperationException>(() => _scheduler.TriggerAsync(reg.Id));
         Assert.Equal(1, job.Calls);
@@ -356,14 +378,16 @@ public class JobConcurrencyTests : IDisposable
         var oldest = reg.RunningExecutionIds[0];
         var newer = reg.RunningExecutionIds[1];
 
-        await _scheduler.TriggerAsync(reg.Id);
-        await Until.TrueAsync(() => !reg.RunningExecutionIds.Contains(oldest) && job.Current == 2, "the oldest run made room");
+        // The oldest gives its slot to the new run at once: started, not queued
+        Assert.Equal(CliJobTriggerOutcome.Started, await _scheduler.TriggerWithOutcomeAsync(reg.Id));
+        Assert.DoesNotContain(oldest, reg.RunningExecutionIds);
+        Assert.False(reg.Queued);
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "the new run executes");
+        await Until.TrueAsync(() => _storage.GetExecutionAsync(oldest).Result!.Status == JobExecutionStatus.Cancelled,
+            "the oldest run is cancelled");
 
-        Assert.Equal(JobExecutionStatus.Cancelled, (await _storage.GetExecutionAsync(oldest))!.Status);
         Assert.Equal(JobExecutionStatus.Running, (await _storage.GetExecutionAsync(newer))!.Status);
         Assert.Equal(newer, reg.RunningExecutionIds[0]);
-        Assert.Equal(2, reg.RunningExecutionIds.Count);
-        Assert.Equal(2, job.MaxConcurrent);
 
         job.Release();
         await IdleAsync(reg);
@@ -423,6 +447,95 @@ public class JobConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task Cancel_AboveALoweredLimit_CancelsNothing()
+    {
+        var job = new GatedJob();
+        var reg = Register(job, new CliJobOptions { MaxConcurrentRuns = 2, OverlapPolicy = JobOverlapPolicy.Cancel });
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _scheduler.TriggerAsync(reg.Id);
+        await _scheduler.TriggerAsync(reg.Id);
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "two runs execute");
+
+        await _scheduler.UpdateOptionsAsync(reg.Id, o => o.MaxConcurrentRuns = 1);
+        _scheduler.OnTimerFired(reg);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _scheduler.TriggerAsync(reg.Id));
+        Assert.Equal(2, RunCount(reg));
+        Assert.Equal(2, job.Calls);
+
+        job.Release();
+        await IdleAsync(reg);
+        Assert.All((await _storage.GetExecutionsAsync(reg.Id)).Items, e => Assert.Equal(JobExecutionStatus.Completed, e.Status));
+    }
+
+    [Theory]
+    [InlineData("cancel")]
+    [InlineData("stop")]
+    [InlineData("overlap")]
+    public async Task ACancelByHand_OfAJobWithATimeout_IsCancelledNotTimedOut(string how)
+    {
+        var job = new GatedJob();
+        var reg = Register(job, new CliJobOptions { Timeout = TimeSpan.FromHours(1), OverlapPolicy = JobOverlapPolicy.Cancel });
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _scheduler.TriggerAsync(reg.Id);
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 1, "the run executes");
+        var id = reg.RunningExecutionIds[0];
+
+        switch (how)
+        {
+            case "cancel": await _scheduler.CancelCurrentAsync(reg.Id); break;
+            case "stop": await _scheduler.StopJobAsync(reg.Id); break;
+            default: await _scheduler.TriggerAsync(reg.Id); break;
+        }
+        // The finished event is the last thing the attempt does
+        await Until.TrueAsync(() => _events.Contains("job:cancelled") || _events.Contains("job:timed_out"), "the run ended");
+
+        Assert.Equal(JobExecutionStatus.Cancelled, (await _storage.GetExecutionAsync(id))!.Status);
+        Assert.Contains("job:cancelled", _events);
+        Assert.DoesNotContain("job:timed_out", _events);
+        job.Release();
+        await IdleAsync(reg);
+    }
+
+    [Fact]
+    public async Task ARealTimeout_IsTimedOut()
+    {
+        var job = new GatedJob();
+        var reg = Register(job, new CliJobOptions { Timeout = TimeSpan.FromMilliseconds(50) });
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _scheduler.TriggerAsync(reg.Id);
+        await IdleAsync(reg);
+
+        Assert.Equal(JobExecutionStatus.TimedOut, Assert.Single((await _storage.GetExecutionsAsync(reg.Id)).Items).Status);
+        Assert.Contains("job:timed_out", _events);
+        Assert.DoesNotContain("job:cancelled", _events);
+    }
+
+    [Fact]
+    public async Task Mcp_Trigger_SaysWhenTheRunWasQueued()
+    {
+        var job = new GatedJob();
+        var reg = Register(job, new CliJobOptions { OverlapPolicy = JobOverlapPolicy.Queue });
+        await _scheduler.StartAsync(CancellationToken.None);
+        var services = new ServiceCollection()
+            .AddScoped<ICliJobManager>(_ => new SchedulerJobManager(_scheduler, _storage))
+            .AddSingleton<ICliEventBus>(_bus)
+            .BuildServiceProvider();
+        var context = new McpToolContext(null, services);
+        var tools = await new JobsMcpToolProvider(services.GetRequiredService<IServiceScopeFactory>())
+            .GetToolsAsync(context, CancellationToken.None);
+        var trigger = tools.Single(t => t.Name == "jobs_trigger");
+
+        var first = await trigger.CallAsync(new JsonObject { ["id"] = reg.Id }, context, CancellationToken.None);
+        Assert.Equal($"Job triggered: {reg.Id}", first.Text);
+        var second = await trigger.CallAsync(new JsonObject { ["id"] = reg.Id }, context, CancellationToken.None);
+        Assert.False(second.IsError);
+        Assert.Equal($"Job queued: {reg.Id}", second.Text);
+
+        job.Release();
+        await IdleAsync(reg);
+    }
+
+    [Fact]
     public async Task MaxConcurrentRuns_BelowOne_IsRefused()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -466,10 +579,7 @@ public class JobConcurrencyTests : IDisposable
         var job = new GatedJob();
         var reg = await StartWithLastRunAsync(job, new CliJobOptions { Interval = TimeSpan.FromHours(1) }, Start.AddHours(-2));
 
-        Assert.Single(reg.RunningExecutionIds);
-        job.Release();
-        await IdleAsync(reg);
-        Assert.Equal(1, job.Calls);
+        await RunsOnceAsync(reg, job);
     }
 
     [Fact]
@@ -478,9 +588,7 @@ public class JobConcurrencyTests : IDisposable
         var job = new GatedJob();
         var reg = await StartWithLastRunAsync(job, new CliJobOptions { Interval = TimeSpan.FromHours(1) }, null);
 
-        Assert.Single(reg.RunningExecutionIds);
-        job.Release();
-        await IdleAsync(reg);
+        await RunsOnceAsync(reg, job);
     }
 
     [Fact]
@@ -501,9 +609,7 @@ public class JobConcurrencyTests : IDisposable
         // Last run at 9:00, now 10:30: 10:00 was missed
         var reg = await StartWithLastRunAsync(job, new CliJobOptions { Schedule = "0 * * * *" }, Start.AddMinutes(-90));
 
-        Assert.Single(reg.RunningExecutionIds);
-        job.Release();
-        await IdleAsync(reg);
+        await RunsOnceAsync(reg, job);
     }
 
     [Fact]
@@ -512,9 +618,7 @@ public class JobConcurrencyTests : IDisposable
         var job = new GatedJob();
         var reg = await StartWithLastRunAsync(job, new CliJobOptions { Schedule = "0 * * * *" }, null);
 
-        Assert.Single(reg.RunningExecutionIds);
-        job.Release();
-        await IdleAsync(reg);
+        await RunsOnceAsync(reg, job);
     }
 
     [Fact]
@@ -523,9 +627,7 @@ public class JobConcurrencyTests : IDisposable
         var job = new GatedJob();
         var reg = await StartWithLastRunAsync(job, new CliJobOptions(), Start.AddSeconds(-5));
 
-        Assert.Single(reg.RunningExecutionIds);
-        job.Release();
-        await IdleAsync(reg);
+        await RunsOnceAsync(reg, job);
     }
 
     // --- Cron ---
@@ -587,9 +689,12 @@ public class JobConcurrencyTests : IDisposable
         var first = Running("job", startedAt);
         var second = Running("job", startedAt.AddMinutes(1));
         var other = Running("not-registered", startedAt);
+        var logged = Running("job", startedAt);
+        logged.Logs.Add(new JobLogEntry { Level = "info", Timestamp = startedAt.AddSeconds(42), Message = "last words" });
+        logged.Logs.Add(new JobLogEntry { Level = "info", Timestamp = startedAt.AddSeconds(7), Message = "earlier" });
         var done = Running("job", startedAt);
         done.Status = JobExecutionStatus.Completed;
-        foreach (var e in new[] { first, second, other, done })
+        foreach (var e in new[] { first, second, logged, other, done })
             await _storage.SaveExecutionAsync(e);
 
         await _scheduler.StartAsync(CancellationToken.None);
@@ -602,6 +707,11 @@ public class JobConcurrencyTests : IDisposable
             Assert.Equal(saved.StartedAt, saved.CompletedAt);
             Assert.Equal(0, saved.Duration);
         }
+        // Completed at its last log entry, the latest time it is known to have run
+        var savedLogged = (await _storage.GetExecutionAsync(logged.Id))!;
+        Assert.Equal(JobExecutionStatus.Cancelled, savedLogged.Status);
+        Assert.Equal(startedAt.AddSeconds(42), savedLogged.CompletedAt);
+        Assert.Equal(42_000, savedLogged.Duration);
         Assert.Equal(JobExecutionStatus.Running, (await _storage.GetExecutionAsync(other.Id))!.Status);
         Assert.Equal(JobExecutionStatus.Completed, (await _storage.GetExecutionAsync(done.Id))!.Status);
         Assert.Empty(reg.RunningExecutionIds);
@@ -617,6 +727,7 @@ public class JobConcurrencyTests : IDisposable
         var storage = new EfCoreJobStorageProvider(new DbFactory(options));
         var startedAt = Start.AddMinutes(-10).UtcDateTime;
         var runs = Enumerable.Range(0, 120).Select(i => Running("job", startedAt.AddSeconds(i))).ToList();
+        runs[0].Logs.Add(new JobLogEntry { Level = "info", Timestamp = startedAt.AddSeconds(30), Message = "working" });
         foreach (var e in runs)
             await storage.SaveExecutionAsync(e);
 
@@ -627,6 +738,8 @@ public class JobConcurrencyTests : IDisposable
         var (items, total) = await storage.GetExecutionsAsync("job", 200, 0, "Cancelled");
         Assert.Equal(120, total);
         Assert.All(items, e => Assert.Equal(CliJobScheduler.InterruptedError, e.Error));
+        var withLog = (await storage.GetExecutionAsync(runs[0].Id))!;
+        Assert.Equal(30_000, withLog.Duration);
         Assert.Equal(0, (await storage.GetExecutionsAsync("job", 1, 0, "Running")).Total);
         await scheduler.StopAsync(CancellationToken.None);
     }
@@ -658,9 +771,14 @@ public class JobConcurrencyTests : IDisposable
         Assert.False(idle.GetProperty("queued").GetBoolean());
         Assert.Equal(JsonValueKind.Null, idle.GetProperty("currentExecutionId").ValueKind);
 
-        Assert.IsType<OkObjectResult>(await controller.TriggerJob(reg.Id, CancellationToken.None));
-        // Queued, not refused: 200 like a started run
-        Assert.IsType<OkObjectResult>(await controller.TriggerJob(reg.Id, CancellationToken.None));
+        var started = Json(Assert.IsType<OkObjectResult>(await controller.TriggerJob(reg.Id, CancellationToken.None)).Value!);
+        Assert.Equal("Job triggered", started.GetProperty("message").GetString());
+        Assert.False(started.GetProperty("queued").GetBoolean());
+        // Queued, not refused: 200 that says so
+        var queued = Json(Assert.IsType<OkObjectResult>(await controller.TriggerJob(reg.Id, CancellationToken.None)).Value!);
+        Assert.Equal("Job queued", queued.GetProperty("message").GetString());
+        Assert.True(queued.GetProperty("queued").GetBoolean());
+        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 1, "the run executes");
 
         var busy = await GetJobAsync(controller, reg.Id);
         var running = busy.GetProperty("runningExecutionIds");
