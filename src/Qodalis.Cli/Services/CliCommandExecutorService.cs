@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Security;
 
@@ -16,6 +18,8 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     private readonly IEnumerable<ICliProcessorFilter> _filters;
     private readonly int _maxTableRows;
     private readonly CliCommandUsage? _usage;
+    private readonly ICliEventBus? _events;
+    private readonly IHttpContextAccessor? _http;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliCommandExecutorService"/>.
@@ -25,14 +29,20 @@ public class CliCommandExecutorService : ICliCommandExecutorService
     /// <param name="filters">Optional processor filters for runtime enable/disable checks.</param>
     /// <param name="serverOptions">Server options; <see cref="CliServerOptions.MaxTableRows"/> caps unpaged tables.</param>
     /// <param name="usage">Counts the executions (<c>GET /api/v1/qcli/commands/stats</c>); null to not count.</param>
+    /// <param name="eventBus">Publishes <c>command:executed</c>; null to not publish.</param>
+    /// <param name="http">Gives the caller of the current request (the event's <c>userId</c>).</param>
     public CliCommandExecutorService(
         ICliCommandRegistry registry,
         ILogger<CliCommandExecutorService> logger,
         IEnumerable<ICliProcessorFilter> filters,
         CliServerOptions? serverOptions = null,
-        CliCommandUsage? usage = null)
+        CliCommandUsage? usage = null,
+        ICliEventBus? eventBus = null,
+        IHttpContextAccessor? http = null)
     {
         _usage = usage;
+        _events = eventBus;
+        _http = http;
         _registry = registry;
         _logger = logger;
         _filters = filters;
@@ -61,7 +71,10 @@ public class CliCommandExecutorService : ICliCommandExecutorService
         }
         finally
         {
-            _usage?.Record(command.Command, known, System.Diagnostics.Stopwatch.GetElapsedTime(started), failed);
+            var duration = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            _usage?.Record(command.Command, known, duration, failed);
+            await CliCommandEvents.PublishAsync(_events, command.Command, known, !failed, duration,
+                _http?.HttpContext?.GetCliPrincipal());
         }
     }
 
