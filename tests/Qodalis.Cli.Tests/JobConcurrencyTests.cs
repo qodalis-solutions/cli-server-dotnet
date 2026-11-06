@@ -128,9 +128,10 @@ internal sealed class JobTestClock : TimeProvider
 
 /// <summary>
 /// A job that holds every run until <see cref="Release"/> (or its cancellation), counting runs and the most that ran
-/// at the same time. With <c>failFirst</c> its first call fails.
+/// at the same time. With <c>failFirst</c> its first call fails; with <c>firstIgnoresCancel</c> its first call waits
+/// for the release even when cancelled (a job slow to stop).
 /// </summary>
-internal sealed class GatedJob(bool failFirst = false) : ICliJob
+internal sealed class GatedJob(bool failFirst = false, bool firstIgnoresCancel = false) : ICliJob
 {
     private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _current;
@@ -156,7 +157,7 @@ internal sealed class GatedJob(bool failFirst = false) : ICliJob
 
         try
         {
-            await _gate.Task.WaitAsync(cancellationToken);
+            await _gate.Task.WaitAsync(firstIgnoresCancel && call == 1 ? CancellationToken.None : cancellationToken);
         }
         finally
         {
@@ -365,7 +366,7 @@ public class JobConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancel_CancelsTheOldestRun()
+    public async Task Cancel_CancelsTheOldestRun_AndStartsTheNewOneOnceItEnded()
     {
         var job = new GatedJob();
         var reg = Register(job, new CliJobOptions { MaxConcurrentRuns = 2, OverlapPolicy = JobOverlapPolicy.Cancel });
@@ -378,20 +379,50 @@ public class JobConcurrencyTests : IDisposable
         var oldest = reg.RunningExecutionIds[0];
         var newer = reg.RunningExecutionIds[1];
 
-        // The oldest gives its slot to the new run at once: started, not queued
-        Assert.Equal(CliJobTriggerOutcome.Started, await _scheduler.TriggerWithOutcomeAsync(reg.Id));
-        Assert.DoesNotContain(oldest, reg.RunningExecutionIds);
-        Assert.False(reg.Queued);
-        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "the new run executes");
-        await Until.TrueAsync(() => _storage.GetExecutionAsync(oldest).Result!.Status == JobExecutionStatus.Cancelled,
-            "the oldest run is cancelled");
+        // The new run waits for the cancelled one: the trigger reports it queued
+        Assert.Equal(CliJobTriggerOutcome.Queued, await _scheduler.TriggerWithOutcomeAsync(reg.Id));
+        await Until.TrueAsync(() => !reg.Queued && !reg.RunningExecutionIds.Contains(oldest) && job.Current == 2,
+            "the oldest run ended and the new one goes");
 
+        Assert.Equal(JobExecutionStatus.Cancelled, (await _storage.GetExecutionAsync(oldest))!.Status);
         Assert.Equal(JobExecutionStatus.Running, (await _storage.GetExecutionAsync(newer))!.Status);
         Assert.Equal(newer, reg.RunningExecutionIds[0]);
+        Assert.Equal(2, reg.RunningExecutionIds.Count);
+        Assert.Equal(2, job.MaxConcurrent);
 
         job.Release();
         await IdleAsync(reg);
         Assert.Equal(3, job.Calls);
+    }
+
+    [Fact]
+    public async Task Cancel_KeepsTheLimit_WhileTheCancelledRunIsEnding()
+    {
+        // The first run is slow to stop: it ignores its cancellation until released
+        var job = new GatedJob(firstIgnoresCancel: true);
+        var reg = Register(job, new CliJobOptions { MaxConcurrentRuns = 2, OverlapPolicy = JobOverlapPolicy.Cancel });
+        await _scheduler.StartAsync(CancellationToken.None);
+        await _scheduler.TriggerAsync(reg.Id);
+        await Until.TrueAsync(() => job.Current == 1, "the first run goes");
+        await _scheduler.TriggerAsync(reg.Id);
+        await Until.TrueAsync(() => job.Current == 2, "the second run goes");
+        var newer = reg.RunningExecutionIds[1];
+
+        // Cancels the oldest; a second due run joins the waiting one instead of cancelling the newer run
+        await _scheduler.TriggerAsync(reg.Id);
+        _scheduler.OnTimerFired(reg);
+        await _scheduler.TriggerAsync(reg.Id);
+
+        Assert.True(reg.Queued);
+        Assert.Equal(2, RunCount(reg));
+        Assert.Equal(2, job.Current);
+        Assert.Equal(JobExecutionStatus.Running, (await _storage.GetExecutionAsync(newer))!.Status);
+
+        job.Release();
+        await IdleAsync(reg);
+        // One more run, never more than two at once
+        Assert.Equal(3, job.Calls);
+        Assert.Equal(2, job.MaxConcurrent);
     }
 
     [Fact]
@@ -444,27 +475,6 @@ public class JobConcurrencyTests : IDisposable
 
         job.Release();
         await IdleAsync(reg);
-    }
-
-    [Fact]
-    public async Task Cancel_AboveALoweredLimit_CancelsNothing()
-    {
-        var job = new GatedJob();
-        var reg = Register(job, new CliJobOptions { MaxConcurrentRuns = 2, OverlapPolicy = JobOverlapPolicy.Cancel });
-        await _scheduler.StartAsync(CancellationToken.None);
-        await _scheduler.TriggerAsync(reg.Id);
-        await _scheduler.TriggerAsync(reg.Id);
-        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "two runs execute");
-
-        await _scheduler.UpdateOptionsAsync(reg.Id, o => o.MaxConcurrentRuns = 1);
-        _scheduler.OnTimerFired(reg);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _scheduler.TriggerAsync(reg.Id));
-        Assert.Equal(2, RunCount(reg));
-        Assert.Equal(2, job.Calls);
-
-        job.Release();
-        await IdleAsync(reg);
-        Assert.All((await _storage.GetExecutionsAsync(reg.Id)).Items, e => Assert.Equal(JobExecutionStatus.Completed, e.Status));
     }
 
     [Theory]
@@ -823,6 +833,28 @@ public class JobConcurrencyTests : IDisposable
 
         job.Release();
         await IdleAsync(reg);
+    }
+
+    [Theory]
+    [InlineData("\"abc\"")]
+    [InlineData("1.5")]
+    [InlineData("true")]
+    [InlineData("0")]
+    public async Task Api_Update_RefusesANonIntegerMaxConcurrentRuns(string value)
+    {
+        await using var h = await McpPlainHost.StartAsync(cli => cli.AddJob(new GatedJob(), o => o.Id = "http-job"));
+        var body = new StringContent($"{{\"maxConcurrentRuns\": {value}}}", System.Text.Encoding.UTF8, "application/json");
+
+        var response = await h.Client.PutAsync("/api/v1/qcli/jobs/http-job", body);
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        var scheduler = h.Host.Services.GetRequiredService<ICliJobScheduler>();
+        Assert.Equal(1, scheduler.Jobs["http-job"].Options.MaxConcurrentRuns);
+
+        var ok = await h.Client.PutAsync("/api/v1/qcli/jobs/http-job",
+            new StringContent("{\"maxConcurrentRuns\": 2}", System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, ok.StatusCode);
+        Assert.Equal(2, scheduler.Jobs["http-job"].Options.MaxConcurrentRuns);
     }
 
     [Fact]
