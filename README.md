@@ -465,6 +465,7 @@ job manager, user store or file storage provider gets them too; `actor` is the u
 | `fs:changed` | action (`upload`, `mkdir`, `delete`, `write`, `move`, `copy`), path, newPath (move, copy) | `files:read` |
 | `command:executed` | command (the processor name only, never arguments), success, durationMs, userId | `audit:read` |
 | `audit:recorded` | the audit entry as the audit API returns it (its time is the event's `timestamp`) | `audit:read` |
+| `log:entry` | timestamp, level, message, source (a log line of this process; admin plugin) | `logs:read` |
 
 `user:updated` covers profile, password, enabled/disabled and group membership changes; `session:closed` covers
 sign-out, expiry and revocation. The control messages `connected`, `disconnect` and `session-kicked` are unchanged.
