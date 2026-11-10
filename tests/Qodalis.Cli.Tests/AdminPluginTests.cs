@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Events;
+using Qodalis.Cli.Security;
 
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Extensions;
@@ -261,6 +264,67 @@ public class JwtServiceTests
 
 public class LogRingBufferTests
 {
+    [Fact]
+    public async Task Add_PublishesLogEntry_OnTheEventBus_ForLogsReaders()
+    {
+        var bus = new CliEventBus();
+        using var recorder = new EventRecorder(bus);
+        var buffer = new LogRingBuffer(100);
+        using var events = new LogEntryEvents(buffer, bus);
+        await events.StartAsync(CancellationToken.None);
+        var at = new DateTime(2026, 11, 10, 10, 0, 0, DateTimeKind.Utc);
+
+        buffer.Add(new LogEntry { Timestamp = at, Level = "WARN", Message = "disk low", Source = "Demo.Worker" });
+
+        var e = await recorder.WaitAsync("log:entry");
+        Assert.Equal(CliEventAudience.WithPermission("logs:read"), e.Audience);
+        Assert.Equal(at, e.Timestamp);
+        Assert.Equal("WARN", e.Data["level"]);
+        Assert.Equal("disk low", e.Data["message"]);
+        Assert.Equal("Demo.Worker", e.Data["source"]);
+        Assert.Contains("\"type\":\"log:entry\"", CliEventBus.Serialize(e));
+        Assert.Contains("\"timestamp\":\"2026-11-10T10:00:00.000Z\"", CliEventBus.Serialize(e));
+    }
+
+    [Fact]
+    public async Task ALineLoggedWhileDelivering_IsKeptButNotPublishedAgain()
+    {
+        // The bus logs a failing handler, a socket its failed send: those lines must not start a publish loop
+        var bus = new CliEventBus();
+        using var recorder = new EventRecorder(bus);
+        var buffer = new LogRingBuffer(100);
+        var logger = buffer.CreateLogger("Qodalis.Cli.Services.CliEventBus");
+        using var failing = bus.Subscribe("log:*", (_, _) =>
+        {
+            logger.LogWarning("Event handler failed");
+            throw new InvalidOperationException("boom");
+        });
+        using var events = new LogEntryEvents(buffer, bus);
+        await events.StartAsync(CancellationToken.None);
+
+        buffer.Add(new LogEntry { Level = "INFO", Message = "first" });
+
+        await recorder.WaitAsync("log:entry");
+        await Task.Delay(100);
+        Assert.Single(recorder.OfType("log:entry"));
+        Assert.Equal(["Event handler failed", "first"], buffer.Query().Items.Select(e => e.Message));
+    }
+
+    [Fact]
+    public async Task AddAdmin_PublishesTheServersLogLines_AsLogEntryEvents()
+    {
+        await using var h = await McpPlainHost.StartAsync(cli => cli.AddAdmin());
+        var bus = h.Host.Services.GetRequiredService<ICliEventBus>();
+        using var recorder = new EventRecorder(bus);
+
+        h.Host.Services.GetRequiredService<ILogger<LogRingBufferTests>>().LogWarning("disk is {State}", "low");
+
+        var e = await recorder.WaitAsync("log:entry", e => Equals(e.Data["message"], "disk is low"));
+        Assert.Equal("WARN", e.Data["level"]);
+        Assert.Equal(typeof(LogRingBufferTests).FullName, e.Data["source"]);
+        Assert.Equal(CliEventAudience.WithPermission(CliRoutePolicy.LogsRead), e.Audience);
+    }
+
     [Fact]
     public void Query_EmptyBuffer_ReturnsEmptyResult()
     {

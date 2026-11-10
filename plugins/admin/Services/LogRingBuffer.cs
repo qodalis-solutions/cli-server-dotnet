@@ -16,6 +16,9 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
     private long _count;
     private readonly object _lock = new();
 
+    /// <summary>Raised after an entry was added (see <see cref="LogEntryEvents"/>).</summary>
+    public event Action<LogEntry>? EntryAdded;
+
     /// <summary>
     /// Initializes a new instance with the specified capacity.
     /// </summary>
@@ -27,7 +30,7 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
     }
 
     /// <summary>
-    /// Adds a log entry to the ring buffer, overwriting the oldest entry if at capacity.
+    /// Adds a log entry to the ring buffer, overwriting the oldest entry if at capacity, and raises <see cref="EntryAdded"/>.
     /// </summary>
     /// <param name="entry">The log entry to add.</param>
     public void Add(LogEntry entry)
@@ -39,6 +42,7 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
             _writeIndex++;
             if (_count < _capacity) _count++;
         }
+        EntryAdded?.Invoke(entry);
     }
 
     /// <summary>
