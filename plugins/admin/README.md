@@ -63,6 +63,9 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |
 | `/api/v1/qcli/ws/clients` | GET | List active WebSocket connections |
 
+Every log line the ring buffer captures is also published on the server's event bus (`ICliEventBus`) as `log:entry`
+(`timestamp`, `level`, `message`, `source`; audience `logs:read`), which the dashboard's Logs page follows live.
+
 ## Authentication
 
 Login is rate-limited to 5 attempts per IP per minute. Successful login returns a JWT token that must be included as a `Bearer` token in subsequent requests to protected admin endpoints.
