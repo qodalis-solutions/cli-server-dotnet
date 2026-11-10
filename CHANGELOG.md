@@ -3,8 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.24
 
+- The admin plugin embeds dashboard 1.0.0-beta.19: a phone layout (below 768 px the sidebar is a drawer, stat cards wrap, panels stack and tables scroll in their container) and tests for the live log tail.
 - **Admin: live log entries.** `AddAdmin` registers `LogEntryEvents`, a hosted service that publishes every entry the
   log ring buffer captures as `log:entry` (`timestamp`, `level`, `message`, `source`) on `ICliEventBus` with the
   audience `logs:read`, so the dashboard's Logs page follows the log live instead of only after a refresh. A line
