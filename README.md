@@ -465,6 +465,7 @@ job manager, user store or file storage provider gets them too; `actor` is the u
 | `fs:changed` | action (`upload`, `mkdir`, `delete`, `write`, `move`, `copy`), path, newPath (move, copy) | `files:read` |
 | `command:executed` | command (the processor name only, never arguments), success, durationMs, userId | `audit:read` |
 | `audit:recorded` | the audit entry as the audit API returns it (its time is the event's `timestamp`) | `audit:read` |
+| `log:entry` | timestamp, level, message, source (a log line of this process; admin plugin) | `logs:read` |
 
 `user:updated` covers profile, password, enabled/disabled and group membership changes; `session:closed` covers
 sign-out, expiry and revocation. The control messages `connected`, `disconnect` and `session-kicked` are unchanged.
@@ -508,7 +509,7 @@ The image runs the bundled host (`src/Qodalis.Cli.Server`) on port 8046. `./dock
 
 ## Versioning
 
-Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.23` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
+Every package in this repository (`Qodalis.Cli`, `Qodalis.Cli.Abstractions` and every `Qodalis.Cli.Plugin.*`) has the same version, and so do the Node and Python servers' packages: `1.0.0-beta.24` today. A release bumps all of them together, even packages that did not change, so one version number describes a whole server release. Use the same version for every `Qodalis.Cli*` package you reference.
 
 ## Development
 
