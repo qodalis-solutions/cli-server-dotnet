@@ -6,6 +6,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Logs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
@@ -43,6 +44,8 @@ public static class CliBuilderAdminExtensions
         builder.Services.AddSingleton(logBuffer);
         builder.Services.TryAddSingleton<ILogStore>(logBuffer);
         builder.Services.AddLogging(logging => logging.AddProvider(logBuffer));
+        // Every entry is also a log:entry event (audience logs:read): the dashboard's Logs page follows them live
+        builder.Services.AddHostedService(sp => new LogEntryEvents(logBuffer, sp.GetRequiredService<ICliEventBus>()));
 
         // Samples the server status every 15 seconds for the dashboard's charts (GET /api/v1/qcli/status/history).
         builder.Services.TryAddSingleton<StatusHistory>();
