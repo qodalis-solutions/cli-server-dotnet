@@ -146,6 +146,12 @@ public static class DataExplorerErrorCodes
     /// <summary>The query names an object outside the source's allowed objects.</summary>
     public const string ObjectNotAllowed = "object_not_allowed";
 
+    /// <summary>
+    /// The source masks or drops columns and the query names one other than as a plain item of the select list
+    /// (or the result does not show it under its own name).
+    /// </summary>
+    public const string MaskedColumn = "masked_column";
+
     /// <summary>No source has that name.</summary>
     public const string UnknownSource = "unknown_source";
 }
@@ -224,7 +230,7 @@ public class DataExplorerResult
 
     /// <summary>
     /// Why the server refused the query, when it did (see <see cref="DataExplorerErrorCodes"/>): <c>forbidden</c>
-    /// (403), <c>rate_limited</c> (429), <c>read_only</c>, <c>object_not_allowed</c>, <c>unknown_source</c>.
+    /// (403), <c>rate_limited</c> (429), <c>read_only</c>, <c>object_not_allowed</c>, <c>masked_column</c>, <c>unknown_source</c>.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ErrorCode { get; set; }

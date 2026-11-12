@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.DataExplorer;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Plugin.DataExplorer.Postgres;
 using Qodalis.Cli.Plugin.DataExplorer.Sql;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Helpers;
@@ -84,6 +85,14 @@ public class DataExplorerReadOnlyRulesTests
     [InlineData("SHOW TABLES")]
     [InlineData("SELECT REPLACE(name, 'a', 'b') FROM users")]
     [InlineData("SELECT * FROM #recent")]
+    [InlineData("SELECT 'it''s'")]
+    [InlineData("SELECT 1 # trailing MySQL comment")]
+    [InlineData("SELECT E'it\\'s' AS s")]
+    [InlineData("SELECT \"a\"\"b\", [c]]d], `e``f` FROM t")]
+    [InlineData("SELECT 1 /* a /* nested */ b */")]
+    [InlineData("SELECT $1::int")]
+    [InlineData("SELECT 1\r\nFROM t")]
+    [InlineData("SELECT café FROM t")]
     public void Sql_AllowsReads(string query) => Assert.Null(P.ReadOnlyError(L.Sql, query));
 
     [Theory]
@@ -102,6 +111,24 @@ public class DataExplorerReadOnlyRulesTests
     // $tag$ is not a quote outside Postgres
     [InlineData("SELECT $a$; DROP TABLE users; $a$")]
     [InlineData("SELECT * FROM #t; DROP TABLE users")]
+    [InlineData("SELECT $$; DROP TABLE users; $$")]
+    // MySQL: '--' needs a space ('1 --1' is 1 - -1), /*! ... */ runs, "..." is a string
+    [InlineData("SELECT 1 --1; COMMIT; DELETE FROM users")]
+    [InlineData("SELECT 1 /*! INTO OUTFILE '/tmp/x' */")]
+    [InlineData("SELECT \"\\\"\" INTO OUTFILE '/tmp/f' -- \"")]
+    // Postgres and SQL Server comments nest; SQL Server escapes ] as ]]
+    [InlineData("SELECT 1 /* /* */ ' */ COMMIT DROP TABLE users --'")]
+    [InlineData("SELECT [x]]'] , 1 DROP TABLE users --'")]
+    // '#' is a comment only in MySQL
+    [InlineData("SELECT 1 # x\n; DROP TABLE users")]
+    // Postgres: [ is an array subscript, '$a1$' a dollar quote, a lone \r ends a '--' comment
+    [InlineData("SELECT ('{1}'::int[])[length(']')] ; COMMIT; DELETE FROM users; --'")]
+    [InlineData("SELECT $a1$ ' $a1$; DELETE FROM users; -- '")]
+    [InlineData("SELECT 1 --x\r; DELETE FROM users")]
+    // SQL Server runs statements without ';': ending the rolled-back transaction would keep the next one
+    [InlineData("SELECT 1 COMMIT")]
+    [InlineData("SELECT 1 ROLLBACK")]
+    [InlineData("SELECT 1 DENY SELECT ON users TO public")]
     public void Sql_RefusesWrites(string query) => Assert.NotNull(P.ReadOnlyError(L.Sql, query));
 
     [Fact]
@@ -113,6 +140,8 @@ public class DataExplorerReadOnlyRulesTests
         Assert.NotNull(P.ReadOnlyError(L.Shell, "db.users.insertOne({a:1})"));
         Assert.NotNull(P.ReadOnlyError(L.Shell, "db.users.drop()"));
         Assert.NotNull(P.ReadOnlyError(L.Shell, "db.users.aggregate([{ $out: \"x\" }])"));
+        // JSON escapes are read as the driver reads them
+        Assert.NotNull(P.ReadOnlyError(L.Shell, "db.users.aggregate([{ \"\\u0024out\": \"x\" }])"));
         // MongoDB sources registered with the json language follow the same rules
         Assert.Null(P.ReadOnlyError(L.Json, "db.users.find({})"));
         Assert.NotNull(P.ReadOnlyError(L.Json, "db.users.deleteMany({})"));
@@ -134,6 +163,11 @@ public class DataExplorerReadOnlyRulesTests
         Assert.Null(P.ReadOnlyError(L.Elasticsearch, "POST /logs/_search\n{}"));
         Assert.NotNull(P.ReadOnlyError(L.Elasticsearch, "DELETE /logs"));
         Assert.NotNull(P.ReadOnlyError(L.Elasticsearch, "POST /logs/_doc\n{}"));
+        // The HTTP client drops the fragment; a document id that looks like an endpoint
+        Assert.NotNull(P.ReadOnlyError(L.Elasticsearch, "POST /logs/_delete_by_query#/_search\n{}"));
+        Assert.NotNull(P.ReadOnlyError(L.Elasticsearch, "POST /logs/_doc/_search\n{}"));
+        Assert.Null(P.ReadOnlyError(L.Elasticsearch, "POST /_all/_search\n{}"));
+        Assert.Null(P.ReadOnlyError(L.Elasticsearch, "POST /logs/_validate/query\n{}"));
     }
 
     [Fact]
@@ -158,6 +192,64 @@ public class DataExplorerAllowedObjectsTests
         Assert.Equal(["users"], P.SqlObjects("WITH recent AS (SELECT * FROM users) SELECT * FROM recent"));
         Assert.Empty(P.SqlObjects("SELECT EXTRACT(YEAR FROM day) AS y"));
         Assert.Equal(["dbo.users"], P.SqlObjects("SELECT * FROM [dbo].[users]"));
+        Assert.Equal(["Users", "dbo.orders"], P.SqlObjects("SELECT * FROM \"Users\", [dbo].[orders]"));
+        Assert.Equal(["sec\"ret"], P.SqlObjects("SELECT * FROM \"sec\"\"ret\""));
+        Assert.Equal(["état"], P.SqlObjects("SELECT * FROM état"));
+        Assert.Empty(P.SqlObjects("EXPLAIN ANALYZE SELECT 1"));
+    }
+
+    [Theory]
+    // Read as each dialect reads its comments and brackets
+    [InlineData("SELECT * FROM allowed /* /* */ ' */ , secret --'")]
+    [InlineData("SELECT arr[(SELECT 1 FROM secret)] FROM allowed")]
+    // Every item of a FROM list, after subqueries and functions too
+    [InlineData("SELECT * FROM (SELECT 1) a, secret")]
+    [InlineData("SELECT * FROM allowed a, generate_series(1, 2) g, secret")]
+    // A CTE name only covers its own parentheses and statement
+    [InlineData("SELECT * FROM allowed WHERE EXISTS (WITH secret AS (SELECT 1) SELECT 1) UNION SELECT * FROM secret")]
+    [InlineData("SELECT * FROM allowed..secret")]
+    [InlineData("DESCRIBE secret")]
+    [InlineData("EXPLAIN secret")]
+    [InlineData("DELETE FROM allowed USING secret WHERE 1=1")]
+    // Found by the Node review: a quote or comment one dialect reads differently
+    [InlineData("SELECT 1 $x$, '\\'' a FROM secret WHERE ''='' -- $x$")]
+    [InlineData("SELECT \"\\\"\" a FROM secret WHERE \"\"=\"\"")]
+    [InlineData("SELECT 1 #'\n FROM secret -- '")]
+    [InlineData("SELECT a--1, b FROM secret")]
+    [InlineData("SELECT 1 /*! FROM secret */")]
+    [InlineData("SELECT '\\', $x$ ' $x$ FROM secret -- '")]
+    [InlineData("SELECT $a1$ ' $a1$ FROM secret -- '")]
+    [InlineData("SELECT E'\\'' FROM secret -- '")]
+    [InlineData("SELECT 1 # 2 FROM secret")]
+    [InlineData("SELECT (ARRAY[1,2])[(SELECT length(']'))] FROM secret")]
+    public void FindsEveryTableAQueryReads(string query)
+    {
+        Assert.Contains(P.SqlObjects(query), o => o.Split('.')[^1] == "secret");
+        Assert.NotNull(P.ObjectsError(Opts(o => o.AllowedObjects = ["allowed"]), query));
+    }
+
+    [Fact]
+    public void FindsTheCollectionsAPipelineReads_AndTheKeysTheProviderReads()
+    {
+        var mongo = Opts(o => { o.Language = L.Shell; o.AllowedObjects = ["users"]; });
+        Assert.Null(P.ObjectsError(mongo, "db.users.aggregate([{ $match: {} }])"));
+        Assert.Contains("secret", P.ObjectsError(mongo, "db.users.aggregate([{ $lookup: { from: \"secret\", localField: \"a\", foreignField: \"b\", as: \"s\" } }])"));
+        Assert.Contains("secret", P.ObjectsError(mongo, "db.users.aggregate([{ \"$unionWith\": \"secret\" }])"));
+        Assert.Contains("secret", P.ObjectsError(mongo, "db.users.aggregate([{ $graphLookup: { from: \"secret\", startWith: \"$a\", connectFromField: \"a\", connectToField: \"b\", as: \"s\" } }])"));
+        // A collection that is not named as a string cannot be checked
+        Assert.Contains("name the objects", P.ObjectsError(mongo, "db.users.aggregate([{ $lookup: { from: name, as: \"s\" } }])"));
+        Assert.Contains("secret", P.ObjectsError(mongo, "db.users.aggregate([{ \"$unionWith\": { \"coll\": \"secret\" } }])"));
+        Assert.Contains("secret", P.ObjectsError(mongo, "db.users.aggregate([{ \"\\u0024lookup\": { \"from\": \"secret\" } }])"));
+
+        // The provider joins quoted text to the word around it
+        var redis = Opts(o => { o.Language = L.Redis; o.AllowedObjects = ["rates:usd"]; });
+        Assert.Null(P.ObjectsError(redis, "GET rates:usd"));
+        Assert.NotNull(P.ObjectsError(redis, "GET 'rates:usd'x"));
+
+        // Index names in a request body
+        var es = Opts(o => { o.Language = L.Elasticsearch; o.AllowedObjects = ["logs"]; });
+        Assert.Null(P.ObjectsError(es, "POST /logs/_search\n{\"query\":{\"match_all\":{}}}"));
+        Assert.NotNull(P.ObjectsError(es, "POST /logs/_msearch\n{\"index\":\"secret\"}\n{}"));
     }
 
     [Fact]
@@ -229,6 +321,16 @@ public class DataExplorerAllowedObjectsTests
             ],
         }, o);
         Assert.Equal("""[{"id":1,"email":"***","nested":{"email":"***"},"list":[{"ok":true}]}]""", JsonSerializer.Serialize(docs.Rows));
+
+        // JSON text (a JSON column, an Elasticsearch response) like a document; other text as it is
+        var text = P.ApplyColumnPolicy(new DataExplorerResult
+        {
+            Source = "db",
+            Columns = ["response"],
+            Rows = [new object?[] { """{"_source":{"email":"a@x.io","password":"h","id":1}}""" }!, new object?[] { "[not json" }!],
+        }, o);
+        Assert.Equal("""[["{\u0022_source\u0022:{\u0022email\u0022:\u0022***\u0022,\u0022id\u0022:1}}"],["[not json"]]""",
+            JsonSerializer.Serialize(text.Rows));
     }
 
     [Fact]
@@ -242,6 +344,75 @@ public class DataExplorerAllowedObjectsTests
         P.FilterListing(result, Opts(o => { o.Language = L.Shell; o.AllowedObjects = ["users"]; }), "show collections");
         Assert.Single(result.Rows!);
         Assert.Equal(1, result.RowCount);
+    }
+}
+
+public class DataExplorerMaskedColumnsTests
+{
+    private static DataExplorerProviderOptions Opts(L language = L.Sql) => new()
+    {
+        Name = "db",
+        Description = "Test",
+        Language = language,
+        MaskColumns = ["email", "*phone*"],
+        DropColumns = ["password_hash"],
+    };
+
+    [Theory]
+    [InlineData("SELECT * FROM users")]
+    [InlineData("SELECT email FROM users")]
+    [InlineData("SELECT DISTINCT u.email, name FROM users u")]
+    [InlineData("SELECT TOP 5 email FROM users")]
+    [InlineData("SELECT password_hash FROM users;")]
+    [InlineData("SELECT * FROM phones")]
+    [InlineData("SELECT p.number FROM phones AS p")]
+    [InlineData("WITH x AS (SELECT 1 AS a) SELECT a FROM x")]
+    public void AllowsMaskedColumnsSelectedByTheirOwnName(string query) => Assert.Null(P.MaskedColumnError(Opts(), query));
+
+    [Theory]
+    [InlineData("SELECT email AS e FROM users", "email")]
+    [InlineData("SELECT email e FROM users", "email")]
+    [InlineData("SELECT upper(email) FROM users", "email")]
+    [InlineData("SELECT email || '' FROM users", "email")]
+    [InlineData("SELECT id FROM users WHERE email = 'a@x.io'", "email")]
+    [InlineData("SELECT * FROM users u WHERE u.email LIKE 'a%'", "email")]
+    [InlineData("SELECT * FROM users ORDER BY email", "email")]
+    [InlineData("SELECT name AS email, email AS name FROM users", "email")]
+    [InlineData("SELECT id FROM t UNION SELECT email FROM users", "email")]
+    [InlineData("SELECT (SELECT email FROM users LIMIT 1)", "email")]
+    [InlineData("SELECT CASE WHEN home_phone LIKE '5%' THEN 1 END FROM users", "home_phone")]
+    [InlineData("SELECT password_hash AS h FROM users", "password_hash")]
+    [InlineData("SELECT email # x\nAS e FROM users", "email")]
+    public void RefusesOtherUsesOfMaskedColumns(string query, string column) =>
+        Assert.Equal($"Masked column '{column}' can only be selected by its own name", P.MaskedColumnError(Opts(), query));
+
+    [Theory]
+    [InlineData("SELECT u FROM users u", "u")]
+    [InlineData("SELECT row_to_json(u) FROM users AS u", "u")]
+    [InlineData("SELECT * FROM users WHERE users::text LIKE '%@%'", "users")]
+    [InlineData("WITH x AS (SELECT * FROM users) SELECT x FROM x", "x")]
+    public void RefusesWholeRows(string query, string name) =>
+        Assert.Equal($"'{name}' is a whole row and this source masks columns: select its columns by name", P.MaskedColumnError(Opts(), query));
+
+    [Fact]
+    public void RefusesUnicodeEscapedNames() =>
+        Assert.Equal("This source masks columns: write names without Unicode escapes (U&\"...\")",
+            P.MaskedColumnError(Opts(), "SELECT U&\"\\0065mail\" AS e FROM users"));
+
+    [Fact]
+    public void ChecksOnlySqlSourcesThatMask()
+    {
+        Assert.Null(P.MaskedColumnError(new DataExplorerProviderOptions { Name = "db", Description = "Test" }, "SELECT email AS e FROM users"));
+        Assert.Null(P.MaskedColumnError(Opts(L.Shell), "db.users.find({email: 'a'})"));
+    }
+
+    [Fact]
+    public void WithholdsResultsThatDoNotShowTheColumnUnderItsName()
+    {
+        Assert.Null(P.MaskedResultError(Opts(), "SELECT email FROM users", ["EMAIL"]));
+        Assert.Equal("Masked column 'email' can only be selected by its own name",
+            P.MaskedResultError(Opts(), "SELECT email FROM users", ["JSON_F52E"]));
+        Assert.Null(P.MaskedResultError(Opts(), "SELECT * FROM users", ["x"]));
     }
 }
 
@@ -281,6 +452,25 @@ public class DataExplorerExecutorHardeningTests
         Assert.False(result.Success);
         Assert.Equal(DataExplorerErrorCodes.ReadOnly, result.ErrorCode);
         Assert.Empty(provider.Queries);
+    }
+
+    [Fact]
+    public async Task RefusesMaskedColumnsUnderAnotherName_WithoutCallingTheProvider_AndAudits()
+    {
+        var (executor, provider, audit, _) = Create(o => o.MaskColumns = ["email", "token"]);
+        var result = await executor.ExecuteAsync(Q("SELECT email AS e FROM users"));
+        Assert.False(result.Success);
+        Assert.Equal(DataExplorerErrorCodes.MaskedColumn, result.ErrorCode);
+        Assert.Empty(provider.Queries);
+        Assert.Equal("Masked column 'email' can only be selected by its own name", Assert.Single(audit.Entries).Properties!["error"]);
+
+        // The provider answers the columns id, email, password: a selected masked column that is not one of them
+        // came back under another name, so the rows are withheld
+        Assert.True((await executor.ExecuteAsync(Q("SELECT email FROM users"))).Success);
+        var withheld = await executor.ExecuteAsync(Q("SELECT token FROM users"));
+        Assert.Equal(DataExplorerErrorCodes.MaskedColumn, withheld.ErrorCode);
+        Assert.Null(withheld.Rows);
+        Assert.Equal(2, provider.Queries.Count);
     }
 
     [Fact]
@@ -595,5 +785,50 @@ public class DataExplorerRoutesOnAProtectedServerTests : IAsyncLifetime
         Assert.False(read.GetProperty("isError").GetBoolean());
         Assert.Contains("***", Mcp.Text(read));
         Assert.DoesNotContain("a@x.io", Mcp.Text(read));
+    }
+}
+
+/// <summary>A real PostgreSQL server (connection string in <c>QCLI_TEST_POSTGRES</c>; skipped without it).</summary>
+public class PostgresReadOnlyTests
+{
+    private static async Task<DataExplorerResult?> RunAsync(string query, bool readOnly)
+    {
+        var connectionString = Environment.GetEnvironmentVariable("QCLI_TEST_POSTGRES");
+        if (string.IsNullOrEmpty(connectionString)) return null;
+        var options = new DataExplorerProviderOptions { Name = "pg", Description = "Test", ReadOnly = readOnly };
+        try
+        {
+            return await new PostgresDataExplorerProvider(connectionString).ExecuteAsync(new DataExplorerExecutionContext
+            {
+                Query = query,
+                Options = options,
+            });
+        }
+        catch (Exception ex)
+        {
+            return new DataExplorerResult { Success = false, Source = "pg", Error = ex.Message };
+        }
+    }
+
+    [Fact]
+    public async Task ReadOnlySource_RunsOneStatementOnly()
+    {
+        var table = "qcli_ro_" + Guid.NewGuid().ToString("N")[..8];
+        if (await RunAsync($"CREATE TABLE {table} (id int)", readOnly: false) == null) return;
+        try
+        {
+            // The server's text checks are bypassed here: the provider alone must not run the second statement
+            var batch = await RunAsync($"SELECT 1; COMMIT; INSERT INTO {table} VALUES (1)", readOnly: true);
+            Assert.False(batch!.Success);
+            var write = await RunAsync($"INSERT INTO {table} VALUES (2)", readOnly: true);
+            Assert.False(write!.Success);
+            Assert.True((await RunAsync("SELECT 1 AS one;", readOnly: true))!.Success);
+            var rows = await RunAsync($"SELECT count(*) AS n FROM {table}", readOnly: true);
+            Assert.Equal(0L, Convert.ToInt64(((object[])rows!.Rows![0])[0]));
+        }
+        finally
+        {
+            await RunAsync($"DROP TABLE {table}", readOnly: false);
+        }
     }
 }

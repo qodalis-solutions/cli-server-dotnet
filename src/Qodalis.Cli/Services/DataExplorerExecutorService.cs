@@ -10,8 +10,8 @@ namespace Qodalis.Cli.Services;
 
 /// <summary>
 /// Service for executing data explorer queries against registered providers: the source's permissions, rate limit,
-/// read-only rules and allowed objects first, then the provider with a timeout, then the row limit, column masking
-/// and the audit entry (event <c>data_query</c>).
+/// read-only rules, allowed objects and masked columns first, then the provider with a timeout, then the row limit,
+/// the masked-columns check of the result, column masking and the audit entry (event <c>data_query</c>).
 /// </summary>
 public class DataExplorerExecutorService : IDataExplorerExecutorService
 {
@@ -97,6 +97,10 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
         {
             return await RefuseAsync(request, options, caller, objectsError, DataExplorerErrorCodes.ObjectNotAllowed);
         }
+        if (DataExplorerPolicy.MaskedColumnError(options, request.Query) is { } maskedError)
+        {
+            return await RefuseAsync(request, options, caller, maskedError, DataExplorerErrorCodes.MaskedColumn);
+        }
 
         var context = new DataExplorerExecutionContext
         {
@@ -128,6 +132,14 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
             {
                 result.Rows = result.Rows.Take(options.MaxRows).ToList();
                 result.Truncated = true;
+            }
+
+            if (result.Success &&
+                DataExplorerPolicy.MaskedResultError(options, request.Query, result.Columns) is { } maskedResult)
+            {
+                // A masked column came back under another name: withhold the rows
+                _logger.LogWarning("Data explorer result withheld on source '{Source}': {Error}", request.Source, maskedResult);
+                result = Failure(request.Source, options, maskedResult, sw.ElapsedMilliseconds, DataExplorerErrorCodes.MaskedColumn);
             }
 
             if (result.Success)
