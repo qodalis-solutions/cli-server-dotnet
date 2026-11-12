@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Plugin.Admin.Services;
@@ -6,84 +7,104 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// <summary>
 /// Tracks registered modules and their enabled/disabled state.
 /// Implements <see cref="ICliProcessorFilter"/> to block execution of processors belonging to disabled modules.
+/// Commands registered on their own (<c>AddProcessor</c>, built by dependency injection) join the module their
+/// <see cref="ICliCommandProcessor.Module"/> names: a module added with that name (it may have no processors of its
+/// own, only describe the group: description, version, icon), or else a module of that name made from the commands.
 /// </summary>
 public class ModuleRegistry : ICliProcessorFilter
 {
     private readonly IReadOnlyList<ICliModule> _modules;
-    private readonly ConcurrentDictionary<string, bool> _enabledState = new();
+    private readonly Func<IEnumerable<ICliCommandProcessor>> _standaloneProcessors;
+    private readonly Lazy<IReadOnlyList<ModuleEntry>> _entries;
+    private readonly Lazy<Dictionary<ICliCommandProcessor, string>> _processorToModule;
+    private readonly ConcurrentDictionary<string, bool> _enabledState = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ModuleRegistry"/> class with the registered modules.
     /// </summary>
     /// <param name="modules">The list of registered CLI modules.</param>
-    private readonly Dictionary<ICliCommandProcessor, string> _processorToModule = new();
-
-    public ModuleRegistry(IReadOnlyList<ICliModule> modules)
+    /// <param name="processors">
+    /// Every registered command processor (read on first use), so commands added on their own are grouped by
+    /// their <see cref="ICliCommandProcessor.Module"/>; <c>null</c> = only the modules' own processors.
+    /// </param>
+    public ModuleRegistry(IReadOnlyList<ICliModule> modules, Func<IEnumerable<ICliCommandProcessor>>? processors = null)
     {
         _modules = modules;
-        foreach (var module in modules)
+        _standaloneProcessors = processors ?? (() => []);
+        _entries = new Lazy<IReadOnlyList<ModuleEntry>>(BuildEntries);
+        _processorToModule = new Lazy<Dictionary<ICliCommandProcessor, string>>(() =>
         {
-            _enabledState.TryAdd(module.Name, true);
-            foreach (var processor in module.Processors)
+            var map = new Dictionary<ICliCommandProcessor, string>(ReferenceEqualityComparer.Instance);
+            foreach (var entry in _entries.Value)
             {
-                _processorToModule[processor] = module.Name;
+                foreach (var processor in entry.Processors) map.TryAdd(processor, entry.Name);
             }
+            return map;
+        });
+    }
+
+    private sealed record ModuleEntry(
+        string Name, string Version, string Description, string Author, string? Icon, List<ICliCommandProcessor> Processors);
+
+    private IReadOnlyList<ModuleEntry> BuildEntries()
+    {
+        var entries = _modules
+            .Select(m => new ModuleEntry(m.Name, m.Version, m.Description, m.Author?.Name ?? "Unknown", m.Icon, m.Processors.ToList()))
+            .ToList();
+        var owned = new HashSet<ICliCommandProcessor>(entries.SelectMany(e => e.Processors), ReferenceEqualityComparer.Instance);
+        foreach (var group in _standaloneProcessors()
+                     .Where(p => !owned.Contains(p) && !string.IsNullOrWhiteSpace(p.Module))
+                     .GroupBy(p => p.Module!, StringComparer.OrdinalIgnoreCase))
+        {
+            if (entries.FirstOrDefault(e => e.Name.Equals(group.Key, StringComparison.OrdinalIgnoreCase)) is { } module)
+            {
+                module.Processors.AddRange(group);
+                continue;
+            }
+            var assembly = group.First().GetType().Assembly;
+            entries.Add(new ModuleEntry(
+                group.Key,
+                (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? assembly.GetName().Version?.ToString() ?? string.Empty).Split('+')[0],
+                assembly.GetCustomAttribute<AssemblyDescriptionAttribute>()?.Description ?? string.Empty,
+                assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company ?? string.Empty,
+                null,
+                group.ToList()));
         }
+        return entries;
     }
 
     /// <inheritdoc />
-    public bool IsAllowed(ICliCommandProcessor processor)
-    {
-        if (_processorToModule.TryGetValue(processor, out var moduleName))
-        {
-            return IsEnabled(moduleName);
-        }
+    public bool IsAllowed(ICliCommandProcessor processor) =>
+        !_processorToModule.Value.TryGetValue(processor, out var moduleName) || IsEnabled(moduleName);
 
-        return true;
-    }
+    private PluginInfo Info(ModuleEntry m) => new()
+    {
+        Id = m.Name,
+        Name = m.Name,
+        Version = m.Version,
+        Description = m.Description,
+        Author = m.Author,
+        Icon = m.Icon,
+        Enabled = IsEnabled(m.Name),
+        ProcessorCount = m.Processors.Count,
+        Processors = m.Processors.Select(p => p.Command).ToList(),
+    };
+
+    private ModuleEntry? Find(string id) =>
+        _entries.Value.FirstOrDefault(m => m.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Returns information about all registered plugin modules.
     /// </summary>
-    public List<PluginInfo> List()
-    {
-        return _modules.Select(m => new PluginInfo
-        {
-            Id = m.Name,
-            Name = m.Name,
-            Version = m.Version,
-            Description = m.Description,
-            Author = m.Author?.Name ?? "Unknown",
-            Enabled = _enabledState.GetValueOrDefault(m.Name, true),
-            ProcessorCount = m.Processors.Count(),
-            Processors = m.Processors.Select(p => p.Command).ToList(),
-        }).ToList();
-    }
+    public List<PluginInfo> List() => _entries.Value.Select(Info).ToList();
 
     /// <summary>
     /// Gets information about a specific plugin module by ID.
     /// </summary>
     /// <param name="id">The module name (case-insensitive).</param>
     /// <returns>The plugin info, or null if not found.</returns>
-    public PluginInfo? GetById(string id)
-    {
-        var module = _modules.FirstOrDefault(m =>
-            m.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
-
-        if (module == null) return null;
-
-        return new PluginInfo
-        {
-            Id = module.Name,
-            Name = module.Name,
-            Version = module.Version,
-            Description = module.Description,
-            Author = module.Author?.Name ?? "Unknown",
-            Enabled = _enabledState.GetValueOrDefault(module.Name, true),
-            ProcessorCount = module.Processors.Count(),
-            Processors = module.Processors.Select(p => p.Command).ToList(),
-        };
-    }
+    public PluginInfo? GetById(string id) => Find(id) is { } module ? Info(module) : null;
 
     /// <summary>
     /// Toggles the enabled/disabled state of a plugin module.
@@ -92,15 +113,10 @@ public class ModuleRegistry : ICliProcessorFilter
     /// <returns>The toggle result with the new state, or null if not found.</returns>
     public ToggleResult? Toggle(string id)
     {
-        var module = _modules.FirstOrDefault(m =>
-            m.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
-
-        if (module == null) return null;
+        if (Find(id) is not { } module) return null;
 
         _enabledState.AddOrUpdate(module.Name, _ => false, (_, current) => !current);
-        var newState = IsEnabled(module.Name);
-
-        return new ToggleResult { Enabled = newState };
+        return new ToggleResult { Enabled = IsEnabled(module.Name) };
     }
 
     /// <summary>
@@ -140,6 +156,8 @@ public class PluginInfo
     public string Description { get; set; } = string.Empty;
     /// <summary>Module author name.</summary>
     public string Author { get; set; } = string.Empty;
+    /// <summary>One emoji or an image URL for the module (<see cref="ICliModule.Icon"/>); <c>null</c> when it has none.</summary>
+    public string? Icon { get; set; }
     /// <summary>Whether the module is currently enabled.</summary>
     public bool Enabled { get; set; } = true;
     /// <summary>Number of command processors provided by this module.</summary>

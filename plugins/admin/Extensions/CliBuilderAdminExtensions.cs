@@ -55,7 +55,7 @@ public static class CliBuilderAdminExtensions
         builder.Services.AddSingleton<ModuleRegistry>(sp =>
         {
             // Read modules from the CliBuilder that was captured during configuration
-            return new ModuleRegistry(builder.Modules);
+            return new ModuleRegistry(builder.Modules, () => sp.GetServices<ICliCommandProcessor>());
         });
         builder.Services.AddSingleton<ICliProcessorFilter>(sp => sp.GetRequiredService<ModuleRegistry>());
 
@@ -128,7 +128,7 @@ public static class CliBuilderAdminExtensions
                     fileProvider = embeddedProvider;
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 // No embedded manifest — dashboard not available
             }

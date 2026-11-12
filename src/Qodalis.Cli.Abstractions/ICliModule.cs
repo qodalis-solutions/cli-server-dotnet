@@ -29,4 +29,9 @@ public interface ICliModule
     /// Command processors provided by this module.
     /// </summary>
     IEnumerable<ICliCommandProcessor> Processors { get; }
+
+    /// <summary>
+    /// One emoji or an image URL shown for the module (the admin dashboard's plugins page); <c>null</c> = none.
+    /// </summary>
+    string? Icon => null;
 }

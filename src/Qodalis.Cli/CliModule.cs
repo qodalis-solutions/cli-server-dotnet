@@ -12,4 +12,5 @@ public abstract class CliModule : ICliModule
     public abstract string Description { get; }
     public virtual ICliCommandAuthor Author { get; } = DefaultLibraryAuthor.Instance;
     public abstract IEnumerable<ICliCommandProcessor> Processors { get; }
+    public virtual string? Icon => null;
 }
