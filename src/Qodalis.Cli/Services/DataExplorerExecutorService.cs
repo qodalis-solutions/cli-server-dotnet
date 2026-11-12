@@ -21,6 +21,9 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
     /// <summary>Longest query text kept in an audit entry.</summary>
     public const int AuditQueryMaxLength = 2000;
 
+    /// <summary>Most names whose case a query has fixed before it runs again (<see cref="DataExplorerProviderOptions.FixNameCase"/>).</summary>
+    public const int MaxNameFixes = 5;
+
     private readonly IDataExplorerRegistry _registry;
     private readonly ILogger<DataExplorerExecutorService> _logger;
     private readonly IServiceProvider? _services;
@@ -88,86 +91,100 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
             return await RefuseAsync(request, options, caller,
                 $"Too many queries: at most {limit.MaxQueries} per {limit.WindowSeconds} s", DataExplorerErrorCodes.RateLimited);
         }
-        if (options.ReadOnly && !provider.ReadOnlyQueries &&
-            DataExplorerPolicy.ReadOnlyError(options.Language, request.Query) is { } readOnlyError)
-        {
-            return await RefuseAsync(request, options, caller, readOnlyError, DataExplorerErrorCodes.ReadOnly);
-        }
-        if (DataExplorerPolicy.ObjectsError(options, request.Query) is { } objectsError)
-        {
-            return await RefuseAsync(request, options, caller, objectsError, DataExplorerErrorCodes.ObjectNotAllowed);
-        }
-        if (DataExplorerPolicy.MaskedColumnError(options, request.Query) is { } maskedError)
-        {
-            return await RefuseAsync(request, options, caller, maskedError, DataExplorerErrorCodes.MaskedColumn);
-        }
-
-        var context = new DataExplorerExecutionContext
-        {
-            Query = request.Query,
-            Parameters = request.Parameters ?? [],
-            Options = options
-        };
-
+        var query = request.Query;
         var sw = Stopwatch.StartNew();
         DataExplorerResult result;
-
-        try
+        for (var fixes = 0; ; fixes++)
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(options.Timeout);
-
-            _logger.LogInformation("Executing data explorer query on source '{Source}': {Query}", request.Source, request.Query);
-
-            result = await provider.ExecuteAsync(context, timeoutCts.Token);
-
-            sw.Stop();
-            result.ExecutionTime = sw.ElapsedMilliseconds;
-            result.Source = request.Source;
-            result.Language = options.Language;
-            result.DefaultOutputFormat = options.DefaultOutputFormat;
-
-            // Enforce maxRows
-            if (result.Rows != null && result.Rows.Count > options.MaxRows)
+            if (options.ReadOnly && !provider.ReadOnlyQueries &&
+                DataExplorerPolicy.ReadOnlyError(options.Language, query) is { } readOnlyError)
             {
-                result.Rows = result.Rows.Take(options.MaxRows).ToList();
-                result.Truncated = true;
+                return await RefuseAsync(request, options, caller, readOnlyError, DataExplorerErrorCodes.ReadOnly);
+            }
+            if (DataExplorerPolicy.ObjectsError(options, query) is { } objectsError)
+            {
+                return await RefuseAsync(request, options, caller, objectsError, DataExplorerErrorCodes.ObjectNotAllowed);
+            }
+            if (DataExplorerPolicy.MaskedColumnError(options, query) is { } maskedError)
+            {
+                return await RefuseAsync(request, options, caller, maskedError, DataExplorerErrorCodes.MaskedColumn);
             }
 
-            if (result.Success &&
-                DataExplorerPolicy.MaskedResultError(options, request.Query, result.Columns) is { } maskedResult)
+            var context = new DataExplorerExecutionContext
             {
-                // A masked column came back under another name: withhold the rows
-                _logger.LogWarning("Data explorer result withheld on source '{Source}': {Error}", request.Source, maskedResult);
-                result = Failure(request.Source, options, maskedResult, sw.ElapsedMilliseconds, DataExplorerErrorCodes.MaskedColumn);
-            }
+                Query = query,
+                Parameters = request.Parameters ?? [],
+                Options = options
+            };
 
-            if (result.Success)
+            try
             {
-                DataExplorerPolicy.FilterListing(result, options, request.Query);
-                DataExplorerPolicy.ApplyColumnPolicy(result, options);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(options.Timeout);
+
+                _logger.LogInformation("Executing data explorer query on source '{Source}': {Query}", request.Source, query);
+
+                result = await provider.ExecuteAsync(context, timeoutCts.Token);
+
+                sw.Stop();
+                result.ExecutionTime = sw.ElapsedMilliseconds;
+                result.Source = request.Source;
+                result.Language = options.Language;
+                result.DefaultOutputFormat = options.DefaultOutputFormat;
+                if (query != request.Query) result.ExecutedQuery = query;
+
+                // Enforce maxRows
+                if (result.Rows != null && result.Rows.Count > options.MaxRows)
+                {
+                    result.Rows = result.Rows.Take(options.MaxRows).ToList();
+                    result.Truncated = true;
+                }
+
+                if (result.Success &&
+                    DataExplorerPolicy.MaskedResultError(options, query, result.Columns) is { } maskedResult)
+                {
+                    // A masked column came back under another name: withhold the rows
+                    _logger.LogWarning("Data explorer result withheld on source '{Source}': {Error}", request.Source, maskedResult);
+                    result = Failure(request.Source, options, maskedResult, sw.ElapsedMilliseconds, DataExplorerErrorCodes.MaskedColumn);
+                }
+
+                if (result.Success)
+                {
+                    DataExplorerPolicy.FilterListing(result, options, query);
+                    DataExplorerPolicy.ApplyColumnPolicy(result, options);
+                }
+
+                result.RowCount = result.Rows?.Count ?? 0;
+
+                _logger.LogInformation(
+                    "Data explorer query completed on source '{Source}' in {ElapsedMs}ms, {RowCount} rows",
+                    request.Source, result.ExecutionTime, result.RowCount);
             }
-
-            result.RowCount = result.Rows?.Count ?? 0;
-
-            _logger.LogInformation(
-                "Data explorer query completed on source '{Source}' in {ElapsedMs}ms, {RowCount} rows",
-                request.Source, result.ExecutionTime, result.RowCount);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            sw.Stop();
-            _logger.LogWarning("Data explorer query timed out on source '{Source}' after {Timeout}ms", request.Source, options.Timeout);
-            result = Failure(request.Source, options, $"Query timed out after {options.Timeout}ms", sw.ElapsedMilliseconds);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            _logger.LogError(ex, "Data explorer query failed on source '{Source}'", request.Source);
-            var hint = options.Language == DataExplorerLanguage.Sql
-                ? DataExplorerPolicy.NameCaseHint(ex.Message, await VisibleSchemaAsync(provider, options, cancellationToken))
-                : null;
-            result = Failure(request.Source, options, hint == null ? ex.Message : $"{ex.Message.TrimEnd()}\n{hint}", sw.ElapsedMilliseconds);
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                _logger.LogWarning("Data explorer query timed out on source '{Source}' after {Timeout}ms", request.Source, options.Timeout);
+                result = Failure(request.Source, options, $"Query timed out after {options.Timeout}ms", sw.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Data explorer query failed on source '{Source}'", request.Source);
+                var schema = options.Language == DataExplorerLanguage.Sql
+                    ? await VisibleSchemaAsync(provider, options, cancellationToken)
+                    : null;
+                // A read-only query changed nothing, so it runs again with the name's case fixed (one name per run)
+                if (options.ReadOnly && options.FixNameCase && fixes < MaxNameFixes &&
+                    DataExplorerPolicy.FixNameCase(query, ex.Message, schema, provider.QuoteName) is { } fixedQuery)
+                {
+                    _logger.LogInformation("Data explorer query on source '{Source}' runs again as: {Query}", request.Source, fixedQuery);
+                    query = fixedQuery;
+                    continue;
+                }
+                sw.Stop();
+                var hint = DataExplorerPolicy.NameCaseHint(ex.Message, schema);
+                result = Failure(request.Source, options, hint == null ? ex.Message : $"{ex.Message.TrimEnd()}\n{hint}", sw.ElapsedMilliseconds);
+            }
+            break;
         }
 
         await AuditAsync(request, options, caller, result, sw.ElapsedMilliseconds);
@@ -193,12 +210,12 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
         }
     }
 
-        private async Task<DataExplorerResult> RefuseAsync(
-        DataExplorerExecuteRequest request,
-        DataExplorerProviderOptions options,
-        DataExplorerCaller? caller,
-        string error,
-        string errorCode)
+    private async Task<DataExplorerResult> RefuseAsync(
+    DataExplorerExecuteRequest request,
+    DataExplorerProviderOptions options,
+    DataExplorerCaller? caller,
+    string error,
+    string errorCode)
     {
         _logger.LogWarning("Data explorer query refused on source '{Source}' ({Code}): {Error}", request.Source, errorCode, error);
         var result = Failure(request.Source, options, error, 0, errorCode);
@@ -212,15 +229,15 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
         string error,
         long executionTime,
         string? errorCode = null) => new()
-    {
-        Success = false,
-        Source = source,
-        Language = options.Language,
-        DefaultOutputFormat = options.DefaultOutputFormat,
-        ExecutionTime = executionTime,
-        Error = error,
-        ErrorCode = errorCode,
-    };
+        {
+            Success = false,
+            Source = source,
+            Language = options.Language,
+            DefaultOutputFormat = options.DefaultOutputFormat,
+            ExecutionTime = executionTime,
+            Error = error,
+            ErrorCode = errorCode,
+        };
 
     /// <summary>
     /// Writes the <c>data_query</c> audit entry when the source audits and the server keeps an audit log
@@ -239,9 +256,9 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
             var store = _services?.GetService<IAuditStore>();
             if (store == null) return;
 
-            var query = request.Query.Length > AuditQueryMaxLength
-                ? request.Query[..AuditQueryMaxLength] + "…"
-                : request.Query;
+            static string Truncate(string text) =>
+                text.Length > AuditQueryMaxLength ? text[..AuditQueryMaxLength] + "…" : text;
+            var query = Truncate(request.Query);
             var properties = new Dictionary<string, object?>
             {
                 ["source"] = options.Name,
@@ -251,6 +268,7 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
                 ["durationMs"] = durationMs,
             };
             if (result.Error != null) properties["error"] = result.Error;
+            if (result.ExecutedQuery != null) properties["executedQuery"] = Truncate(result.ExecutedQuery);
 
             await store.LogAsync(new AuditEntry
             {

@@ -79,6 +79,10 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <inheritdoc />
+    /// <remarks>SQL Server quotes names in brackets: <c>[Users]</c>.</remarks>
+    public string QuoteName(string name) => $"[{name.Replace("]", "]]")}]";
+
     /// <summary>
     /// Executes a SQL query against the Microsoft SQL Server database and returns the results.
     /// </summary>
