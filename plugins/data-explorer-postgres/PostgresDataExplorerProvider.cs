@@ -139,16 +139,32 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
         DataExplorerResult result,
         CancellationToken cancellationToken)
     {
+        // A read-only query (in a transaction) is one batch command: Npgsql refuses a second statement in it, and
+        // PostgreSQL parses it as one prepared statement (extended protocol), so only one statement runs. A command
+        // would split the text at its semicolons and run each statement.
+        await using var batch = new NpgsqlBatch(connection, transaction);
         await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = context.Query;
+        NpgsqlParameterCollection parameters;
+        if (transaction != null)
+        {
+            var single = new NpgsqlBatchCommand(context.Query);
+            batch.BatchCommands.Add(single);
+            parameters = single.Parameters;
+        }
+        else
+        {
+            command.CommandText = context.Query;
+            parameters = command.Parameters;
+        }
 
         foreach (var param in context.Parameters)
         {
-            command.Parameters.AddWithValue($"@{param.Key}", param.Value);
+            parameters.AddWithValue($"@{param.Key}", param.Value);
         }
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await using var reader = transaction != null
+            ? await batch.ExecuteReaderAsync(cancellationToken)
+            : await command.ExecuteReaderAsync(cancellationToken);
 
         var columns = new List<string>();
         for (var i = 0; i < reader.FieldCount; i++)

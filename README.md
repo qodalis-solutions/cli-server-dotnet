@@ -512,20 +512,22 @@ Each plugin folder has a README with its options and namespaces (for example, th
 
 Sources are **read-only by default**: set `ReadOnly = false` on a source that must write. The server checks each query before the provider runs it:
 
-- SQL: one statement starting with `SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `DESCRIBE`, `VALUES` or `TABLE`, without write keywords (comments and strings ignored).
-- MongoDB (`Shell` or `Json` language): `show collections` or `db.<collection>.find|findOne|countDocuments|estimatedDocumentCount|distinct|aggregate(...)` without `$out`/`$merge`.
+- SQL: one statement starting with `SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `DESCRIBE`, `VALUES` or `TABLE`, without write keywords (`COMMIT` and `ROLLBACK` too) and without a carriage return that is not followed by a line feed. Comments and strings are ignored as MySQL, PostgreSQL, SQL Server and SQLite each read them: a query must pass under every reading.
+- MongoDB (`Shell` or `Json` language): `show collections` or `db.<collection>.find|findOne|countDocuments|estimatedDocumentCount|distinct|aggregate(...)` without `$out`/`$merge` (JSON `\u` escapes decoded).
 - Redis: read commands only (`GET`, `HGETALL`, `LRANGE`, `KEYS`, `SCAN`, ...).
-- Elasticsearch: `GET`/`HEAD`, or `POST` to `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, `_validate/query`.
+- Elasticsearch: `GET`/`HEAD`, or `POST` to `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, `_validate/query` after index names only (not `/logs/_doc/_search`).
 - Other languages are refused on read-only sources, unless the provider only reads (`IDataExplorerProvider.ReadOnlyQueries`).
 
-The SQL providers also run the query in a read-only transaction (SQLite `query_only`, PostgreSQL `SET TRANSACTION READ ONLY`, MySQL `START TRANSACTION READ ONLY`, SQL Server a transaction that is always rolled back).
+The SQL providers also run the query in a read-only transaction (SQLite `query_only`, PostgreSQL `SET TRANSACTION READ ONLY`, MySQL `START TRANSACTION READ ONLY`, SQL Server a transaction that is always rolled back). PostgreSQL sends a read-only query as a single batch command, so it runs one statement at most.
+
+SQL Server runs the statements of a batch without a `;` between them, so the one-statement rule cannot hold there: the write keywords (`COMMIT` and `ROLLBACK` included, so the batch cannot leave the rolled-back transaction) are what keeps a second statement out. Statements outside that list still run inside the transaction, and the rollback does not undo all of them (`NEXT VALUE FOR` sequences, `WAITFOR`, and with enough privileges `DBCC`, `KILL` or `SHUTDOWN`): give the source an account that can only read.
 
 | Option | Default | Effect |
 |---|---|---|
 | `RequiredPermissions` | none | The caller needs them all (besides `data:query`); other callers do not see the source in `/sources` or `data_sources`, and `schema`, `execute` and the MCP tools answer 403 (MCP: an error result). Ignored on an open server |
 | `ReadOnly` | `true` | The rules above; refusals are failed results with `errorCode: "read_only"` |
 | `AllowedObjects` | all | Globs (`*`, case-insensitive) of tables (`schema.table` or `table`), collections, Redis keys or Elasticsearch indices; the schema lists only those, and a query naming another object is refused (`object_not_allowed`) |
-| `MaskColumns` | none | Globs of columns/fields whose values become `***` (`null` stays `null`), nested document fields too |
+| `MaskColumns` | none | Globs of columns/fields whose values become `***` (`null` stays `null`), nested document fields too; SQL queries may select them only by their own name (`masked_column`, below) |
 | `DropColumns` | none | Globs of columns/fields removed from results and from the schema |
 | `Audit` | `true` | Every execute (refusals too) is written to the audit log as `data_query` when the server has one (the users or audit plugin): `Details` is the source, `Properties` hold `source`, `query` (first 2000 characters), `success`, `rowCount`, `durationMs` and `error` |
 | `RateLimit` | none | `new DataExplorerRateLimit { MaxQueries = 30, WindowSeconds = 60 }`: executes per caller (user id, or client address when anonymous) and source; more answer 429 |
@@ -533,13 +535,17 @@ The SQL providers also run the query in a read-only transaction (SQLite `query_o
 
 `GET /sources` adds `readOnly` and `canExport` to each source. `AllowedObjects` and the read-only check are a convenience filter: give the source a database account that can only read what its users may see, since that account is the real boundary.
 
+`AllowedObjects` reads the tables after `FROM` (every item of the list), `JOIN`, `INTO`, `UPDATE`, `TABLE`, `USING` and `DESCRIBE`, the collections of `$lookup`, `$graphLookup`, `$unionWith`, `$out` and `$merge`, and refuses Elasticsearch bodies that name an index (`_msearch`, `_mget`, terms lookups). The schema lists the tables of the default schema by name, so write patterns without a schema (`invoices`) unless the queries qualify the names; a pattern with a schema (`public.invoices`) matches only queries that name it so.
+
+`MaskColumns` and `DropColumns` match the column and field names of the result, and fields of JSON text in a cell. On a SQL source with either option, a query may name a masked or dropped column only as a plain item of the select list (`SELECT email, name FROM users`), and the result must show it under its own name; anything else (`email AS e`, `upper(email)`, `WHERE email = ...`, `ORDER BY email`, a `UNION`, a whole row such as `row_to_json(u)`, a `U&"..."` name) is refused with `errorCode: "masked_column"`, and a result without the column is withheld. `SELECT *` is masked as usual. This is still a filter on the query text (database errors can quote values, and writable sources cannot name those columns outside the select list either): keep data that must stay hidden out of the account's reach (a view, column grants).
+
 ```csharp
 cli.AddDataExplorerPostgres(connectionString, o =>
 {
     o.Name = "billing";
     o.Description = "Billing database";
     o.RequiredPermissions = ["data:billing"];
-    o.AllowedObjects = ["public.invoices", "public.customers"];
+    o.AllowedObjects = ["invoices", "customers"];
     o.MaskColumns = ["email", "*phone*"];
     o.DropColumns = ["password_hash"];
     o.RateLimit = new DataExplorerRateLimit { MaxQueries = 30, WindowSeconds = 60 };
