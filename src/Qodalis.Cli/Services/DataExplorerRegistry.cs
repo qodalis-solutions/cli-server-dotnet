@@ -59,16 +59,21 @@ public class DataExplorerRegistry : IDataExplorerRegistry
     }
 
     /// <inheritdoc />
-    public List<DataExplorerSourceInfo> GetSources()
+    public List<DataExplorerSourceInfo> GetSources() => GetSources(null);
+
+    /// <inheritdoc />
+    public List<DataExplorerSourceInfo> GetSources(DataExplorerCaller? caller)
     {
-        return _providers.Values.Select(e => new DataExplorerSourceInfo
+        return _providers.Values.Where(e => DataExplorerPolicy.CanUseSource(e.Options, caller)).Select(e => new DataExplorerSourceInfo
         {
             Name = e.Options.Name,
             Description = e.Options.Description,
             Language = e.Options.Language,
             DefaultOutputFormat = e.Options.DefaultOutputFormat,
             Templates = e.Options.Templates,
-            Parameters = e.Options.Parameters
+            Parameters = e.Options.Parameters,
+            ReadOnly = e.Options.ReadOnly,
+            CanExport = DataExplorerPolicy.CanExport(e.Options, caller)
         }).ToList();
     }
 }

@@ -100,7 +100,44 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
+        if (!context.Options.ReadOnly)
+        {
+            await ReadAsync(connection, null, context, result, cancellationToken);
+            return result;
+        }
+
+        // Read-only sources (the default): SQL Server has no read-only transaction, so the query runs in a
+        // transaction that is always rolled back
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReadAsync(connection, transaction, context, result, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // The connection is closed below either way.
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Runs the query on <paramref name="connection"/> (in <paramref name="transaction"/>, when given) into <paramref name="result"/>.</summary>
+    private static async Task ReadAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        DataExplorerExecutionContext context,
+        DataExplorerResult result,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = context.Query;
 
         foreach (var param in context.Parameters)
@@ -132,7 +169,5 @@ public class MssqlDataExplorerProvider : IDataExplorerProvider
 
         result.Rows = rows;
         result.RowCount = rows.Count;
-
-        return result;
     }
 }

@@ -154,7 +154,7 @@ internal sealed class FakeDataExplorerProvider : IDataExplorerProvider
 {
     public Task<DataExplorerResult> ExecuteAsync(DataExplorerExecutionContext context, CancellationToken cancellationToken = default)
     {
-        if (context.Query == "fail") throw new InvalidOperationException("syntax error");
+        if (context.Query.Contains("fail")) throw new InvalidOperationException("syntax error");
         return Task.FromResult(new DataExplorerResult
         {
             Success = true,
@@ -952,7 +952,7 @@ public class McpFeatureToolsTests
         Assert.Equal("id | name\n1 | alice\n2 | bob\n(2 rows, truncated)", Mcp.Text(query));
         Assert.True(query.GetProperty("structuredContent").GetProperty("truncated").GetBoolean());
 
-        var failed = await Mcp.CallAsync(h.Client, "data_query", new { source = "db", query = "fail" });
+        var failed = await Mcp.CallAsync(h.Client, "data_query", new { source = "db", query = "select fail" });
         Assert.True(failed.GetProperty("isError").GetBoolean());
         Assert.Contains("syntax error", Mcp.Text(failed));
 
@@ -1279,7 +1279,7 @@ public class McpProviderPermissionTests : IAsyncLifetime
         var token = await _h.UserWithPermissionsAsync(_root, "analyst", "commands:execute", "data:query");
         var names = await Mcp.ToolNamesAsync(_h.Client, token);
         foreach (var n in Data) Assert.Contains(n, names);
-        var query = await Mcp.CallAsync(_h.Client, "data_query", new { source = "db", query = "q" }, token);
+        var query = await Mcp.CallAsync(_h.Client, "data_query", new { source = "db", query = "select 1" }, token);
         Assert.False(query.GetProperty("isError").GetBoolean());
         Assert.Contains("alice", Mcp.Text(query));
     }

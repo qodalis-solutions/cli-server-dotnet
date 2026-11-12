@@ -266,7 +266,7 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `EnableShell()` / `EnableShell(Action<CliShellOptions>)` | Enables the interactive shell sockets (off by default) |
 | `AddMcp(Action<McpOptions>?)` | Enables `POST /api/qcli/mcp` |
 | `AddFileSystem(Action<FileSystemOptions>?)` | Enables `/api/qcli/fs/*` |
-| `AddDataExplorerProvider<T>(...)` / `AddDataExplorerProvider(instance, ...)` | Registers a data explorer source |
+| `AddDataExplorerProvider<T>(...)` / `AddDataExplorerProvider(instance, ...)` | Registers a data explorer source (read-only by default, see [Data explorer sources](#data-explorer-sources)) |
 | `AddProcessor`, `AddProcessorsFromAssembly`, `AddModule` | Registers commands |
 | `AddApplicationPart(Assembly)` | Adds a plugin assembly's controllers |
 | `Services` | The `IServiceCollection`, for plugin registrations |
@@ -331,7 +331,7 @@ The endpoint is MCP Streamable HTTP, stateless, with JSON responses (`initialize
 | server | `server_info` | none |
 | commands | one per leaf command, value-taking or parameterized processor (`weather_current`, `math_add`, ...) | `commands:execute` + `RequiredPermissions` |
 | file system | `fs_list`, `fs_stat`, `fs_read`, `fs_write`, `fs_mkdir`, `fs_delete` | `files:read` / `files:write` |
-| data explorer | `data_sources`, `data_schema`, `data_query` | `data:query` |
+| data explorer | `data_sources`, `data_schema`, `data_query` | `data:query` + the source's `RequiredPermissions` |
 | jobs plugin | `jobs_list`, `jobs_get`, `jobs_history`, `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`, `jobs_cancel`, `jobs_delete_runs` | `jobs:read` / `jobs:manage` |
 
 With the users plugin, requests authenticate with a session or an API token (`Authorization: Bearer qcli_pat_...`) and `tools/list` only lists what the caller may call. Plugins add tools by implementing `IMcpToolProvider` and calling `services.AddMcpToolProvider<T>()`.
@@ -507,6 +507,45 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`plugins/aws`](plugins/aws) | AWS commands (S3, EC2, Lambda, CloudWatch, SNS, SQS, IAM, DynamoDB, ECS) | `cli.AddModule(new AwsModule())` |
 
 Each plugin folder has a README with its options and namespaces (for example, the `UseOsFileSystem` / `UseInMemory` helpers come from `using Qodalis.Cli.Plugin.FileSystem;`). Custom file storage implements `IFileStorageProvider` (`o.Provider = new MyProvider()`); custom data sources implement `IDataExplorerProvider`.
+
+### Data explorer sources
+
+Sources are **read-only by default**: set `ReadOnly = false` on a source that must write. The server checks each query before the provider runs it:
+
+- SQL: one statement starting with `SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `DESCRIBE`, `VALUES` or `TABLE`, without write keywords (comments and strings ignored).
+- MongoDB (`Shell` or `Json` language): `show collections` or `db.<collection>.find|findOne|countDocuments|estimatedDocumentCount|distinct|aggregate(...)` without `$out`/`$merge`.
+- Redis: read commands only (`GET`, `HGETALL`, `LRANGE`, `KEYS`, `SCAN`, ...).
+- Elasticsearch: `GET`/`HEAD`, or `POST` to `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, `_validate/query`.
+- Other languages are refused on read-only sources, unless the provider only reads (`IDataExplorerProvider.ReadOnlyQueries`).
+
+The SQL providers also run the query in a read-only transaction (SQLite `query_only`, PostgreSQL `SET TRANSACTION READ ONLY`, MySQL `START TRANSACTION READ ONLY`, SQL Server a transaction that is always rolled back).
+
+| Option | Default | Effect |
+|---|---|---|
+| `RequiredPermissions` | none | The caller needs them all (besides `data:query`); other callers do not see the source in `/sources` or `data_sources`, and `schema`, `execute` and the MCP tools answer 403 (MCP: an error result). Ignored on an open server |
+| `ReadOnly` | `true` | The rules above; refusals are failed results with `errorCode: "read_only"` |
+| `AllowedObjects` | all | Globs (`*`, case-insensitive) of tables (`schema.table` or `table`), collections, Redis keys or Elasticsearch indices; the schema lists only those, and a query naming another object is refused (`object_not_allowed`) |
+| `MaskColumns` | none | Globs of columns/fields whose values become `***` (`null` stays `null`), nested document fields too |
+| `DropColumns` | none | Globs of columns/fields removed from results and from the schema |
+| `Audit` | `true` | Every execute (refusals too) is written to the audit log as `data_query` when the server has one (the users or audit plugin): `Details` is the source, `Properties` hold `source`, `query` (first 2000 characters), `success`, `rowCount`, `durationMs` and `error` |
+| `RateLimit` | none | `new DataExplorerRateLimit { MaxQueries = 30, WindowSeconds = 60 }`: executes per caller (user id, or client address when anonymous) and source; more answer 429 |
+| `ExportPermissions` | none | Needed to export results (`json`/`csv` in the web CLI); `/sources` reports `canExport`. Advisory |
+
+`GET /sources` adds `readOnly` and `canExport` to each source. `AllowedObjects` and the read-only check are a convenience filter: give the source a database account that can only read what its users may see, since that account is the real boundary.
+
+```csharp
+cli.AddDataExplorerPostgres(connectionString, o =>
+{
+    o.Name = "billing";
+    o.Description = "Billing database";
+    o.RequiredPermissions = ["data:billing"];
+    o.AllowedObjects = ["public.invoices", "public.customers"];
+    o.MaskColumns = ["email", "*phone*"];
+    o.DropColumns = ["password_hash"];
+    o.RateLimit = new DataExplorerRateLimit { MaxQueries = 30, WindowSeconds = 60 };
+    o.ExportPermissions = ["data:export"];
+});
+```
 
 ## Docker
 
