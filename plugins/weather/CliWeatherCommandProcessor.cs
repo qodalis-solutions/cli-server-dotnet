@@ -49,6 +49,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 
@@ -183,6 +184,7 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 
@@ -218,6 +220,7 @@ internal class WeatherForecastProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 

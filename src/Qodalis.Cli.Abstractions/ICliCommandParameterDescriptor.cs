@@ -42,6 +42,12 @@ public interface ICliCommandParameterDescriptor
     IEnumerable<string>? AllowedValues => null;
 
     /// <summary>
+    /// Example values (e.g. <c>Paris</c>, <c>New York</c>): the web CLI shows them in help; MCP lists them as the
+    /// property's <c>examples</c>.
+    /// </summary>
+    IEnumerable<string>? Examples => null;
+
+    /// <summary>
     /// Gets or sets additional metadata associated with this parameter.
     /// </summary>
     CliProcessorMetadata? Metadata { get; set; }

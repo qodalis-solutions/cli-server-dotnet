@@ -37,7 +37,7 @@ internal sealed class ThingsProcessor : CliCommandProcessor
         new CliCommandParameterDescriptor
         {
             Name = "format", Aliases = ["f"], Description = "Output format", Type = CommandParameterType.String,
-            DefaultValue = "table", AllowedValues = ["table", "json"],
+            DefaultValue = "table", AllowedValues = ["table", "json"], Examples = ["json"],
         },
         new CliCommandParameterDescriptor { Name = "verbose", Description = "More output", Type = CommandParameterType.Boolean },
     ];
@@ -79,7 +79,9 @@ public class CommandMetadataTests
         Assert.False(examples[1].TryGetProperty("description", out _));
         var parameters = things.GetProperty("parameters");
         Assert.Equal(["table", "json"], parameters[0].GetProperty("allowedValues").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal(["json"], parameters[0].GetProperty("examples").EnumerateArray().Select(v => v.GetString()));
         Assert.False(parameters[1].TryGetProperty("allowedValues", out _));
+        Assert.False(parameters[1].TryGetProperty("examples", out _));
         var show = things.GetProperty("processors")[0];
         Assert.Equal("sh", show.GetProperty("aliases")[0].GetString());
         Assert.False(show.TryGetProperty("examples", out _));
@@ -115,6 +117,7 @@ public class CommandMetadataTests
         var things = tools.Single(t => t.GetProperty("name").GetString() == "things");
         var format = things.GetProperty("inputSchema").GetProperty("properties").GetProperty("format");
         Assert.Equal(["table", "json"], format.GetProperty("enum").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal(["json"], format.GetProperty("examples").EnumerateArray().Select(v => v.GetString()));
         var bad = await Mcp.RpcAsync(h.Client, "tools/call", new { name = "things", arguments = new { format = "xml" } });
         Assert.Contains("must be one of: table, json", bad.ToString());
     }

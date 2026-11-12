@@ -185,7 +185,8 @@ public class MathCommandProcessor : CliCommandProcessor
 | `Module`, `Icon` | `string?` | `server:<name>`, 🖥 | The group and emoji the web CLI's `help` lists the command under |
 
 A parameter's `AllowedValues` lists the only values it takes: the web CLI shows them in help, completes them with Tab
-and refuses others before sending; MCP tools list them as an `enum`. Every member above is a default interface member,
+and refuses others before sending; MCP tools list them as an `enum`. `Examples` lists example values, shown in help and
+as `examples` in MCP. Every member above is a default interface member,
 so processors that implement `ICliCommandProcessor` directly keep compiling.
 | `Version` | `string` | `"1.0.0"` | Processor version |
 | `Author` | `ICliCommandAuthor` | library author | Author metadata |

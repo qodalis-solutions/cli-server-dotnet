@@ -70,6 +70,10 @@ public class CliCommandParameterDescriptorDto
     /// <summary>The only values the parameter takes.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? AllowedValues { get; set; }
+
+    /// <summary>Example values.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Examples { get; set; }
 }
 
 /// <summary>An example command line in a command's help.</summary>

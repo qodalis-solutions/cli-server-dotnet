@@ -82,6 +82,7 @@ public class CliHttpPostProcessor : CliCommandProcessor, ICliStreamCommandProces
             Aliases = ["-b"],
             Description = "Request body (JSON string)",
             Type = CommandParameterType.String,
+            Examples = ["{\"name\":\"qodalis\"}"],
         },
         new CliCommandParameterDescriptor
         {
