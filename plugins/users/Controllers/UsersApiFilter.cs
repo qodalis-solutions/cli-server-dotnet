@@ -16,7 +16,11 @@ public sealed class UsersAnonymousAttribute : Attribute;
 
 /// <summary>Marks an action as answering 501 when an external auth adapter is configured.</summary>
 [AttributeUsage(AttributeTargets.Method)]
-public sealed class UsersCredentialEndpointAttribute : Attribute;
+public sealed class UsersCredentialEndpointAttribute : Attribute
+{
+    /// <summary>An API token endpoint: open in external mode when the host allows API tokens.</summary>
+    public bool ApiTokens { get; init; }
+}
 
 /// <summary>Stores an action writes to (see <see cref="UsersStoreWriteAttribute"/>).</summary>
 [Flags]
@@ -83,7 +87,10 @@ public sealed class UsersApiFilterAttribute : Attribute, IAsyncActionFilter, IOr
         var method = action?.MethodInfo;
         var options = context.HttpContext.RequestServices.GetService<UsersModuleOptions>();
 
-        if (method?.IsDefined(typeof(UsersCredentialEndpointAttribute), false) == true && options?.UsesExternalAuth == true)
+        if (method?.GetCustomAttributes(typeof(UsersCredentialEndpointAttribute), false)
+                .Cast<UsersCredentialEndpointAttribute>().FirstOrDefault() is { } credential
+            && options?.UsesExternalAuth == true
+            && !(credential.ApiTokens && options.ApiTokensWithExternalAuth))
         {
             context.Result = UsersJson.Error(501, ExternalAuthMessage);
             return;

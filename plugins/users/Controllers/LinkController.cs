@@ -48,7 +48,7 @@ public class LinkController : UsersControllerBase
 
     /// <summary>Approves the request: the caller's API token for the terminal.</summary>
     [HttpPost("code/{code}/approve")]
-    [UsersCredentialEndpoint]
+    [UsersCredentialEndpoint(ApiTokens = true)]
     public async Task<IActionResult> Approve([FromRoute] string code) => JsonOk(await _links.ApproveAsync(Auth, code));
 
     /// <summary>Denies the request.</summary>

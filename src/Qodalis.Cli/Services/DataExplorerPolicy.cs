@@ -941,6 +941,27 @@ public static partial class DataExplorerPolicy
         return result;
     }
 
+    // PostgreSQL: 'relation "users" does not exist', 'column "countrycode" does not exist', 'column u.countrycode does not exist'
+    [GeneratedRegex(@"\b(relation|column) (?:""?[^""\s.]+""?\.)?""?([^""\s.]+)""? does not exist")]
+    private static partial Regex MissingName();
+
+    /// <summary>
+    /// For an error saying a table or column does not exist (PostgreSQL folds unquoted names to lower case): the
+    /// hint naming the same name with its capitals, from <paramref name="schema"/> as the source shows it
+    /// (<see cref="FilterSchema"/>), so a hidden table or dropped column is never named. Null when nothing matches.
+    /// </summary>
+    public static string? NameCaseHint(string error, DataExplorerSchemaResult? schema)
+    {
+        if (schema == null || MissingName().Match(error) is not { Success: true } m) return null;
+        var name = m.Groups[2].Value;
+        IEnumerable<string> candidates = m.Groups[1].Value == "relation"
+            ? schema.Tables.Select(t => t.Name.Split('.')[^1])
+            : schema.Tables.SelectMany(t => t.Columns).Select(c => c.Name);
+        var match = candidates.FirstOrDefault(c =>
+            string.Equals(c, name, StringComparison.OrdinalIgnoreCase) && !string.Equals(c, name, StringComparison.Ordinal));
+        return match == null ? null : $"Names with capital letters need double quotes: \"{match}\"";
+    }
+
     /// <summary>The schema as the source shows it: allowed tables only, without dropped columns (a copy).</summary>
     public static DataExplorerSchemaResult FilterSchema(DataExplorerSchemaResult schema, DataExplorerProviderOptions options)
     {

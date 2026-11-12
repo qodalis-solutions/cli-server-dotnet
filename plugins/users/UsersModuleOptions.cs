@@ -46,6 +46,16 @@ public class UsersModuleOptions
     public bool AllowNonExpiringTokens { get; set; }
 
     /// <summary>
+    /// With an external auth adapter, also accept the plugin's API tokens (<c>qcli_pat_…</c> bearer tokens, checked
+    /// before the adapter), so users can create tokens (<c>POST /tokens</c>) and approve terminal links (<c>server add</c>).
+    /// Off by default: the host owns sign-in. The token's user is read from the user store by id on every request
+    /// and socket re-check, so the store must find the adapter's users and report <see cref="Models.User.Disabled"/>;
+    /// keep the tokens in a persistent <see cref="IApiTokenStore"/> (the default store forgets them on restart).
+    /// Ignored without an adapter (tokens are always on).
+    /// </summary>
+    public bool ApiTokensWithExternalAuth { get; set; }
+
+    /// <summary>
     /// The page where users approve a terminal's link request (<c>server add</c> in the web CLI): an http(s) URL
     /// or a root-relative path; <c>{code}</c> in it is replaced by the code, otherwise <c>?code=</c> is appended.
     /// <c>null</c> = the admin dashboard's <c>/qcli/admin/link</c>. Throws <see cref="ArgumentException"/> for
@@ -172,6 +182,16 @@ public class UsersModuleOptions
 
     /// <summary>True when an external auth adapter (instance or type) is configured.</summary>
     public bool UsesExternalAuth => AuthAdapter != null || AuthAdapterType != null;
+
+    /// <summary>True when API tokens are accepted: always without an adapter, with one only with <see cref="ApiTokensWithExternalAuth"/>.</summary>
+    public bool ApiTokensEnabled => !UsesExternalAuth || ApiTokensWithExternalAuth;
+
+    /// <summary>Turns on <see cref="ApiTokensWithExternalAuth"/>: API tokens and terminal links next to the host's sign-in.</summary>
+    public UsersModuleOptions AllowApiTokens()
+    {
+        ApiTokensWithExternalAuth = true;
+        return this;
+    }
 
     /// <summary>
     /// Convenience method to set a delegate-based external auth adapter.

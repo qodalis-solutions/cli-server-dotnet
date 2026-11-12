@@ -549,6 +549,11 @@ public partial class AuthService
     {
         if (adapter != null)
         {
+            // API tokens next to the host's sign-in (UsersModuleOptions.ApiTokensWithExternalAuth): a qcli_pat_ bearer
+            // token is the plugin's own, so the adapter never sees it
+            if (_options.ApiTokensWithExternalAuth && BearerToken(context) is { } bearer && IsApiToken(bearer))
+                return await AuthenticateApiTokenAsync(bearer);
+
             var result = await adapter.AuthenticateAsync(context, context.RequestAborted);
             return result?.User == null
                 ? null

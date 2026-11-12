@@ -164,14 +164,36 @@ public class DataExplorerExecutorService : IDataExplorerExecutorService
         {
             sw.Stop();
             _logger.LogError(ex, "Data explorer query failed on source '{Source}'", request.Source);
-            result = Failure(request.Source, options, ex.Message, sw.ElapsedMilliseconds);
+            var hint = options.Language == DataExplorerLanguage.Sql
+                ? DataExplorerPolicy.NameCaseHint(ex.Message, await VisibleSchemaAsync(provider, options, cancellationToken))
+                : null;
+            result = Failure(request.Source, options, hint == null ? ex.Message : $"{ex.Message.TrimEnd()}\n{hint}", sw.ElapsedMilliseconds);
         }
 
         await AuditAsync(request, options, caller, result, sw.ElapsedMilliseconds);
         return result;
     }
 
-    private async Task<DataExplorerResult> RefuseAsync(
+    /// <summary>The source's schema as its callers see it, or null when the provider cannot give one.</summary>
+    private async Task<DataExplorerSchemaResult?> VisibleSchemaAsync(
+        IDataExplorerProvider provider,
+        DataExplorerProviderOptions options,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await provider.GetSchemaAsync(options, cancellationToken) is { } schema
+                ? DataExplorerPolicy.FilterSchema(schema, options)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "No schema for the name hint on source '{Source}'", options.Name);
+            return null;
+        }
+    }
+
+        private async Task<DataExplorerResult> RefuseAsync(
         DataExplorerExecuteRequest request,
         DataExplorerProviderOptions options,
         DataExplorerCaller? caller,
