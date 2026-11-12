@@ -81,6 +81,10 @@ public class MysqlDataExplorerProvider : IDataExplorerProvider
         };
     }
 
+    /// <inheritdoc />
+    /// <remarks>MySQL quotes names in backticks (double quotes are strings without <c>ANSI_QUOTES</c>).</remarks>
+    public string QuoteName(string name) => $"`{name.Replace("`", "``")}`";
+
     /// <summary>
     /// Executes a SQL query against the MySQL database and returns the results.
     /// </summary>

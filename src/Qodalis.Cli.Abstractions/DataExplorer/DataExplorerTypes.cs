@@ -116,6 +116,14 @@ public class DataExplorerProviderOptions
     /// <see cref="DataExplorerSourceInfo.CanExport"/>. Advisory: the table output shows the same rows.
     /// </summary>
     public List<string> ExportPermissions { get; set; } = [];
+
+    /// <summary>
+    /// A read-only SQL query that fails because a table or column without quotes does not exist (PostgreSQL folds
+    /// such names to lower case) runs again with the name as the schema spells it, quoted
+    /// (<c>select * from Users</c> runs as <c>select * from "Users"</c>), when exactly one visible name matches.
+    /// <see cref="DataExplorerResult.ExecutedQuery"/> then shows the query that ran. Default <c>true</c>.
+    /// </summary>
+    public bool FixNameCase { get; set; } = true;
 }
 
 /// <summary>
@@ -227,6 +235,10 @@ public class DataExplorerResult
 
     /// <summary>Gets or sets the error message if the query failed.</summary>
     public string? Error { get; set; }
+
+    /// <summary>The query as the server ran it, when it differs from the one sent (see <see cref="DataExplorerProviderOptions.FixNameCase"/>).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExecutedQuery { get; set; }
 
     /// <summary>
     /// Why the server refused the query, when it did (see <see cref="DataExplorerErrorCodes"/>): <c>forbidden</c>

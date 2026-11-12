@@ -384,6 +384,126 @@ public class DataExplorerNameCaseHintTests
     public void SaysNothingElse(string error) => Assert.Null(P.NameCaseHint(error, Schema));
 }
 
+public class DataExplorerFixNameCaseTests
+{
+    private static readonly DataExplorerSchemaResult Schema = new()
+    {
+        Source = "db",
+        Tables =
+        [
+            new DataExplorerSchemaTable
+            {
+                Name = "public.Users", Type = "table",
+                Columns = [new DataExplorerSchemaColumn { Name = "CountryCode", Type = "text" }, new DataExplorerSchemaColumn { Name = "Count", Type = "int" }],
+            },
+            new DataExplorerSchemaTable { Name = "job_states", Type = "table", Columns = [new DataExplorerSchemaColumn { Name = "status", Type = "text" }] },
+        ],
+    };
+
+    private static string Ansi(string name) => $"\"{name}\"";
+
+    [Theory]
+    [InlineData("select count(*) from Users", "relation \"users\" does not exist", "select count(*) from \"Users\"")]
+    [InlineData("SELECT * FROM USERS -- Users\nWHERE 1 = 1", "relation \"users\" does not exist", "SELECT * FROM \"Users\" -- Users\nWHERE 1 = 1")]
+    [InlineData("SELECT * FROM \"Users\" u WHERE u.countrycode = 'countrycode'", "column u.countrycode does not exist",
+        "SELECT * FROM \"Users\" u WHERE u.\"CountryCode\" = 'countrycode'")]
+    [InlineData("SELECT count(*), count FROM \"Users\"", "column \"count\" does not exist", "SELECT count(*), \"Count\" FROM \"Users\"")]
+    public void WritesTheNameAsTheSchemaSpellsIt(string query, string error, string fixedQuery) =>
+        Assert.Equal(fixedQuery, P.FixNameCase(query, error, Schema, Ansi));
+
+    [Fact]
+    public void QuotesTheWayTheSourceDoes() =>
+        Assert.Equal("select * from [Users]", P.FixNameCase("select * from users", "Invalid object name 'users'.", Schema, n => $"[{n}]"));
+
+    [Theory]
+    // No name differing only in case, a name already quoted, a hidden table, another error
+    [InlineData("select * from job_states", "relation \"job_states\" does not exist")]
+    [InlineData("select * from \"users\"", "relation \"users\" does not exist")]
+    [InlineData("select * from onetimecodes", "relation \"onetimecodes\" does not exist")]
+    [InlineData("select * form Users", "syntax error at or near \"form\"")]
+    // Only inside a string under some dialect's reading (MySQL backslash escapes)
+    [InlineData("select 'it\\' Users' from t", "relation \"users\" does not exist")]
+    public void LeavesOtherQueriesAlone(string query, string error) => Assert.Null(P.FixNameCase(query, error, Schema, Ansi));
+}
+
+/// <summary>A PostgreSQL-like source: names without quotes are folded to lower case and the table is "Users".</summary>
+internal sealed class CaseFoldingDataExplorerProvider : IDataExplorerProvider
+{
+    public List<string> Queries { get; } = [];
+
+    public Task<DataExplorerResult> ExecuteAsync(DataExplorerExecutionContext context, CancellationToken cancellationToken = default)
+    {
+        Queries.Add(context.Query);
+        if (!context.Query.Contains("\"Users\"")) throw new InvalidOperationException("42P01: relation \"users\" does not exist");
+        if (context.Query.Contains("countrycode", StringComparison.OrdinalIgnoreCase) && !context.Query.Contains("\"CountryCode\""))
+            throw new InvalidOperationException("42703: column \"countrycode\" does not exist");
+        return Task.FromResult(new DataExplorerResult { Success = true, Source = context.Options.Name, Columns = ["n"], Rows = [new object?[] { 3 }!] });
+    }
+
+    public Task<DataExplorerSchemaResult?> GetSchemaAsync(DataExplorerProviderOptions options, CancellationToken cancellationToken = default) =>
+        Task.FromResult<DataExplorerSchemaResult?>(new DataExplorerSchemaResult
+        {
+            Source = options.Name,
+            Tables = [new DataExplorerSchemaTable { Name = "public.Users", Type = "table", Columns = [new() { Name = "CountryCode", Type = "text" }] }],
+        });
+}
+
+public class DataExplorerExecutorNameCaseTests
+{
+    private static (DataExplorerExecutorService Executor, CaseFoldingDataExplorerProvider Provider, ListAuditStore Audit) Create(
+        Action<DataExplorerProviderOptions>? configure = null)
+    {
+        var provider = new CaseFoldingDataExplorerProvider();
+        var options = new DataExplorerProviderOptions { Name = "db", Description = "Test" };
+        configure?.Invoke(options);
+        var registry = new DataExplorerRegistry();
+        registry.Register(provider, options);
+        var audit = new ListAuditStore();
+        var services = new ServiceCollection().AddSingleton<IAuditStore>(audit).BuildServiceProvider();
+        return (new DataExplorerExecutorService(registry, NullLogger<DataExplorerExecutorService>.Instance, services), provider, audit);
+    }
+
+    private static DataExplorerExecuteRequest Q(string query) => new() { Source = "db", Query = query };
+
+    [Fact]
+    public async Task RunsAgainWithEachNameAsTheSchemaSpellsIt()
+    {
+        var (executor, provider, audit) = Create();
+
+        var result = await executor.ExecuteAsync(Q("select count(*) from Users where countrycode = 'MD'"));
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal("select count(*) from \"Users\" where \"CountryCode\" = 'MD'", result.ExecutedQuery);
+        Assert.Equal(3, provider.Queries.Count);
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal("select count(*) from Users where countrycode = 'MD'", entry.Properties!["query"]);
+        Assert.Equal(result.ExecutedQuery, entry.Properties!["executedQuery"]);
+    }
+
+    [Fact]
+    public async Task LeavesAQueryThatRanAsSentAlone()
+    {
+        var (executor, _, _) = Create();
+        var result = await executor.ExecuteAsync(Q("select count(*) from \"Users\""));
+        Assert.True(result.Success);
+        Assert.Null(result.ExecutedQuery);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task OnlyHintsOnAWritableSourceOrWhenTurnedOff(bool readOnly, bool fixNameCase)
+    {
+        var (executor, provider, _) = Create(o => { o.ReadOnly = readOnly; o.FixNameCase = fixNameCase; });
+
+        var result = await executor.ExecuteAsync(Q("select count(*) from Users"));
+
+        Assert.False(result.Success);
+        Assert.EndsWith("Names with capital letters need double quotes: \"Users\"", result.Error);
+        Assert.Single(provider.Queries);
+    }
+}
+
 public class DataExplorerMaskedColumnsTests
 {
     private static DataExplorerProviderOptions Opts(L language = L.Sql) => new()
@@ -623,7 +743,10 @@ public class DataExplorerExecutorHardeningTests
         registry.Register(new RecordingDataExplorerProvider(), new DataExplorerProviderOptions { Name = "open", Description = "" });
         registry.Register(new RecordingDataExplorerProvider(), new DataExplorerProviderOptions
         {
-            Name = "billing", Description = "", RequiredPermissions = ["data:billing"], ReadOnly = false,
+            Name = "billing",
+            Description = "",
+            RequiredPermissions = ["data:billing"],
+            ReadOnly = false,
             ExportPermissions = ["data:export"],
         });
 

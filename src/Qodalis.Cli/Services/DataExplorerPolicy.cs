@@ -50,7 +50,7 @@ public static partial class DataExplorerPolicy
     internal enum SqlTokenKind { Word, Ident, Punct }
 
     /// <summary>A SQL token: <see cref="Value"/> is upper-case for words; <see cref="Raw"/> is as written.</summary>
-    internal readonly record struct SqlToken(SqlTokenKind Kind, string Value, string Raw)
+    internal readonly record struct SqlToken(SqlTokenKind Kind, string Value, string Raw, int Start = -1)
     {
         public bool IsPunct(string value) => Kind == SqlTokenKind.Punct && Value == value;
     }
@@ -175,7 +175,7 @@ public static partial class DataExplorerPolicy
                     i = SkipString(sql, j, '\'', true);
                     continue;
                 }
-                tokens.Add(new SqlToken(SqlTokenKind.Word, raw.ToUpperInvariant(), raw));
+                tokens.Add(new SqlToken(SqlTokenKind.Word, raw.ToUpperInvariant(), raw, i));
                 i = j;
                 continue;
             }
@@ -865,32 +865,32 @@ public static partial class DataExplorerPolicy
             case null or string or byte[]:
                 return value;
             case JsonObject obj:
-            {
-                var output = new JsonObject();
-                foreach (var (key, v) in obj)
                 {
-                    if (MatchesAny(key, drop)) continue;
-                    output[key] = MatchesAny(key, mask)
-                        ? (v == null ? null : JsonValue.Create(Mask))
-                        : MaskValue(v?.DeepClone(), mask, drop) as JsonNode;
+                    var output = new JsonObject();
+                    foreach (var (key, v) in obj)
+                    {
+                        if (MatchesAny(key, drop)) continue;
+                        output[key] = MatchesAny(key, mask)
+                            ? (v == null ? null : JsonValue.Create(Mask))
+                            : MaskValue(v?.DeepClone(), mask, drop) as JsonNode;
+                    }
+                    return output;
                 }
-                return output;
-            }
             case JsonArray array:
                 return new JsonArray(array.Select(v => MaskValue(v?.DeepClone(), mask, drop) as JsonNode).ToArray());
             case IDictionary dictionary:
-            {
-                var output = new Dictionary<string, object?>();
-                foreach (DictionaryEntry entry in dictionary)
                 {
-                    var key = entry.Key.ToString() ?? string.Empty;
-                    if (MatchesAny(key, drop)) continue;
-                    output[key] = MatchesAny(key, mask)
-                        ? (entry.Value == null ? null : Mask)
-                        : MaskValue(entry.Value, mask, drop);
+                    var output = new Dictionary<string, object?>();
+                    foreach (DictionaryEntry entry in dictionary)
+                    {
+                        var key = entry.Key.ToString() ?? string.Empty;
+                        if (MatchesAny(key, drop)) continue;
+                        output[key] = MatchesAny(key, mask)
+                            ? (entry.Value == null ? null : Mask)
+                            : MaskValue(entry.Value, mask, drop);
+                    }
+                    return output;
                 }
-                return output;
-            }
             case IList list:
                 return list.Cast<object?>().Select(v => MaskValue(v, mask, drop)).ToList();
             default:
@@ -927,8 +927,7 @@ public static partial class DataExplorerPolicy
             var keep = result.Columns.Select(c => !MatchesAny(c, drop)).ToArray();
             var masked = result.Columns.Select(c => MatchesAny(c, mask)).ToArray();
             result.Columns = result.Columns.Where((_, i) => keep[i]).ToList();
-            result.Rows = result.Rows.Select(row => row is IList cells and not byte[]
-                ? (object)cells.Cast<object?>()
+            result.Rows = result.Rows.Select(row => row is IList cells and not byte[]? (object)cells.Cast<object?>()
                     .Select((v, i) => i < masked.Length && masked[i] && v != null ? Mask : MaskValue(v, mask, drop))
                     .Where((_, i) => i >= keep.Length || keep[i])
                     .ToArray()
@@ -945,21 +944,77 @@ public static partial class DataExplorerPolicy
     [GeneratedRegex(@"\b(relation|column) (?:""?[^""\s.]+""?\.)?""?([^""\s.]+)""? does not exist")]
     private static partial Regex MissingName();
 
+    // MySQL (table names are case-sensitive on Linux): "Table 'shop.users' doesn't exist"
+    [GeneratedRegex(@"\bTable '(?:[^'.]+\.)?([^'.]+)' doesn't exist")]
+    private static partial Regex MySqlMissingTable();
+
+    // SQL Server with a case-sensitive collation: "Invalid object name 'users'.", "Invalid column name 'countrycode'."
+    [GeneratedRegex(@"\bInvalid (object|column) name '(?:[^'.]+\.)*([^'.]+)'")]
+    private static partial Regex MssqlMissingName();
+
+    /// <summary>The table (<c>true</c>) or column an error says does not exist, as the database reports it.</summary>
+    private static (bool Table, string Name)? MissingNameIn(string error)
+    {
+        if (MissingName().Match(error) is { Success: true } pg) return (pg.Groups[1].Value == "relation", pg.Groups[2].Value);
+        if (MySqlMissingTable().Match(error) is { Success: true } my) return (true, my.Groups[1].Value);
+        if (MssqlMissingName().Match(error) is { Success: true } ms) return (ms.Groups[1].Value == "object", ms.Groups[2].Value);
+        return null;
+    }
+
+    /// <summary>
+    /// The name of <paramref name="schema"/> that differs from the missing one only in case, or null (none, the
+    /// same name, or several that differ only in case).
+    /// </summary>
+    private static string? CaseMatch((bool Table, string Name) missing, DataExplorerSchemaResult schema)
+    {
+        var matches = (missing.Table
+                ? schema.Tables.Select(t => t.Name.Split('.')[^1])
+                : schema.Tables.SelectMany(t => t.Columns).Select(c => c.Name))
+            .Where(c => string.Equals(c, missing.Name, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return matches.Count == 1 && !string.Equals(matches[0], missing.Name, StringComparison.Ordinal) ? matches[0] : null;
+    }
+
     /// <summary>
     /// For an error saying a table or column does not exist (PostgreSQL folds unquoted names to lower case): the
     /// hint naming the same name with its capitals, from <paramref name="schema"/> as the source shows it
     /// (<see cref="FilterSchema"/>), so a hidden table or dropped column is never named. Null when nothing matches.
     /// </summary>
-    public static string? NameCaseHint(string error, DataExplorerSchemaResult? schema)
+    public static string? NameCaseHint(string error, DataExplorerSchemaResult? schema) =>
+        schema != null && MissingNameIn(error) is { } missing && CaseMatch(missing, schema) is { } match
+            ? $"Names with capital letters need double quotes: \"{match}\""
+            : null;
+
+    /// <summary>
+    /// The query with the name an error says does not exist written as <paramref name="schema"/> spells it and
+    /// quoted by <paramref name="quote"/>, so <c>select * from Users</c> runs as <c>select * from "Users"</c>; null
+    /// when the error names no such table or column. Only an unquoted name outside strings and comments under every
+    /// dialect's reading (<see cref="SqlReadings"/>) is changed, never a function name (<c>count(</c>).
+    /// </summary>
+    public static string? FixNameCase(string query, string error, DataExplorerSchemaResult? schema, Func<string, string> quote)
     {
-        if (schema == null || MissingName().Match(error) is not { Success: true } m) return null;
-        var name = m.Groups[2].Value;
-        IEnumerable<string> candidates = m.Groups[1].Value == "relation"
-            ? schema.Tables.Select(t => t.Name.Split('.')[^1])
-            : schema.Tables.SelectMany(t => t.Columns).Select(c => c.Name);
-        var match = candidates.FirstOrDefault(c =>
-            string.Equals(c, name, StringComparison.OrdinalIgnoreCase) && !string.Equals(c, name, StringComparison.Ordinal));
-        return match == null ? null : $"Names with capital letters need double quotes: \"{match}\"";
+        if (schema == null || MissingNameIn(error) is not { } missing || CaseMatch(missing, schema) is not { } match) return null;
+        HashSet<int>? starts = null;
+        foreach (var reading in SqlReadings)
+        {
+            var tokens = TokenizeSql(query, reading);
+            var here = tokens
+                .Where((t, i) => t.Kind == SqlTokenKind.Word &&
+                    string.Equals(t.Raw, missing.Name, StringComparison.OrdinalIgnoreCase) &&
+                    !(i + 1 < tokens.Count && tokens[i + 1].IsPunct("(")))
+                .Select(t => t.Start);
+            if (starts == null) starts = [.. here];
+            else starts.IntersectWith(here);
+        }
+        if (starts is not { Count: > 0 }) return null;
+        var quoted = quote(match);
+        var fixedQuery = new StringBuilder(query);
+        foreach (var start in starts.OrderDescending())
+        {
+            fixedQuery.Remove(start, missing.Name.Length).Insert(start, quoted);
+        }
+        return fixedQuery.ToString();
     }
 
     /// <summary>The schema as the source shows it: allowed tables only, without dropped columns (a copy).</summary>

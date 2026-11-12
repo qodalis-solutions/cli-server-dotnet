@@ -12,6 +12,13 @@ public interface IDataExplorerProvider
     bool ReadOnlyQueries => false;
 
     /// <summary>
+    /// A table or column name quoted for this source's SQL, used when the server fixes the case of a name a query
+    /// wrote without quotes (<see cref="DataExplorerProviderOptions.FixNameCase"/>). Default: double quotes (ANSI).
+    /// </summary>
+    /// <param name="name">The name as the schema spells it.</param>
+    string QuoteName(string name) => $"\"{name.Replace("\"", "\"\"")}\"";
+
+    /// <summary>
     /// Executes a query against the data source.
     /// </summary>
     /// <param name="context">The execution context containing the query, parameters, and options.</param>
