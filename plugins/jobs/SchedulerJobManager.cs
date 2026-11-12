@@ -110,6 +110,7 @@ public sealed class SchedulerJobManager : ICliJobManager
             Name = r.Options.Name ?? r.Id,
             Description = r.Options.Description,
             Group = r.Options.Group,
+            Tags = [.. r.Options.Tags],
             Status = r.Status,
             Schedule = r.Options.Schedule,
             Interval = r.Options.Interval,
