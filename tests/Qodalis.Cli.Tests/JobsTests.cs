@@ -54,6 +54,21 @@ public class SlowCancellableJob : ICliJob
 
 #region IntervalParser
 
+/// <summary>Waits for runs to finish instead of a fixed delay, which a busy CI machine can outlast.</summary>
+internal static class JobTestWaits
+{
+    /// <summary>Until <paramref name="jobId"/> has <paramref name="count"/> finished runs in the store (5 s at most).</summary>
+    public static async Task FinishedRunsAsync(ICliJobStorageProvider storage, string jobId, int count)
+    {
+        for (var waited = 0; waited < 5000; waited += 20)
+        {
+            var (items, _) = await storage.GetExecutionsAsync(jobId);
+            if (items.Count(e => e.Status != JobExecutionStatus.Running) >= count) return;
+            await Task.Delay(20);
+        }
+    }
+}
+
 public class IntervalParserTests
 {
     [Fact]
@@ -258,7 +273,7 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, id, 1);
 
         Assert.Equal(1, job.CallCount);
         var (items, total) = await _storage.GetExecutionsAsync(id);
@@ -374,7 +389,7 @@ public class CliJobSchedulerTests : IDisposable
         await _scheduler.TriggerAsync(id);
         await Task.Delay(50);
         await _scheduler.CancelCurrentAsync(id);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, id, 1);
 
         var (items, _) = await _storage.GetExecutionsAsync(id);
         Assert.NotEmpty(items);
@@ -690,7 +705,7 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
 
         var result = (await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None)) as OkObjectResult;
         Assert.NotNull(result);
@@ -704,9 +719,9 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 2);
 
         static string Json(IActionResult r) => System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)r).Value);
 
@@ -739,7 +754,7 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await Task.Delay(200);
+        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
 
         var (items, _) = await _storage.GetExecutionsAsync(_jobIds["quick"]);
         Assert.NotEmpty(items);
