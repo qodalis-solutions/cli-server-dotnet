@@ -501,6 +501,7 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |
 | [`Qodalis.Cli.Plugin.Audit.EfCore`](plugins/audit-efcore) | EF Core audit log storage | `cli.AddEfCoreAuditStore(...)` |
+| [`Qodalis.Cli.Plugin.Users.EfCore`](plugins/users-efcore) | EF Core API token storage | `cli.AddEfCoreApiTokenStore(...)` |
 | [`Qodalis.Cli.Plugin.Logs.Seq`](plugins/logs-seq) | Logs in Seq: persistent, shared by several services, the dashboard's log history | `cli.AddSeqLogs(...)` |
 | [`Qodalis.Cli.Plugin.Admin`](plugins/admin) | Admin dashboard at `/qcli/admin` | `cli.AddAdmin(...)` + `app.UseQodalisAdmin()` |
 | [`Qodalis.Cli.Plugin.Weather`](plugins/weather) | Example module (`weather current`, `weather forecast`) | `cli.AddModule(new WeatherModule())` |

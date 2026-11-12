@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Qodalis.Cli.Plugin.Users.EfCore</RootNamespace>
+    <Version>1.0.0-beta.26</Version>
+    <Description>Entity Framework Core store for the Qodalis CLI Server API tokens (users plugin)</Description>
+    <Authors>Nicolae Lupei</Authors>
+    <Company>Qodalis Solutions</Company>
+    <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
+    <PackageTags>cli;qodalis;users;tokens;efcore;entityframework</PackageTags>
+    <PackageOutputPath>nupkg\</PackageOutputPath>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../users/Qodalis.Cli.Plugin.Users.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+  </ItemGroup>
+</Project>

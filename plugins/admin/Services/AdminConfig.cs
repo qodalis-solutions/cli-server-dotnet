@@ -51,6 +51,11 @@ public class AdminConfig
     /// An absolute <c>http(s)</c> URL or a root-relative path (<c>/sign-in</c>). Null: the dashboard
     /// tells users to sign in through the host application.
     /// </summary>
+    /// <remarks>
+    /// The dashboard sends users back: it fills <c>{returnTo}</c> in the URL, or appends <c>returnTo=</c>, with the
+    /// dashboard page they were on (e.g. a terminal link's approval page); after signing in, the host opens that URL
+    /// with <c>#token=&lt;bearer token&gt;</c>.
+    /// </remarks>
     public string? SignInUrl { get; set; }
 
     /// <summary>
