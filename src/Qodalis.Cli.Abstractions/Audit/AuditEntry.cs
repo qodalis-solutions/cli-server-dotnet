@@ -105,4 +105,14 @@ public class AuditMetadata
     [JsonPropertyName("tokenName")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TokenName { get; set; }
+
+    /// <summary>Link events: the terminal's name (<c>link_approved</c>, <c>link_denied</c>).</summary>
+    [JsonPropertyName("client")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Client { get; set; }
+
+    /// <summary>Link events: the <c>Origin</c> of the terminal's link request, when it sent one.</summary>
+    [JsonPropertyName("origin")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Origin { get; set; }
 }

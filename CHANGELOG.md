@@ -3,6 +3,56 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## 1.0.0-beta.25
+
+- The admin plugin embeds dashboard 1.0.0-beta.20: job tags, command metadata, the terminal link page, API tokens, a data explorer page and audit details.
+
+- **Jobs: tags.** `CliJobOptions.Tags` (free-form labels such as `country:ro`, `bank`; each 1-64 characters without
+  commas, at most 20, duplicates ignoring case dropped; rules in `CliJobTags`), `CliJobInfo.Tags`, always present in
+  job info (`[]` when none). `GET /api/v1/qcli/jobs?tag=a&tag=b` (repeatable or comma-separated) lists the jobs that
+  have every tag, ignoring case; `/executions` and `/stats` take `tag=` too. `PUT /jobs/{id}` accepts `tags` (replaces
+  them, `null` clears, invalid ones are 400 `INVALID_VALUE`). MCP `jobs_list` takes `tags` and shows them. Same on the
+  Node and Python servers.
+- **Commands as rich as web commands.** `ICliCommandProcessor` gains `Aliases`, `Examples` (`CliCommandExample`),
+  `Documentation`, `Module` and `Icon`, and `ICliCommandParameterDescriptor` `AllowedValues` and `Examples` (example values; default interface members,
+  virtual properties on `CliCommandProcessor`); `GET /api/v1/qcli/commands` sends them (absent when unset), so the web
+  CLI's `help` shows examples and documentation, groups and decorates the command, and completes and checks allowed
+  values. The registry resolves aliases of commands and sub-commands for execution, streaming and permission checks
+  (a command name wins over another command's alias; `CliCommandNames`). MCP command tools list allowed values as an
+  `enum` (and parameter examples as `examples`) and refuse other values. The built-in and demo processors and the weather plugin carry examples and
+  documentation (`hash --algorithm` its algorithms). Same on the Node and Python servers (spec: web-cli
+  `docs/superpowers/specs/2026-11-12-server-command-metadata-design.md`).
+- **Data explorer: per-source permissions, read-only mode, masking, audit and limits**, the same on the Node and Python servers
+  (spec: web-cli `docs/superpowers/specs/2026-11-12-data-explorer-hardening-design.md`):
+  - **Breaking:** sources are read-only by default. Writes, DDL and several statements are refused before the provider runs
+    (`errorCode: "read_only"`), and the SQL providers run queries in a read-only transaction (SQLite `query_only`, PostgreSQL
+    `SET TRANSACTION READ ONLY`, MySQL `START TRANSACTION READ ONLY`, SQL Server a transaction that is always rolled back).
+    Set `ReadOnly = false` on a source that must write.
+    The SQL check reads quotes and comments as MySQL (`--` before a space, `#`, `/*! ... */`, `"..."` strings), PostgreSQL
+    (`E'...'`, `$tag$...$tag$`, nested comments), SQL Server (nested comments, `[...]` with `]]`) and SQLite each do, and a query
+    must pass under every reading; `COMMIT`, `ROLLBACK` and `DENY` are refused too (SQL Server runs statements without a `;`).
+  - New source options: `RequiredPermissions` (403, and the source is hidden from `/sources` and MCP `data_sources`),
+    `AllowedObjects` (globs of tables, collections, keys or indices), `MaskColumns` (`***`), `DropColumns`, `Audit`
+    (default true: a `data_query` entry per execute in the audit log, details in `Properties`), `RateLimit { MaxQueries, WindowSeconds }` (429)
+    and `ExportPermissions`.
+  - On a SQL source with `MaskColumns` or `DropColumns`, a query may name those columns only as plain items of the select list
+    (not renamed, computed, filtered or sorted on, nor in a `UNION`, nor a whole row), and the result must show them under their own
+    names; otherwise it is refused or withheld with `errorCode: "masked_column"`. JSON text in a cell is masked like a document.
+  - `AllowedObjects` reads every table of a `FROM` list (after subqueries and functions too), `USING`, `DESCRIBE`, SQL Server `db..table`,
+    CTE names only where they are in scope, the collections of `$lookup`, `$graphLookup`, `$unionWith`, `$out` and `$merge`, and refuses
+    Elasticsearch bodies that name an index. Elasticsearch `POST` is read-only only after index names (`/logs/_doc/_search` and
+    `/logs/_delete_by_query#/_search` are refused), and Redis keys are read as the provider reads them.
+  - PostgreSQL sends a read-only query as a single batch command, so it runs one statement at most.
+  - `GET /sources` adds `readOnly` and `canExport`; the schema lists only allowed tables without dropped columns; results carry `errorCode` when refused.
+  - `IDataExplorerExecutorService.ExecuteAsync(request, caller, ct)` and `IDataExplorerRegistry.GetSources(caller)` (`DataExplorerCaller`,
+    built from a request with `DataExplorerCallers.From`); providers that only read can set `ReadOnlyQueries`; the rules are in `DataExplorerPolicy`.
+- **Link a terminal through the browser** (users plugin), the same on the Node and Python servers
+  (spec: web-cli `docs/superpowers/specs/2026-11-12-server-linking-design.md`): `POST /api/v1/qcli/link` (public,
+  rate limited) returns a code and the approval page, `GET /link/{linkId}` hands the terminal its API token once the
+  user approved at `/qcli/admin/link?code=…` (`GET /link/code/{code}`, `POST …/approve`, `POST …/deny`). The token is
+  the approver's, named `link <client>`, scoped to the requested permissions. `LinkApprovalUrl` points to a host's
+  own page; `link_approved` and `link_denied` are audited (`AuditMetadata` gains `Client` and `Origin`).
+
 ## 1.0.0-beta.24
 
 - The admin plugin embeds dashboard 1.0.0-beta.19: a phone layout (below 768 px the sidebar is a drawer, stat cards wrap, panels stack and tables scroll in their container) and tests for the live log tail.

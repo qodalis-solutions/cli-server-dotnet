@@ -97,6 +97,14 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
+        // Read-only sources (the default): SQLite refuses every write on this connection. Set either way, since
+        // pooled connections keep the pragma.
+        await using (var queryOnly = connection.CreateCommand())
+        {
+            queryOnly.CommandText = context.Options.ReadOnly ? "PRAGMA query_only = ON" : "PRAGMA query_only = OFF";
+            await queryOnly.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = context.Query;
 

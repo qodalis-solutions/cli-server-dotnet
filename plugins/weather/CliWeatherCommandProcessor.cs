@@ -19,6 +19,19 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
     /// <inheritdoc />
     public override string Description { get; set; } = "Shows weather information for a location";
 
+    public override string? Module { get; set; } = "weather";
+
+    public override string? Icon { get; set; } = "🌤";
+
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("weather London", "Current weather in London"),
+        new("weather forecast --location Paris", "Three-day forecast for Paris"),
+    ];
+
+    public override string? Documentation { get; set; } =
+        "Weather from wttr.in, fetched by the server. Give the place as the value or with --location; the default is London.";
+
     /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } =
     [
@@ -36,6 +49,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 
@@ -156,6 +170,11 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
     public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Shows current weather conditions";
 
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("weather current Berlin", "Current weather in Berlin"),
+    ];
+
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -165,6 +184,7 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 
@@ -184,6 +204,13 @@ internal class WeatherForecastProcessor : Cli.CliCommandProcessor
     public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Shows a 3-day weather forecast";
 
+    public override IEnumerable<string>? Aliases { get; set; } = ["fc"];
+
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("weather forecast Tokyo", "Three-day forecast for Tokyo"),
+    ];
+
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -193,6 +220,7 @@ internal class WeatherForecastProcessor : Cli.CliCommandProcessor
             Description = "Location to get weather for (city name)",
             Type = CommandParameterType.String,
             DefaultValue = "London",
+            Examples = ["Paris", "New York"],
         },
     ];
 

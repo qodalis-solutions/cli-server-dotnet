@@ -24,5 +24,11 @@ public class CliCommandParameterDescriptor : ICliCommandParameterDescriptor
     public object? DefaultValue { get; set; }
 
     /// <inheritdoc />
+    public IEnumerable<string>? AllowedValues { get; set; }
+
+    /// <inheritdoc />
+    public IEnumerable<string>? Examples { get; set; }
+
+    /// <inheritdoc />
     public CliProcessorMetadata? Metadata { get; set; }
 }

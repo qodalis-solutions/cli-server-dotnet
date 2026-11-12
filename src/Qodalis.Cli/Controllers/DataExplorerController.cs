@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.DataExplorer;
@@ -30,17 +31,18 @@ public class DataExplorerController : ControllerBase
     }
 
     /// <summary>
-    /// Returns all registered data explorer sources with their metadata.
+    /// Returns the data explorer sources the caller may use, with their metadata (<c>readOnly</c>, <c>canExport</c>).
     /// </summary>
     [HttpGet("sources")]
     public IActionResult GetSources()
     {
-        var sources = _registry.GetSources();
+        var sources = _registry.GetSources(DataExplorerCallers.From(HttpContext));
         return Ok(sources);
     }
 
     /// <summary>
-    /// Executes a query against a registered data source.
+    /// Executes a query against a registered data source: 403 without the source's permissions, 429 over its rate
+    /// limit; other refusals (read-only, allowed objects) are failed results with <c>errorCode</c>.
     /// </summary>
     /// <param name="request">The query execution request.</param>
     /// <param name="ct">A token to cancel the operation.</param>
@@ -50,12 +52,18 @@ public class DataExplorerController : ControllerBase
         CancellationToken ct)
     {
         _logger.LogDebug("Executing data explorer query on source: {Source}", request.Source);
-        var result = await _executor.ExecuteAsync(request, ct);
-        return Ok(result);
+        var result = await _executor.ExecuteAsync(request, DataExplorerCallers.From(HttpContext), ct);
+        return result.ErrorCode switch
+        {
+            DataExplorerErrorCodes.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { error = result.Error }),
+            DataExplorerErrorCodes.RateLimited => StatusCode(StatusCodes.Status429TooManyRequests, new { error = result.Error }),
+            _ => Ok(result),
+        };
     }
 
     /// <summary>
-    /// Returns the schema (tables, columns) for the specified data source.
+    /// Returns the schema (tables, columns) for the specified data source: the allowed tables only, without dropped
+    /// columns; 403 without the source's permissions.
     /// </summary>
     /// <param name="source">The data source name.</param>
     /// <param name="ct">A token to cancel the operation.</param>
@@ -77,12 +85,18 @@ public class DataExplorerController : ControllerBase
         }
 
         var (provider, options) = entry.Value;
+        var missing = DataExplorerPolicy.MissingPermissions(options.RequiredPermissions, DataExplorerCallers.From(HttpContext));
+        if (missing.Count > 0)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = $"forbidden: missing permission {string.Join(", ", missing)}" });
+        }
+
         var schema = await provider.GetSchemaAsync(options, ct);
         if (schema == null)
         {
             return NotFound(new { error = "Schema introspection is not supported by this data source." });
         }
 
-        return Ok(schema);
+        return Ok(DataExplorerPolicy.FilterSchema(schema, options));
     }
 }

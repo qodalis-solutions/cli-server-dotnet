@@ -25,4 +25,6 @@ public static class AuditEvents
     public const string ShellClosed = "shell_closed";
     public const string TokenCreated = "token_created";
     public const string TokenRevoked = "token_revoked";
+    public const string LinkApproved = "link_approved";
+    public const string LinkDenied = "link_denied";
 }

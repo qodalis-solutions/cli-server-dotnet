@@ -59,6 +59,24 @@ public interface ICliCommandProcessor
     IEnumerable<string>? RequiredPermissions => null;
 
     /// <summary>
+    /// Other names of the command (root or sub-command). The server resolves them like the command itself, for
+    /// execution, streaming and permissions.
+    /// </summary>
+    IEnumerable<string>? Aliases => null;
+
+    /// <summary>Example command lines for the command's help in the web CLI.</summary>
+    IEnumerable<CliCommandExample>? Examples => null;
+
+    /// <summary>Longer help text for <c>help &lt;command&gt;</c>: plain text, paragraphs separated by a blank line.</summary>
+    string? Documentation => null;
+
+    /// <summary>The group the command is listed under in the web CLI's help (e.g. <c>weather</c>).</summary>
+    string? Module => null;
+
+    /// <summary>One emoji shown next to the command in the web CLI's help.</summary>
+    string? Icon => null;
+
+    /// <summary>
     /// Handles the command execution and returns a plain-text result.
     /// </summary>
     /// <param name="command">The parsed command containing the command name, value, and arguments.</param>

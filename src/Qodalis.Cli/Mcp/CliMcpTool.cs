@@ -69,6 +69,10 @@ public sealed class CliMcpTool
                     // Not serializable: no default in the schema.
                 }
             }
+            if (p.Type == CommandParameterType.String && p.AllowedValues?.Any() == true)
+                prop["enum"] = new JsonArray(p.AllowedValues.Select(v => (JsonNode)v).ToArray());
+            if (p.Examples?.Any() == true)
+                prop["examples"] = new JsonArray(p.Examples.Select(v => (JsonNode)v).ToArray());
             properties[p.Name] = prop;
             if (p.Required) required.Add(p.Name);
         }

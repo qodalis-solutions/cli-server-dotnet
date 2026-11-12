@@ -6,6 +6,12 @@ namespace Qodalis.Cli.Abstractions.DataExplorer;
 public interface IDataExplorerProvider
 {
     /// <summary>
+    /// The provider can only read, whatever the query (e.g. a read-only API), so the server skips its read-only
+    /// query checks for read-only sources. Default <c>false</c>.
+    /// </summary>
+    bool ReadOnlyQueries => false;
+
+    /// <summary>
     /// Executes a query against the data source.
     /// </summary>
     /// <param name="context">The execution context containing the query, parameters, and options.</param>

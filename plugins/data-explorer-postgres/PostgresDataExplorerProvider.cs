@@ -100,15 +100,71 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
+        if (!context.Options.ReadOnly)
+        {
+            await ReadAsync(connection, null, context, result, cancellationToken);
+            return result;
+        }
+
+        // Read-only sources (the default): a read-only transaction (as BEGIN READ ONLY), always rolled back
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var readOnly = new NpgsqlCommand("SET TRANSACTION READ ONLY", connection, transaction))
+        {
+            await readOnly.ExecuteNonQueryAsync(cancellationToken);
+        }
+        try
+        {
+            await ReadAsync(connection, transaction, context, result, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // The connection is closed below either way.
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Runs the query on <paramref name="connection"/> (in <paramref name="transaction"/>, when given) into <paramref name="result"/>.</summary>
+    private static async Task ReadAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        DataExplorerExecutionContext context,
+        DataExplorerResult result,
+        CancellationToken cancellationToken)
+    {
+        // A read-only query (in a transaction) is one batch command: Npgsql refuses a second statement in it, and
+        // PostgreSQL parses it as one prepared statement (extended protocol), so only one statement runs. A command
+        // would split the text at its semicolons and run each statement.
+        await using var batch = new NpgsqlBatch(connection, transaction);
         await using var command = connection.CreateCommand();
-        command.CommandText = context.Query;
+        NpgsqlParameterCollection parameters;
+        if (transaction != null)
+        {
+            var single = new NpgsqlBatchCommand(context.Query);
+            batch.BatchCommands.Add(single);
+            parameters = single.Parameters;
+        }
+        else
+        {
+            command.CommandText = context.Query;
+            parameters = command.Parameters;
+        }
 
         foreach (var param in context.Parameters)
         {
-            command.Parameters.AddWithValue($"@{param.Key}", param.Value);
+            parameters.AddWithValue($"@{param.Key}", param.Value);
         }
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await using var reader = transaction != null
+            ? await batch.ExecuteReaderAsync(cancellationToken)
+            : await command.ExecuteReaderAsync(cancellationToken);
 
         var columns = new List<string>();
         for (var i = 0; i < reader.FieldCount; i++)
@@ -132,7 +188,5 @@ public class PostgresDataExplorerProvider : IDataExplorerProvider
 
         result.Rows = rows;
         result.RowCount = rows.Count;
-
-        return result;
     }
 }
