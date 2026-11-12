@@ -20,6 +20,19 @@ Every package shares one version with the Node and Python servers.
   `enum` (and parameter examples as `examples`) and refuse other values. The built-in and demo processors and the weather plugin carry examples and
   documentation (`hash --algorithm` its algorithms). Same on the Node and Python servers (spec: web-cli
   `docs/superpowers/specs/2026-11-12-server-command-metadata-design.md`).
+- **Data explorer: per-source permissions, read-only mode, masking, audit and limits**, the same on the Node and Python servers
+  (spec: web-cli `docs/superpowers/specs/2026-11-12-data-explorer-hardening-design.md`):
+  - **Breaking:** sources are read-only by default. Writes, DDL and several statements are refused before the provider runs
+    (`errorCode: "read_only"`), and the SQL providers run queries in a read-only transaction (SQLite `query_only`, PostgreSQL
+    `SET TRANSACTION READ ONLY`, MySQL `START TRANSACTION READ ONLY`, SQL Server a transaction that is always rolled back).
+    Set `ReadOnly = false` on a source that must write.
+  - New source options: `RequiredPermissions` (403, and the source is hidden from `/sources` and MCP `data_sources`),
+    `AllowedObjects` (globs of tables, collections, keys or indices), `MaskColumns` (`***`), `DropColumns`, `Audit`
+    (default true: a `data_query` entry per execute in the audit log, details in `Properties`), `RateLimit { MaxQueries, WindowSeconds }` (429)
+    and `ExportPermissions`.
+  - `GET /sources` adds `readOnly` and `canExport`; the schema lists only allowed tables without dropped columns; results carry `errorCode` when refused.
+  - `IDataExplorerExecutorService.ExecuteAsync(request, caller, ct)` and `IDataExplorerRegistry.GetSources(caller)` (`DataExplorerCaller`,
+    built from a request with `DataExplorerCallers.From`); providers that only read can set `ReadOnlyQueries`; the rules are in `DataExplorerPolicy`.
 
 ## 1.0.0-beta.24
 

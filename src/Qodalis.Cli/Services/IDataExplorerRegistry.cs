@@ -19,4 +19,12 @@ public interface IDataExplorerRegistry
     /// </summary>
     /// <returns>A list of data source information objects.</returns>
     List<DataExplorerSourceInfo> GetSources();
+
+    /// <summary>
+    /// Returns metadata for the data sources <paramref name="caller"/> may use (their <c>RequiredPermissions</c>),
+    /// with <see cref="DataExplorerSourceInfo.CanExport"/> for that caller. Every source without a caller.
+    /// </summary>
+    /// <param name="caller">Who asks; <c>null</c> for trusted code.</param>
+    /// <returns>A list of data source information objects.</returns>
+    List<DataExplorerSourceInfo> GetSources(DataExplorerCaller? caller);
 }
