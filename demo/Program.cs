@@ -69,6 +69,7 @@ builder.Services
             o.Name = "health-check";
             o.Description = "Periodic health check";
             o.Group = "monitoring";
+            o.Tags = ["health", "demo"];
             o.Interval = TimeSpan.FromSeconds(30);
         });
 

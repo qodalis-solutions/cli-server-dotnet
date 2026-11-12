@@ -120,6 +120,14 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         if (options.MaxConcurrentRuns < 1)
             throw new ArgumentOutOfRangeException(nameof(options), options.MaxConcurrentRuns,
                 $"Job '{name}': MaxConcurrentRuns must be at least 1");
+        try
+        {
+            options.Tags = CliJobTags.Normalize(options.Tags);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArgumentException($"Job '{name}': {ex.Message}", nameof(options));
+        }
 
         string id;
         if (options.Id != null)
@@ -356,11 +364,22 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// <param name="update">A callback that mutates the job options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <exception cref="ArgumentOutOfRangeException"><see cref="CliJobOptions.MaxConcurrentRuns"/> below 1 (not applied).</exception>
+    /// <exception cref="ArgumentException">Invalid <see cref="CliJobOptions.Tags"/> (not applied; see <see cref="CliJobTags"/>).</exception>
     public Task UpdateOptionsAsync(string jobId, Action<CliJobOptions> update, CancellationToken cancellationToken = default)
     {
         var reg = GetRegistration(jobId);
         var maxConcurrentRuns = reg.Options.MaxConcurrentRuns;
+        var tags = reg.Options.Tags;
         update(reg.Options);
+        try
+        {
+            reg.Options.Tags = CliJobTags.Normalize(reg.Options.Tags);
+        }
+        catch (ArgumentException)
+        {
+            reg.Options.Tags = tags;
+            throw;
+        }
         if (reg.Options.MaxConcurrentRuns < 1)
         {
             var invalid = reg.Options.MaxConcurrentRuns;

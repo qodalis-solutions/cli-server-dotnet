@@ -150,7 +150,7 @@ public class JobStatsTests
 
     private static Task<IActionResult> Stats(CliJobsController c, string? buckets = null, string[]? job = null, string? group = null,
         string? since = Insights.SinceText, string? until = Insights.UntilText) =>
-        c.GetStats(since, until, buckets, job, group, CancellationToken.None);
+        c.GetStats(since, until, buckets, job, group, ct: CancellationToken.None);
 
     [Fact]
     public async Task Stats_CountsOutcomesPerColumn_TotalsAndJobs()
@@ -263,7 +263,7 @@ public class JobStatsTests
         // FakeJobManager has no query of its own: the default merges GetExecutionsAsync per job. Its run starts "now".
         var until = TimeBuckets.Format(DateTime.UtcNow.AddMinutes(1));
         var json = Insights.Json(await new CliJobsController(new FakeJobManager())
-            .GetStats(null, until, null, null, null, CancellationToken.None));
+            .GetStats(null, until, null, null, null, ct: CancellationToken.None));
 
         Assert.Equal(1, json.GetProperty("totals").GetProperty("total").GetInt32());
         Assert.Equal("fetch-rates:bnr", json.GetProperty("jobs")[0].GetProperty("jobId").GetString());

@@ -39,11 +39,14 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
             new()
             {
                 Name = "jobs_list",
-                Description = "List the scheduled jobs with their status and last run",
-                InputSchema = McpSchema.Object(),
+                Description = "List the scheduled jobs with their status and last run, optionally only those with every given tag",
+                InputSchema = McpSchema.Object(new JsonObject
+                {
+                    ["tags"] = McpSchema.Property("array", "Only jobs that have every one of these tags (ignoring case)"),
+                }),
                 RequiredPermissions = [CliRoutePolicy.JobsRead],
                 Annotations = McpToolAnnotations.ReadOnly,
-                CallAsync = Scoped((jobs, _, ct) => ListAsync(jobs, ct)),
+                CallAsync = Scoped((jobs, args, ct) => ListAsync(jobs, args, ct)),
             },
             new()
             {
@@ -179,14 +182,20 @@ public sealed class JobsMcpToolProvider : IMcpToolProvider
         return await call(scope.ServiceProvider.GetRequiredService<ICliJobManager>(), events, args, ct);
     };
 
-    private static async Task<McpToolResult> ListAsync(ICliJobManager jobManager, CancellationToken ct)
+    private static async Task<McpToolResult> ListAsync(ICliJobManager jobManager, JsonObject args, CancellationToken ct)
     {
-        var jobs = await jobManager.GetJobsAsync(ct);
+        var tags = (args["tags"] as JsonArray ?? [])
+            .Select(t => t?.GetValue<string>().Trim())
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Select(t => t!)
+            .ToList();
+        var jobs = (await jobManager.GetJobsAsync(ct)).Where(j => CliJobTags.HasAll(j.Tags, tags)).ToList();
         var node = JsonSerializer.SerializeToNode(jobs.Select(CliJobsController.MapJobDto).ToList(), Json)!;
         var text = jobs.Count == 0
             ? "(no jobs)"
             : string.Join('\n', jobs.Select(j =>
-                $"{j.Id} | {j.Name} | {j.Status.ToString().ToLowerInvariant()} | last run: {j.LastRunStatus ?? "-"}"));
+                $"{j.Id} | {j.Name} | {j.Status.ToString().ToLowerInvariant()} | last run: {j.LastRunStatus ?? "-"}"
+                + (j.Tags.Count > 0 ? $" | tags: {string.Join(", ", j.Tags)}" : "")));
         return McpToolResult.Ok(text, new JsonObject { ["jobs"] = node });
     }
 
