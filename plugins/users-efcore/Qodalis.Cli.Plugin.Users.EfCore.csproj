@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Users.EfCore</RootNamespace>
-    <Version>1.0.0-beta.26</Version>
+    <Version>1.0.0-beta.27</Version>
     <Description>Entity Framework Core store for the Qodalis CLI Server API tokens (users plugin)</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>

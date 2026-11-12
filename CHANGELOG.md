@@ -3,7 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.27
+
+- The admin plugin embeds dashboard 1.0.0-beta.23: built with Qodalis CLI 2.5.2; New token dialog, SQL editor with completion, the query as run ("Ran as"), module icons on the Plugins page, and the return to the dashboard after an external sign-in.
 
 - **Command modules on the Plugins page for commands registered on their own.** Commands added with `AddProcessor<T>()` (built by dependency injection, so they cannot live in a module instance) are listed under the module their `Module` property names, and the page's switch disables them too; before, only `AddModule` modules were listed. A module with the same name and no processors describes the group (description, version, icon). `ICliModule.Icon` (one emoji or an image URL, default `null`) is returned as `icon` by `/api/v1/qcli/plugins` for the dashboard's module cards.
 
