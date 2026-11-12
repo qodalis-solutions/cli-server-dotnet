@@ -16,7 +16,9 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
     /// <param name="connectionString">The SQLite connection string.</param>
     public SqlDataExplorerProvider(string connectionString)
     {
-        _connectionString = connectionString;
+        // Its own connections, never pooled: the host's code may use the same connection string, and a pooled
+        // connection would hand this provider's PRAGMA query_only to the host's writes.
+        _connectionString = new SqliteConnectionStringBuilder(connectionString) { Pooling = false }.ToString();
     }
 
     /// <summary>
@@ -97,8 +99,7 @@ public class SqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Read-only sources (the default): SQLite refuses every write on this connection. Set either way, since
-        // pooled connections keep the pragma.
+        // Read-only sources (the default): SQLite refuses every write on this connection, which is never pooled.
         await using (var queryOnly = connection.CreateCommand())
         {
             queryOnly.CommandText = context.Options.ReadOnly ? "PRAGMA query_only = ON" : "PRAGMA query_only = OFF";

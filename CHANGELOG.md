@@ -3,6 +3,10 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+- Fix: the SQLite data explorer provider (`Qodalis.Cli.Plugin.DataExplorer.Sql`) left `PRAGMA query_only` on pooled connections, so a host using the same connection string (an app's EF Core context) could no longer write after a read-only query. It now opens its own connections without pooling.
+
 ## 1.0.0-beta.26
 
 - The admin plugin embeds dashboard 1.0.0-beta.22: built with Qodalis CLI 2.5.1 (touch scrolling of the terminal page on phones, page no longer scrolls under the panel).
