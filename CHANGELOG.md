@@ -44,6 +44,12 @@ Every package shares one version with the Node and Python servers.
   - `GET /sources` adds `readOnly` and `canExport`; the schema lists only allowed tables without dropped columns; results carry `errorCode` when refused.
   - `IDataExplorerExecutorService.ExecuteAsync(request, caller, ct)` and `IDataExplorerRegistry.GetSources(caller)` (`DataExplorerCaller`,
     built from a request with `DataExplorerCallers.From`); providers that only read can set `ReadOnlyQueries`; the rules are in `DataExplorerPolicy`.
+- **Link a terminal through the browser** (users plugin), the same on the Node and Python servers
+  (spec: web-cli `docs/superpowers/specs/2026-11-12-server-linking-design.md`): `POST /api/v1/qcli/link` (public,
+  rate limited) returns a code and the approval page, `GET /link/{linkId}` hands the terminal its API token once the
+  user approved at `/qcli/admin/link?code=…` (`GET /link/code/{code}`, `POST …/approve`, `POST …/deny`). The token is
+  the approver's, named `link <client>`, scoped to the requested permissions. `LinkApprovalUrl` points to a host's
+  own page; `link_approved` and `link_denied` are audited (`AuditMetadata` gains `Client` and `Origin`).
 
 ## 1.0.0-beta.24
 
