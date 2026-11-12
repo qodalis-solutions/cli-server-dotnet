@@ -199,6 +199,14 @@ public class DataExplorerAllowedObjectsTests
     }
 
     [Theory]
+    // MySQL without ANSI_QUOTES reads "Users" as a string; the table is still Users, never WHERE or the alias
+    [InlineData("SELECT \"Id\" FROM \"Users\" WHERE \"CountryCode\" = 'RO'")]
+    [InlineData("SELECT u.\"Id\" FROM \"Users\" u WHERE u.\"CountryCode\" = 'RO' ORDER BY 1")]
+    [InlineData("SELECT * FROM \"Users\" AS u JOIN \"Bots\" b ON b.\"UserId\" = u.\"Id\"")]
+    public void AcceptsQuotedNamesOfAllowedTables(string query) =>
+        Assert.Null(P.ObjectsError(Opts(o => o.AllowedObjects = ["Users", "Bots"]), query));
+
+    [Theory]
     // Read as each dialect reads its comments and brackets
     [InlineData("SELECT * FROM allowed /* /* */ ' */ , secret --'")]
     [InlineData("SELECT arr[(SELECT 1 FROM secret)] FROM allowed")]
@@ -383,6 +391,8 @@ public class DataExplorerMaskedColumnsTests
     [InlineData("SELECT CASE WHEN home_phone LIKE '5%' THEN 1 END FROM users", "home_phone")]
     [InlineData("SELECT password_hash AS h FROM users", "password_hash")]
     [InlineData("SELECT email # x\nAS e FROM users", "email")]
+    [InlineData("SELECT \"id\" FROM \"users\" WHERE \"email\" LIKE '%a%'", "email")]
+    [InlineData("SELECT \"id\" FROM \"users\" u WHERE u.\"email\" = 'x'", "email")]
     public void RefusesOtherUsesOfMaskedColumns(string query, string column) =>
         Assert.Equal($"Masked column '{column}' can only be selected by its own name", P.MaskedColumnError(Opts(), query));
 
