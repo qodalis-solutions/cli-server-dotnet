@@ -12,12 +12,12 @@ Every package shares one version with the Node and Python servers.
   them, `null` clears, invalid ones are 400 `INVALID_VALUE`). MCP `jobs_list` takes `tags` and shows them. Same on the
   Node and Python servers.
 - **Commands as rich as web commands.** `ICliCommandProcessor` gains `Aliases`, `Examples` (`CliCommandExample`),
-  `Documentation`, `Module` and `Icon`, and `ICliCommandParameterDescriptor` `AllowedValues` (default interface members,
+  `Documentation`, `Module` and `Icon`, and `ICliCommandParameterDescriptor` `AllowedValues` and `Examples` (example values; default interface members,
   virtual properties on `CliCommandProcessor`); `GET /api/v1/qcli/commands` sends them (absent when unset), so the web
   CLI's `help` shows examples and documentation, groups and decorates the command, and completes and checks allowed
   values. The registry resolves aliases of commands and sub-commands for execution, streaming and permission checks
   (a command name wins over another command's alias; `CliCommandNames`). MCP command tools list allowed values as an
-  `enum` and refuse other values. The built-in and demo processors and the weather plugin carry examples and
+  `enum` (and parameter examples as `examples`) and refuse other values. The built-in and demo processors and the weather plugin carry examples and
   documentation (`hash --algorithm` its algorithms). Same on the Node and Python servers (spec: web-cli
   `docs/superpowers/specs/2026-11-12-server-command-metadata-design.md`).
 

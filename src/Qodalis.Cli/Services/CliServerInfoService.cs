@@ -88,6 +88,7 @@ public class CliServerInfoService : ICliServerInfoService
                 Type = p.Type,
                 DefaultValue = p.DefaultValue,
                 AllowedValues = NonEmpty(p.AllowedValues),
+                Examples = NonEmpty(p.Examples),
             }).ToList(),
             Processors = processor.Processors?.Select(MapToDescriptor).ToList(),
             Aliases = NonEmpty(processor.Aliases),
