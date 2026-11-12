@@ -100,7 +100,8 @@ public static partial class DataExplorerPolicy
 
     /// <summary>
     /// Splits SQL into words, quoted identifiers and punctuation as <paramref name="reading"/> reads it; comments
-    /// and string literals are dropped, so keywords inside them do not count.
+    /// and string literals are dropped, so keywords inside them do not count. A <c>"..."</c> string (MySQL without
+    /// <c>ANSI_QUOTES</c>) stays a single name token, so it never hides a keyword and still names what it quotes.
     /// </summary>
     internal static List<SqlToken> TokenizeSql(string sql, SqlReading reading = default)
     {
@@ -131,7 +132,17 @@ public static partial class DataExplorerPolicy
                 i = executable is { Success: true } ? i + executable.Length : SkipBlockComment(sql, i, reading.NestedComments);
                 continue;
             }
-            if (c == '\'' || (c == '"' && reading.DoubleQuotedStrings))
+            if (c == '"' && reading.DoubleQuotedStrings)
+            {
+                // A string here, but every other dialect reads a name, and a string cannot stand where a table or a
+                // column does: kept as that name, so FROM "Users" u WHERE ... still names the table, not WHERE or u
+                var end = SkipString(sql, i, c, reading.BackslashEscapes);
+                var name = sql[(i + 1)..Math.Max(i + 1, end - 1)].Replace("\"\"", "\"");
+                tokens.Add(new SqlToken(SqlTokenKind.Ident, name, name));
+                i = end;
+                continue;
+            }
+            if (c == '\'')
             {
                 i = SkipString(sql, i, c, reading.BackslashEscapes);
                 continue;
