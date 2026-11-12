@@ -3,7 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.25
+
+- The admin plugin embeds dashboard 1.0.0-beta.20: job tags, command metadata, the terminal link page, API tokens, a data explorer page and audit details.
 
 - **Jobs: tags.** `CliJobOptions.Tags` (free-form labels such as `country:ro`, `bank`; each 1-64 characters without
   commas, at most 20, duplicates ignoring case dropped; rules in `CliJobTags`), `CliJobInfo.Tags`, always present in
