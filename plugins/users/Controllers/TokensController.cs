@@ -49,7 +49,7 @@ public class TokensController : UsersControllerBase
 
     /// <summary>Create a token for the caller. Requires a session (403 with an API token).</summary>
     [HttpPost]
-    [UsersCredentialEndpoint]
+    [UsersCredentialEndpoint(ApiTokens = true)]
     public async Task<IActionResult> Create([FromBody] CreateApiTokenRequest request)
     {
         var caller = Auth;

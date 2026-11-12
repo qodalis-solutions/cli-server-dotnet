@@ -357,6 +357,33 @@ public class DataExplorerAllowedObjectsTests
     }
 }
 
+public class DataExplorerNameCaseHintTests
+{
+    private static readonly DataExplorerSchemaResult Schema = new()
+    {
+        Source = "db",
+        Tables =
+        [
+            new DataExplorerSchemaTable { Name = "public.Users", Type = "table", Columns = [new DataExplorerSchemaColumn { Name = "CountryCode", Type = "text" }] },
+            new DataExplorerSchemaTable { Name = "job_states", Type = "table", Columns = [new DataExplorerSchemaColumn { Name = "status", Type = "text" }] },
+        ],
+    };
+
+    [Theory]
+    [InlineData("42P01: relation \"users\" does not exist\n\nPOSITION: 22", "\"Users\"")]
+    [InlineData("42703: column \"countrycode\" does not exist", "\"CountryCode\"")]
+    [InlineData("42703: column u.countrycode does not exist", "\"CountryCode\"")]
+    public void NamesTheTableOrColumnWithItsCapitals(string error, string quoted) =>
+        Assert.Equal($"Names with capital letters need double quotes: {quoted}", P.NameCaseHint(error, Schema));
+
+    [Theory]
+    // Nothing differs only in case, or the name is not shown (a hidden table is never named)
+    [InlineData("42P01: relation \"job_states\" does not exist")]
+    [InlineData("42P01: relation \"onetimecodes\" does not exist")]
+    [InlineData("syntax error at or near \"FORM\"")]
+    public void SaysNothingElse(string error) => Assert.Null(P.NameCaseHint(error, Schema));
+}
+
 public class DataExplorerMaskedColumnsTests
 {
     private static DataExplorerProviderOptions Opts(L language = L.Sql) => new()

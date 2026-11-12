@@ -5,6 +5,8 @@ Every package shares one version with the Node and Python servers.
 
 ## Unreleased
 
+- **API tokens and terminal links with an external auth adapter (opt-in).** `UsersModuleOptions.AllowApiTokens()` (`ApiTokensWithExternalAuth`): a host that signs users in itself (`UseExternalAuth`) can also accept the plugin's API tokens. `qcli_pat_` bearer tokens are checked before the adapter, users signed in by the host create tokens (`POST /tokens`) and approve terminal links (`POST /link/code/{code}/approve`); both answered 501 before and still do without the option. The token's user comes from the user store by id (it must find the adapter's users and report `Disabled`); keep tokens in a persistent `IApiTokenStore`.
+- **Data explorer: a hint for names that need quotes.** When a SQL source answers that a table or column does not exist (PostgreSQL folds unquoted names to lower case: `SELECT count(*) FROM Users` looks for `users`), the error adds `Names with capital letters need double quotes: "Users"` when the source's schema has that name with capitals. Only tables the source shows and columns it does not drop are named.
 - Fix: the SQLite data explorer provider (`Qodalis.Cli.Plugin.DataExplorer.Sql`) left `PRAGMA query_only` on pooled connections, so a host using the same connection string (an app's EF Core context) could no longer write after a read-only query. It now opens its own connections without pooling.
 
 ## 1.0.0-beta.26
