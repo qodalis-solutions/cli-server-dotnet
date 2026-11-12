@@ -655,6 +655,27 @@ public class DataExplorerSqliteReadOnlyTests : IDisposable
         await provider.ExecuteAsync(Context("DELETE FROM users", readOnly: false));
         Assert.Empty((await provider.ExecuteAsync(Context("SELECT name FROM users", readOnly: true))).Rows!);
     }
+
+    [Fact]
+    public async Task ReadOnlySource_LeavesTheHostsPooledConnectionsWritable()
+    {
+        // The host (an app's EF Core context) uses the same connection string, with pooling
+        var connectionString = $"Data Source={_file}";
+        var provider = new SqlDataExplorerProvider(connectionString);
+        for (var i = 0; i < 3; i++)
+        {
+            _ = await provider.ExecuteAsync(Context("SELECT name FROM users", readOnly: true));
+        }
+
+        for (var i = 0; i < 3; i++)
+        {
+            await using var host = new SqliteConnection(connectionString);
+            await host.OpenAsync();
+            await using var insert = host.CreateCommand();
+            insert.CommandText = $"INSERT INTO users (name) VALUES ('host{i}')";
+            Assert.Equal(1, await insert.ExecuteNonQueryAsync());
+        }
+    }
 }
 
 public class DataExplorerRoutesOnAProtectedServerTests : IAsyncLifetime
