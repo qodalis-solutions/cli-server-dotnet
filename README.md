@@ -179,6 +179,14 @@ public class MathCommandProcessor : CliCommandProcessor
 | `ValueRequired` | `bool?` | `null` | Require a positional value |
 | `AcceptsRawInput` | `bool?` | `null` | Take an optional positional input |
 | `RequiredPermissions` | `IEnumerable<string>?` | `null` | Permissions checked on execute (users plugin) |
+| `Aliases` | `IEnumerable<string>?` | `null` | Other names; the server resolves them (and their permissions) like the command |
+| `Examples` | `IEnumerable<CliCommandExample>?` | `null` | Example lines (`new("time --utc", "UTC time")`) shown by `help <command>` in the web CLI |
+| `Documentation` | `string?` | `null` | Longer help text for `help <command>` (paragraphs separated by a blank line) |
+| `Module`, `Icon` | `string?` | `server:<name>`, 🖥 | The group and emoji the web CLI's `help` lists the command under |
+
+A parameter's `AllowedValues` lists the only values it takes: the web CLI shows them in help, completes them with Tab
+and refuses others before sending; MCP tools list them as an `enum`. Every member above is a default interface member,
+so processors that implement `ICliCommandProcessor` directly keep compiling.
 | `Version` | `string` | `"1.0.0"` | Processor version |
 | `Author` | `ICliCommandAuthor` | library author | Author metadata |
 

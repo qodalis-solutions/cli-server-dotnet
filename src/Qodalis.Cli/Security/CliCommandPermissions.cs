@@ -21,8 +21,7 @@ public static class CliCommandPermissions
         if (processor?.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
         foreach (var sub in chainCommands ?? [])
         {
-            processor = processor?.Processors?.FirstOrDefault(
-                p => string.Equals(p.Command, sub, StringComparison.OrdinalIgnoreCase));
+            processor = CliCommandNames.Find(processor?.Processors, sub);
             if (processor == null) break;
             if (processor.RequiredPermissions != null) required.AddRange(processor.RequiredPermissions);
         }

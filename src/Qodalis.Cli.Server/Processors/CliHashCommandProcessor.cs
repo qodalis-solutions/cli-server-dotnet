@@ -17,6 +17,15 @@ public class CliHashCommandProcessor : CliCommandProcessor
     public override bool? AcceptsRawInput { get; set; } = true;
     public override string Description { get; set; } = "Computes hash of the input text";
 
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("hash hello", "SHA-256 digest of hello"),
+        new("hash hello --algorithm md5", "MD5 digest of hello"),
+    ];
+
+    public override string? Documentation { get; set; } =
+        "Computes a digest of the text on the server and prints it in hexadecimal. The default algorithm is sha256.";
+
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
     [
         new CliCommandParameterDescriptor
@@ -26,6 +35,7 @@ public class CliHashCommandProcessor : CliCommandProcessor
             Description = "Hash algorithm (md5, sha1, sha256, sha512)",
             Type = CommandParameterType.String,
             DefaultValue = "sha256",
+            AllowedValues = ["md5", "sha1", "sha256", "sha512"],
         },
     ];
 

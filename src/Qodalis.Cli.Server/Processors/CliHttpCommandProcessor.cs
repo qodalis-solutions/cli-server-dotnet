@@ -10,6 +10,15 @@ public class CliHttpCommandProcessor : CliCommandProcessor
 {
     public override string Command { get; set; } = "http";
     public override string Description { get; set; } = "Makes HTTP requests from the server";
+
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("http get https://example.com", "Fetches a page from the server"),
+        new("http post https://httpbin.org/post --body '{\"a\":1}'", "Posts JSON from the server"),
+    ];
+
+    public override string? Documentation { get; set; } =
+        "Sends the request from the server, not from the browser, so it reaches hosts on the server's network and is not limited by the browser's CORS rules. Prints the status and the body; --headers adds the response headers.";
     public override bool? AllowUnlistedCommands { get; set; } = false;
 
     public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } = new ICliCommandProcessor[]

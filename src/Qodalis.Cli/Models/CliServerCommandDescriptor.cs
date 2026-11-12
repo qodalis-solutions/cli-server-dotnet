@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Qodalis.Cli.Abstractions;
 
 namespace Qodalis.Cli.Models;
@@ -15,6 +16,26 @@ public class CliServerCommandDescriptor
 
     /// <summary>Gets or sets the command version.</summary>
     public string? Version { get; set; }
+
+    /// <summary>Other names of the command.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Aliases { get; set; }
+
+    /// <summary>Example command lines.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<CliCommandExampleDto>? Examples { get; set; }
+
+    /// <summary>Longer help text (paragraphs separated by a blank line).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Documentation { get; set; }
+
+    /// <summary>The group the command is listed under in help.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Module { get; set; }
+
+    /// <summary>One emoji for help.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; set; }
 
     /// <summary>Gets or sets the parameter descriptors for this command.</summary>
     public List<CliCommandParameterDescriptorDto>? Parameters { get; set; }
@@ -45,4 +66,17 @@ public class CliCommandParameterDescriptorDto
 
     /// <summary>Gets or sets the default value.</summary>
     public object? DefaultValue { get; set; }
+
+    /// <summary>The only values the parameter takes.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? AllowedValues { get; set; }
+}
+
+/// <summary>An example command line in a command's help.</summary>
+public class CliCommandExampleDto
+{
+    public required string Command { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
 }
