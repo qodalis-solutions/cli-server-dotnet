@@ -68,6 +68,9 @@ public class CliServerInfoService : ICliServerInfoService
         };
     }
 
+    private static List<string>? NonEmpty(IEnumerable<string>? values) =>
+        values?.Any() == true ? values.ToList() : null;
+
     /// <inheritdoc />
     public CliServerCommandDescriptor MapToDescriptor(ICliCommandProcessor processor)
     {
@@ -84,8 +87,16 @@ public class CliServerInfoService : ICliServerInfoService
                 Required = p.Required,
                 Type = p.Type,
                 DefaultValue = p.DefaultValue,
+                AllowedValues = NonEmpty(p.AllowedValues),
             }).ToList(),
             Processors = processor.Processors?.Select(MapToDescriptor).ToList(),
+            Aliases = NonEmpty(processor.Aliases),
+            Examples = processor.Examples?.Any() == true
+                ? processor.Examples.Select(e => new CliCommandExampleDto { Command = e.Command, Description = e.Description }).ToList()
+                : null,
+            Documentation = string.IsNullOrEmpty(processor.Documentation) ? null : processor.Documentation,
+            Module = string.IsNullOrEmpty(processor.Module) ? null : processor.Module,
+            Icon = string.IsNullOrEmpty(processor.Icon) ? null : processor.Icon,
         };
     }
 }

@@ -42,6 +42,21 @@ public abstract class CliCommandProcessor : ICliCommandProcessor
     public virtual IEnumerable<string>? RequiredPermissions { get; set; }
 
     /// <inheritdoc />
+    public virtual IEnumerable<string>? Aliases { get; set; }
+
+    /// <inheritdoc />
+    public virtual IEnumerable<CliCommandExample>? Examples { get; set; }
+
+    /// <inheritdoc />
+    public virtual string? Documentation { get; set; }
+
+    /// <inheritdoc />
+    public virtual string? Module { get; set; }
+
+    /// <inheritdoc />
+    public virtual string? Icon { get; set; }
+
+    /// <inheritdoc />
     public abstract Task<string> HandleAsync
         (
         CliProcessCommand command,

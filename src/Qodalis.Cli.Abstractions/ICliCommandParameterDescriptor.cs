@@ -36,6 +36,12 @@ public interface ICliCommandParameterDescriptor
     object? DefaultValue { get; }
 
     /// <summary>
+    /// The only values the parameter takes: the web CLI shows them in help, completes them and refuses others
+    /// before sending (ignoring case); MCP lists them as the property's <c>enum</c>.
+    /// </summary>
+    IEnumerable<string>? AllowedValues => null;
+
+    /// <summary>
     /// Gets or sets additional metadata associated with this parameter.
     /// </summary>
     CliProcessorMetadata? Metadata { get; set; }
