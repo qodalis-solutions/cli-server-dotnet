@@ -203,6 +203,8 @@ public class DataExplorerAllowedObjectsTests
     [InlineData("SELECT \"Id\" FROM \"Users\" WHERE \"CountryCode\" = 'RO'")]
     [InlineData("SELECT u.\"Id\" FROM \"Users\" u WHERE u.\"CountryCode\" = 'RO' ORDER BY 1")]
     [InlineData("SELECT * FROM \"Users\" AS u JOIN \"Bots\" b ON b.\"UserId\" = u.\"Id\"")]
+    [InlineData("SELECT \"Email\", \"CountryCode\" FROM \"Users\" LIMIT 3")]
+    [InlineData("SELECT \"CountryCode\", count(*) FROM \"Users\" GROUP BY \"CountryCode\" ORDER BY 2 DESC LIMIT 5")]
     public void AcceptsQuotedNamesOfAllowedTables(string query) =>
         Assert.Null(P.ObjectsError(Opts(o => o.AllowedObjects = ["Users", "Bots"]), query));
 
