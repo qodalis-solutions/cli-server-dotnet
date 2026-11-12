@@ -477,6 +477,83 @@ public class LogRingBufferTests
 
 #endregion
 
+#region ModuleRegistry command groups Tests
+
+public class ModuleRegistryCommandGroupsTests
+{
+    private static TestProcessor Cmd(string command, string? module, string? icon = null) =>
+        new(command, command) { Module = module, Icon = icon };
+
+    [Fact]
+    public void CommandsAddedOnTheirOwnAreListedAsTheModuleTheyName()
+    {
+        var stats = Cmd("stats", "shop");
+        var plans = Cmd("plans", "Shop");
+        var registry = new ModuleRegistry([], () => [stats, plans, Cmd("loose", null)]);
+
+        var shop = Assert.Single(registry.List());
+
+        Assert.Equal("shop", shop.Name);
+        Assert.Equal(["stats", "plans"], shop.Processors);
+        Assert.Null(shop.Icon);
+        Assert.False(string.IsNullOrEmpty(shop.Version));
+    }
+
+    [Fact]
+    public void AModuleWithTheSameNameDescribesThemAndKeepsItsIcon()
+    {
+        var module = new IconModule { Name = "shop", Description = "Shop admin", Processors = [] };
+        var own = new TestModule { Name = "weather" };
+        var registry = new ModuleRegistry([module, own], () => [Cmd("stats", "SHOP"), .. own.Processors]);
+
+        var plugins = registry.List();
+
+        Assert.Equal(["shop", "weather"], plugins.Select(p => p.Name));
+        Assert.Equal("🛒", plugins[0].Icon);
+        Assert.Equal("Shop admin", plugins[0].Description);
+        Assert.Equal(["stats"], plugins[0].Processors);
+        Assert.Equal(["test-cmd"], plugins[1].Processors); // a module's own processor is not counted twice
+    }
+
+    [Fact]
+    public void DisablingTheGroupBlocksItsCommands()
+    {
+        var stats = Cmd("stats", "shop");
+        var loose = Cmd("loose", null);
+        var registry = new ModuleRegistry([], () => [stats, loose]);
+
+        Assert.False(registry.Toggle("SHOP")!.Enabled);
+
+        Assert.False(registry.IsAllowed(stats));
+        Assert.True(registry.IsAllowed(loose));
+    }
+
+    [Fact]
+    public void AddAdminGroupsTheHostsCommands()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddControllers().AddCli(cli =>
+        {
+            cli.AddAdmin();
+            cli.AddProcessor(Cmd("stats", "shop", "📊"));
+        });
+        using var sp = services.BuildServiceProvider();
+
+        var shop = sp.GetRequiredService<ModuleRegistry>().GetById("shop");
+
+        Assert.NotNull(shop);
+        Assert.Contains("stats", shop.Processors);
+    }
+
+    private sealed class IconModule : TestModule, ICliModule
+    {
+        public string? Icon => "🛒";
+    }
+}
+
+#endregion
+
 #region ModuleRegistry Tests
 
 public class ModuleRegistryTests

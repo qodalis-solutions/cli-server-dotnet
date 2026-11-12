@@ -188,6 +188,29 @@ The defaults match the Qodalis CLI panel: its grays, indigo accent with the viol
 | `error` | `--qcli-error` | Errors and destructive actions | `#f85149` | `#cf222e` |
 | `info` | `--qcli-info` | Informational states | `#58a6ff` | `#0969da` |
 
+## Command modules
+
+The Plugins page also lists the command modules, each with its commands and a switch that disables them
+(`/api/v1/qcli/plugins`). A module added with `cli.AddModule(...)` is listed with its name, version, description and
+`Icon` (one emoji or an image URL). Commands registered on their own (`cli.AddProcessor<T>()`, built by dependency
+injection) are listed under the module their `Module` property names. To describe such a group, add a module of the
+same name with no processors of its own:
+
+```csharp
+public sealed class ShopModule : CliModule
+{
+    public override string Name => "shop";
+    public override string Version => "1.0.0";
+    public override string Description => "Shop administration";
+    public override string? Icon => "🛒";
+    public override IEnumerable<ICliCommandProcessor> Processors => []; // StatsCommand etc. set Module = "shop"
+}
+
+cli.AddModule(new ShopModule())
+   .AddProcessor<StatsCommand>()
+   .AddProcessor<OrdersCommand>();
+```
+
 ## Installed plugins
 
 The dashboard's Plugins page lists the server plugins the host installed: the core server, and each plugin package
