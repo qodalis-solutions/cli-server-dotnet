@@ -73,6 +73,7 @@ public static class CliRoutePolicy
         if (isGet && PublicGet.Contains(path)) return new(true, true, null, false);
         if (HttpMethodsEquals(method, "POST") && PublicPost.Contains(path)) return new(true, true, null, false);
         if (HttpMethodsEquals(method, "OPTIONS")) return new(true, true, null, false);
+        if (IsPublicLinkRoute(method, path)) return new(true, true, null, false);
 
         if (path is "/api/v1/qcli/execute" or "/api/v1/qcli/execute/stream") return new(true, false, CommandsExecute, false);
         // MCP: POST needs commands:execute (tools are further filtered per command); GET/DELETE only answer 405.
@@ -89,6 +90,21 @@ public static class CliRoutePolicy
         if (AdminPrefixes.Any(p => IsUnder(path, p))) return new(true, false, AdminAccess, false);
 
         return new(true, false, null, false);
+    }
+
+    /// <summary>
+    /// Users plugin link requests: <c>POST /api/v1/qcli/link</c> (a terminal asks to be linked) and
+    /// <c>GET /api/v1/qcli/link/{linkId}</c> (it polls; the link id is the secret). The approval routes
+    /// under <c>/link/code/</c> stay authenticated.
+    /// </summary>
+    private static bool IsPublicLinkRoute(string method, string path)
+    {
+        const string link = "/api/v1/qcli/link";
+        if (HttpMethodsEquals(method, "POST")) return path == link;
+        if (!HttpMethodsEquals(method, "GET") && !HttpMethodsEquals(method, "HEAD")) return false;
+        if (!path.StartsWith(link + "/", StringComparison.Ordinal)) return false;
+        var rest = path[(link.Length + 1)..];
+        return rest.Length > 0 && !rest.Contains('/') && rest != "code";
     }
 
     private static bool HttpMethodsEquals(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);

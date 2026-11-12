@@ -177,6 +177,9 @@ public static class McpSchema
             if (value == null) continue;
             var reason = CheckType(key, propSchema, value);
             if (reason != null) return reason;
+            if (propSchema["enum"] is JsonArray allowed && value is JsonValue v && v.GetValueKind() == JsonValueKind.String
+                && !allowed.Any(a => a?.GetValue<string>() == v.GetValue<string>()))
+                return $"argument '{key}' must be one of: {string.Join(", ", allowed.Select(a => a?.GetValue<string>()))}";
         }
 
         foreach (var required in schema["required"] as JsonArray ?? [])

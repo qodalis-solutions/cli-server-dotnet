@@ -9,7 +9,7 @@ namespace Qodalis.Cli.Plugin.Users.Services;
 /// <summary>
 /// Seeds the built-in groups (<c>admin</c> = <c>*</c>, <c>users</c> = <c>commands:execute</c>) and —
 /// unless external auth is configured — the <c>root</c> user (random password with
-/// <c>mustChangePassword</c> when none is configured, printed to standard error and never logged), and periodically sweeps idle sessions.
+/// <c>mustChangePassword</c> when none is configured, printed to standard error and never logged), and periodically sweeps idle sessions and expired link requests.
 /// With an external auth adapter it instead re-checks the events and logs sockets opened through the adapter every
 /// <see cref="Qodalis.Cli.Security.CliShellOptions.SessionCheckInterval"/> (see <see cref="AuthService.RecheckExternalSocketsAsync"/>).
 /// Seeding is idempotent and also awaited by the auth middleware, so requests that arrive
@@ -148,19 +148,19 @@ public class UsersBootstrapService : IHostedService, IDisposable
     {
         await EnsureSeededAsync();
 
-        if (_options.UsesExternalAuth)
-        {
-            StartExternalSocketChecks();
-            return;
-        }
+        var external = _options.UsesExternalAuth;
+        if (external) StartExternalSocketChecks();
 
+        // Sessions are the plugin's own only without an external adapter; link requests exist in both modes.
+        var links = _services?.GetService<LinkService>();
         var timeout = TimeSpan.FromMilliseconds(_authService.SessionTimeoutMs);
-        var interval = timeout < MaxCleanupInterval ? timeout : MaxCleanupInterval;
+        var interval = external || timeout > MaxCleanupInterval ? MaxCleanupInterval : timeout;
         _cleanupTimer = new Timer(async _ =>
         {
             try
             {
-                await _authService.SweepIdleSessionsAsync();
+                links?.Sweep();
+                if (!external) await _authService.SweepIdleSessionsAsync();
             }
             catch (Exception ex)
             {

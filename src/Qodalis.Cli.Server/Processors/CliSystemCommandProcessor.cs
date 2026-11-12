@@ -13,6 +13,14 @@ public class CliSystemCommandProcessor : CliCommandProcessor
     public override string Command { get; set; } = "system";
     public override string Description { get; set; } = "Shows server system information";
 
+    public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+    [
+        new("system", "Operating system, CPU and memory of the server"),
+    ];
+
+    public override string? Documentation { get; set; } =
+        "Shows the operating system, CPU, memory and runtime of the machine the server runs on.";
+
     public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
         var uptime = DateTime.UtcNow - StartTime;

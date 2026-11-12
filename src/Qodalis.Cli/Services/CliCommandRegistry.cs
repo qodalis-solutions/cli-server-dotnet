@@ -41,16 +41,15 @@ public class CliCommandRegistry : ICliCommandRegistry
     /// <inheritdoc />
     public ICliCommandProcessor? FindProcessor(string command, IEnumerable<string>? chainCommands = null)
     {
-        var processor = _processors.FirstOrDefault(
-            p => string.Equals(p.Command, command, StringComparison.OrdinalIgnoreCase));
+        // A command name wins over another command's alias
+        var processor = CliCommandNames.Find(_processors, command);
 
         if (processor == null || chainCommands == null)
             return processor;
 
         foreach (var sub in chainCommands)
         {
-            var child = processor.Processors?.FirstOrDefault(
-                p => string.Equals(p.Command, sub, StringComparison.OrdinalIgnoreCase));
+            var child = CliCommandNames.Find(processor.Processors, sub);
 
             if (child == null) break;
             processor = child;

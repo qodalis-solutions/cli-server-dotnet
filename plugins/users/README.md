@@ -44,6 +44,7 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `SetGroupStore<T>()` / factory | method | `InMemoryGroupStore` | Group storage |
 | `SetApiTokenStore<T>()` / factory | method | `InMemoryApiTokenStore` | API token storage (hashes only) |
 | `AllowNonExpiringTokens` | `bool` | `false` | Allow API tokens with `expiresInDays: null` |
+| `LinkApprovalUrl` | `string?` | `/qcli/admin/link` | The page where users approve a terminal's link request (absolute or root-relative; `{code}` is replaced, otherwise `?code=` is appended) |
 | `UserStore`, `SessionStore`, ... | instance | `null` | Store instances (alternative to the `Set*Store` methods) |
 | `ProtectServer` | `bool` | `true` | Require a session (and the permissions below) on every CLI route and socket |
 | `SessionTimeoutMs` | `long?` | `1800000` (30 min) | Idle timeout, checked on every request |
@@ -125,6 +126,10 @@ All routes live under `/api/v1/qcli` and accept a trailing slash. Protected rout
 | `/tokens` | GET | authenticated | Own API tokens; `?all=true` → every user's (`tokens:read`) |
 | `/tokens` | POST | authenticated, **session only** | `{ name, expiresInDays?, permissions? }` → `201 { token, apiToken }` |
 | `/tokens/{id}` | DELETE | owner or `tokens:revoke` | Revoke (204); unknown or not yours → 404 |
+| `/link` | POST | public, 10 per minute per address | `{ client, permissions? }` → `201 { linkId, userCode, verificationUrl, expiresIn, interval }` (see [Linking a terminal](#linking-a-terminal)) |
+| `/link/{linkId}` | GET | public | `{ status: "pending" \| "denied" }`, or `{ status: "approved", token, userName, expiresAt }` once; 404 `{ status: "expired" }` |
+| `/link/code/{userCode}` | GET | authenticated | The request the approval page shows |
+| `/link/code/{userCode}/approve` \| `deny` | POST | authenticated, **session only** (approve) | Approve creates the approver's API token for the terminal → `{ tokenId, tokenName }`; deny → 204 |
 | `/audit` | GET | `audit:read` | Audit entries, newest first (`?event=&username=&actor=&limit=&offset=`) |
 | `/audit` | DELETE | `audit:clear` | Clear the audit log (204) |
 
@@ -180,6 +185,20 @@ Tokens are the way to connect MCP clients to the server's [MCP endpoint](../../R
 ```bash
 claude mcp add --transport http qcli http://localhost:8046/api/qcli/mcp \
   --header "Authorization: Bearer <token>"
+```
+
+## Linking a terminal
+
+`server add` in the web CLI links a terminal to the server through the browser, like the OAuth device flow:
+
+1. The terminal sends `POST /link` with its name (`{ "client": "Qodalis CLI on Pixel 7" }`, optionally `permissions` for a scoped token) and gets a `linkId` (secret), a code such as `ABCD-2345` and the approval page (`/qcli/admin/link?code=ABCD-2345`, the admin dashboard).
+2. The user opens the page, signs in, compares the code and approves. Approving creates an API token for that user named `link <client>`, with the requested permissions (never more than the user has), listed and revocable like any token.
+3. The terminal polls `GET /link/{linkId}` every `interval` seconds and receives the token once.
+
+Requests expire after 10 minutes, are single-use and live in memory. Approvals and denials are audited (`link_approved`, `link_denied`; `metadata: { client, origin, tokenId }`). Hosts with their own page set `LinkApprovalUrl`:
+
+```csharp
+builder.Services.AddControllers().AddCli(cli => cli.AddUsers(o => o.LinkApprovalUrl = "https://app.example.com/cli/link/{code}"));
 ```
 
 ## Events

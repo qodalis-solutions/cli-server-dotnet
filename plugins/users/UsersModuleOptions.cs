@@ -45,6 +45,25 @@ public class UsersModuleOptions
     /// </summary>
     public bool AllowNonExpiringTokens { get; set; }
 
+    /// <summary>
+    /// The page where users approve a terminal's link request (<c>server add</c> in the web CLI): an http(s) URL
+    /// or a root-relative path; <c>{code}</c> in it is replaced by the code, otherwise <c>?code=</c> is appended.
+    /// <c>null</c> = the admin dashboard's <c>/qcli/admin/link</c>. Throws <see cref="ArgumentException"/> for
+    /// anything else (e.g. <c>javascript:</c> or <c>//host</c>).
+    /// </summary>
+    public string? LinkApprovalUrl
+    {
+        get => _linkApprovalUrl;
+        set
+        {
+            if (value != null && !Services.LinkService.IsValidApprovalUrl(value))
+                throw new ArgumentException("[users] LinkApprovalUrl must be an http(s) URL or a root-relative path", nameof(value));
+            _linkApprovalUrl = value;
+        }
+    }
+
+    private string? _linkApprovalUrl;
+
     /// <summary>Idle session timeout in milliseconds. Defaults to 30 minutes.</summary>
     public long? SessionTimeoutMs { get; set; }
 

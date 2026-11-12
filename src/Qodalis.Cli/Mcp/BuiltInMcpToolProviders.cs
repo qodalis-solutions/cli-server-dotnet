@@ -239,7 +239,8 @@ public sealed class FileSystemMcpToolProvider : IMcpToolProvider
 /// <summary>
 /// Data explorer tools (only when at least one data source is registered): <c>data_sources</c>,
 /// <c>data_schema</c> and <c>data_query</c> (<c>data:query</c>). Queries run through the same executor
-/// (timeouts, row limits) as <c>POST /api/qcli/data-explorer/execute</c>.
+/// (the source's permissions, rate limit, read-only rules, allowed objects, timeouts, row limits, masking and
+/// audit) as <c>POST /api/qcli/data-explorer/execute</c>; refusals are error results.
 /// </summary>
 public sealed class DataExplorerMcpToolProvider : IMcpToolProvider
 {
@@ -298,7 +299,7 @@ public sealed class DataExplorerMcpToolProvider : IMcpToolProvider
 
     private Task<McpToolResult> SourcesAsync(JsonObject args, McpToolContext context, CancellationToken ct)
     {
-        var sources = _registry.GetSources();
+        var sources = _registry.GetSources(DataExplorerCallers.From(context.HttpContext, context.Principal, context.Services));
         var text = string.Join('\n', sources.Select(s =>
             $"{s.Name} ({JsonNamingPolicy.CamelCase.ConvertName(s.Language.ToString())}): {s.Description}"));
         return Task.FromResult(McpToolResult.Ok(text, new JsonObject
@@ -314,8 +315,12 @@ public sealed class DataExplorerMcpToolProvider : IMcpToolProvider
         if (entry == null) return McpToolResult.Error($"Unknown data source: '{name}'");
 
         var (provider, options) = entry.Value;
-        var schema = await provider.GetSchemaAsync(options, ct);
-        if (schema == null) return McpToolResult.Error("Schema introspection is not supported by this data source.");
+        var missing = DataExplorerPolicy.MissingPermissions(options.RequiredPermissions,
+            DataExplorerCallers.From(context.HttpContext, context.Principal, context.Services));
+        if (missing.Count > 0) return McpToolResult.Error($"forbidden: missing permission {string.Join(", ", missing)}");
+        var provided = await provider.GetSchemaAsync(options, ct);
+        if (provided == null) return McpToolResult.Error("Schema introspection is not supported by this data source.");
+        var schema = DataExplorerPolicy.FilterSchema(provided, options);
 
         var text = string.Join('\n', schema.Tables.Select(t =>
             $"{t.Name} ({t.Type}): {string.Join(", ", t.Columns.Select(c => $"{c.Name} {c.Type}{(c.PrimaryKey ? " PK" : "")}"))}"));
@@ -336,7 +341,7 @@ public sealed class DataExplorerMcpToolProvider : IMcpToolProvider
             Source = McpSchema.GetString(args, "source")!,
             Query = McpSchema.GetString(args, "query")!,
             Parameters = parameters,
-        }, ct);
+        }, DataExplorerCallers.From(context.HttpContext, context.Principal, context.Services), ct);
 
         if (!result.Success) return McpToolResult.Error(result.Error ?? "Query failed");
 

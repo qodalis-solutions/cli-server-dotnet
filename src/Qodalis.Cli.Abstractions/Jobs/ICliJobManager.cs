@@ -128,6 +128,12 @@ public class CliJobInfo
     /// <summary>Gets or sets the group the job is listed under.</summary>
     public string? Group { get; set; }
 
+    /// <summary>
+    /// Gets or sets the job's tags (<see cref="CliJobOptions.Tags"/>); the jobs API filters on them with
+    /// <c>?tag=</c>. Empty when the job has none or the manager does not support tags.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; set; } = [];
+
     /// <summary>Gets or sets the scheduling status.</summary>
     public JobStatus Status { get; set; } = JobStatus.Active;
 

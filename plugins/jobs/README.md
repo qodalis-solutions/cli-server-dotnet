@@ -87,6 +87,7 @@ To run a job from your own code (e.g. when something happened), resolve `ICliJob
 | `Name` | `string?` | Class name | Job display name |
 | `Description` | `string?` | Name | Human-readable description |
 | `Group` | `string?` | `null` | Logical grouping |
+| `Tags` | `IReadOnlyList<string>` | `[]` | Free-form labels to filter jobs by (`country:ro`, `bank`): each 1-64 characters without commas, at most 20, trimmed, duplicates (ignoring case) dropped (`CliJobTags`). Job info always carries `tags`; a custom `ICliJobManager` fills `CliJobInfo.Tags` |
 | `Schedule` | `string?` | `null` | Cron expression (5-field) |
 | `Interval` | `TimeSpan?` | `null` | Fixed interval between runs; across restarts the next run is the last run plus the interval |
 | `RunOnStart` | `bool` | `false` | Run when the scheduler starts unless the job ran recently (active jobs only; see [Run on start](#run-on-start)) |
@@ -118,7 +119,7 @@ queued run. `cancel` cancels every running run of the job and drops a queued one
 the schedule. A run cancelled that way ends `cancelled` (`job:cancelled`), also when the job has a `Timeout`; only a
 real timeout ends `timedout` (`job:timed_out`).
 
-Job info (`GET /jobs`, `GET /jobs/{id}`, `jobs_list`, `jobs_get`, `CliJobInfo`) carries `maxConcurrentRuns`,
+Job info (`GET /jobs`, `GET /jobs/{id}`, `jobs_list`, `jobs_get`, `CliJobInfo`) carries `tags`, `maxConcurrentRuns`,
 `runningExecutionIds` (the attempts executing now, oldest first; empty when idle; a run waiting for its retry keeps
 its slot but has no entry), `currentExecutionId` (the newest executing attempt, or null) and `queued` (a run waits for
 a slot).
@@ -150,20 +151,20 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | List all jobs |
+| GET | `/` | List the jobs; `?tag=a&tag=b` (repeatable or comma-separated) lists only those that have every tag, ignoring case |
 | GET | `/{id}` | Get job details |
 | POST | `/{id}/trigger` | Trigger immediate execution: `{ message, queued }` (`queued: true` when the run waits for a slot) |
 | POST | `/{id}/pause` | Pause scheduled execution |
 | POST | `/{id}/resume` | Resume a paused job |
 | POST | `/{id}/stop` | Stop job: cancel every running run, drop a queued one, disable the schedule |
 | POST | `/{id}/cancel` | Cancel every running run and drop a queued one (`409 JOB_NOT_RUNNING` when idle) |
-| PUT | `/{id}` | Update job options: `description`, `group`, `schedule`, `interval`, `maxRetries`, `retryDelay`, `retryStrategy`, `timeout`, `overlapPolicy`, `maxConcurrentRuns` (an integer >= 1: below 1 is `400 INVALID_VALUE`, a non-integer is `400` too) |
+| PUT | `/{id}` | Update job options: `description`, `group`, `tags` (replaces them, `null` clears, invalid tags are `400 INVALID_VALUE`), `schedule`, `interval`, `maxRetries`, `retryDelay`, `retryStrategy`, `timeout`, `overlapPolicy`, `maxConcurrentRuns` (an integer >= 1: below 1 is `400 INVALID_VALUE`, a non-integer is `400` too) |
 | GET | `/{id}/history` | Paginated execution history |
 | GET | `/{id}/history/{execId}` | Execution detail with logs |
 | DELETE | `/{id}/history/{execId}` | Delete a finished run and its logs (`404 EXECUTION_NOT_FOUND`, `409 EXECUTION_RUNNING`) |
 | DELETE | `/{id}/history` | Delete the job's finished runs, or only those of `?status=` (e.g. `failed`); answers `{ deleted }` |
-| GET | `/executions` | Executions across jobs, newest first: `?job=a,b&group=&status=&since=&limit=&offset=` |
-| GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs); `job` and `group` as in `/executions` |
+| GET | `/executions` | Executions across jobs, newest first: `?job=a,b&group=&tag=&status=&since=&limit=&offset=` (`tag` as in `/`) |
+| GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs); `job`, `group` and `tag` as in `/executions` |
 
 Jobs without a schedule or interval run only on request (`trigger`). Executions carry `properties`, the job's own
 values. Keep job ids stable (`Id`): saved pauses and history are found again by id after a restart.
@@ -174,7 +175,7 @@ Each job carries `actions`: the actions it offers (`trigger`, `pause`, `resume`,
 
 ## MCP tools
 
-When the server's MCP endpoint is enabled (`cli.AddMcp()`), the plugin contributes `jobs_list`, `jobs_get {id}`,
+When the server's MCP endpoint is enabled (`cli.AddMcp()`), the plugin contributes `jobs_list` (`tags`: only jobs with every tag), `jobs_get {id}`,
 `jobs_history {id, limit?=20}` (`jobs:read`) and `jobs_trigger`, `jobs_pause`, `jobs_resume`, `jobs_stop`,
 `jobs_cancel` `{id}` and `jobs_delete_runs` `{id, executionId?, status?}` (`jobs:manage`; `id` is a job id or a unique
 job name), backed by the same job manager as the REST API.

@@ -79,6 +79,103 @@ public class DataExplorerProviderOptions
 
     /// <summary>Gets or sets the maximum number of rows returned. Default is 1000.</summary>
     public int MaxRows { get; set; } = 1000;
+
+    /// <summary>
+    /// Permissions the caller must hold (all of them, besides <c>data:query</c>) to see and use the source.
+    /// Ignored on an open server (no authentication provider).
+    /// </summary>
+    public List<string> RequiredPermissions { get; set; } = [];
+
+    /// <summary>
+    /// Queries may only read (default <c>true</c>): the server checks the query by language before the provider
+    /// runs, and SQL providers run it in a read-only transaction. Set <c>false</c> for a source that must write.
+    /// </summary>
+    public bool ReadOnly { get; set; } = true;
+
+    /// <summary>
+    /// Glob patterns (<c>*</c> matches anything, case-insensitive) of the tables (<c>schema.table</c> or
+    /// <c>table</c>), collections, Redis keys or Elasticsearch indices the source shows and accepts. Empty = all.
+    /// Best effort: the database account's own permissions are the real boundary.
+    /// </summary>
+    public List<string> AllowedObjects { get; set; } = [];
+
+    /// <summary>Glob patterns of column/field names whose values are replaced by <c>***</c> in results (<c>null</c> stays <c>null</c>).</summary>
+    public List<string> MaskColumns { get; set; } = [];
+
+    /// <summary>Glob patterns of columns/fields removed from results and from the schema.</summary>
+    public List<string> DropColumns { get; set; } = [];
+
+    /// <summary>Writes every execute to the audit log (event <c>data_query</c>) when the server has one. Default <c>true</c>.</summary>
+    public bool Audit { get; set; } = true;
+
+    /// <summary>At most <see cref="DataExplorerRateLimit.MaxQueries"/> executes per caller per window on this source; <c>null</c> = no limit.</summary>
+    public DataExplorerRateLimit? RateLimit { get; set; }
+
+    /// <summary>
+    /// Permissions needed to export results (<c>json</c>/<c>csv</c> output in the web CLI); reported as
+    /// <see cref="DataExplorerSourceInfo.CanExport"/>. Advisory: the table output shows the same rows.
+    /// </summary>
+    public List<string> ExportPermissions { get; set; } = [];
+}
+
+/// <summary>
+/// Rate limit of a data source: at most <see cref="MaxQueries"/> executes per caller (user id, or client address
+/// when anonymous) per <see cref="WindowSeconds"/>.
+/// </summary>
+public class DataExplorerRateLimit
+{
+    /// <summary>Gets or sets the most executes allowed in a window.</summary>
+    public int MaxQueries { get; set; }
+
+    /// <summary>Gets or sets the window length in seconds.</summary>
+    public int WindowSeconds { get; set; }
+}
+
+/// <summary>Why the server refused a data explorer query (<see cref="DataExplorerResult.ErrorCode"/>).</summary>
+public static class DataExplorerErrorCodes
+{
+    /// <summary>The caller lacks a permission of the source (HTTP 403).</summary>
+    public const string Forbidden = "forbidden";
+
+    /// <summary>The caller is over the source's rate limit (HTTP 429).</summary>
+    public const string RateLimited = "rate_limited";
+
+    /// <summary>The source is read-only and the query may write.</summary>
+    public const string ReadOnly = "read_only";
+
+    /// <summary>The query names an object outside the source's allowed objects.</summary>
+    public const string ObjectNotAllowed = "object_not_allowed";
+
+    /// <summary>
+    /// The source masks or drops columns and the query names one other than as a plain item of the select list
+    /// (or the result does not show it under its own name).
+    /// </summary>
+    public const string MaskedColumn = "masked_column";
+
+    /// <summary>No source has that name.</summary>
+    public const string UnknownSource = "unknown_source";
+}
+
+/// <summary>
+/// Who runs a data explorer request, as the server knows it. <see cref="HasPermission"/> is <c>null</c> on an open
+/// server (no authentication provider): permission options are then not enforced.
+/// </summary>
+public class DataExplorerCaller
+{
+    /// <summary>Gets or sets the id of the signed-in user.</summary>
+    public string? UserId { get; set; }
+
+    /// <summary>Gets or sets the name of the signed-in user.</summary>
+    public string? UserName { get; set; }
+
+    /// <summary>Gets or sets the client address, for rate limiting anonymous callers and the audit log.</summary>
+    public string? RemoteAddress { get; set; }
+
+    /// <summary>Gets or sets the session of the caller, when known (audit log).</summary>
+    public string? SessionId { get; set; }
+
+    /// <summary>Gets or sets the permission check; <c>null</c> when permissions are not enforced.</summary>
+    public Func<string, bool>? HasPermission { get; set; }
 }
 
 /// <summary>
@@ -130,6 +227,13 @@ public class DataExplorerResult
 
     /// <summary>Gets or sets the error message if the query failed.</summary>
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Why the server refused the query, when it did (see <see cref="DataExplorerErrorCodes"/>): <c>forbidden</c>
+    /// (403), <c>rate_limited</c> (429), <c>read_only</c>, <c>object_not_allowed</c>, <c>masked_column</c>, <c>unknown_source</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
 }
 
 /// <summary>
@@ -169,6 +273,12 @@ public class DataExplorerSourceInfo
 
     /// <summary>Gets or sets the accepted query parameters.</summary>
     public List<DataExplorerParameterDescriptor> Parameters { get; set; } = [];
+
+    /// <summary>Gets or sets whether queries may only read.</summary>
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Gets or sets whether the caller may export results (<c>json</c>/<c>csv</c>).</summary>
+    public bool CanExport { get; set; }
 }
 
 /// <summary>

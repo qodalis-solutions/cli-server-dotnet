@@ -21,6 +21,13 @@ public class CliJobOptions
     /// <summary>Gets or sets the group this job belongs to for organizational purposes.</summary>
     public string? Group { get; set; }
 
+    /// <summary>
+    /// Gets or sets free-form labels besides the single <see cref="Group"/> (e.g. <c>country:ro</c>, <c>bank</c>) to
+    /// filter jobs by: <c>GET /jobs?tag=...</c> lists the jobs that have every tag given, ignoring case. Rules in
+    /// <see cref="CliJobTags"/>: each 1-64 characters without commas, at most 20, duplicates (ignoring case) dropped.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; set; } = [];
+
     /// <summary>Gets or sets a cron expression for scheduling (alternative to <see cref="Interval"/>).</summary>
     public string? Schedule { get; set; }
 

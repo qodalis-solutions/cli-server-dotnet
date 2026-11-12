@@ -102,7 +102,44 @@ public class MysqlDataExplorerProvider : IDataExplorerProvider
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
+        if (!context.Options.ReadOnly)
+        {
+            await ReadAsync(connection, null, context, result, cancellationToken);
+            return result;
+        }
+
+        // Read-only sources (the default): a read-only transaction (START TRANSACTION READ ONLY), always rolled back
+        await using var transaction = await connection.BeginTransactionAsync(
+            System.Data.IsolationLevel.Unspecified, isReadOnly: true, cancellationToken);
+        try
+        {
+            await ReadAsync(connection, transaction, context, result, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // The connection is closed below either way.
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Runs the query on <paramref name="connection"/> (in <paramref name="transaction"/>, when given) into <paramref name="result"/>.</summary>
+    private static async Task ReadAsync(
+        MySqlConnection connection,
+        MySqlTransaction? transaction,
+        DataExplorerExecutionContext context,
+        DataExplorerResult result,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = context.Query;
 
         foreach (var param in context.Parameters)
@@ -134,7 +171,5 @@ public class MysqlDataExplorerProvider : IDataExplorerProvider
 
         result.Rows = rows;
         result.RowCount = rows.Count;
-
-        return result;
     }
 }
