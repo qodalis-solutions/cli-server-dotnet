@@ -38,6 +38,7 @@ public class UsersAuthMiddleware
         Base + "/groups",
         Base + "/audit",
         Base + "/tokens",
+        Base + "/link",
     ];
 
     public UsersAuthMiddleware(RequestDelegate next, ILogger<UsersAuthMiddleware> logger)

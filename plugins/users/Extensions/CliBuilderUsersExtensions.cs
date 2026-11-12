@@ -56,6 +56,7 @@ public static class CliBuilderUsersExtensions
         services.AddSingleton<AuthService>();
         services.AddSingleton<UsersService>();
         services.AddSingleton<IpRateLimiter>();
+        services.AddSingleton<LinkService>();
         services.AddSingleton<ICliAuthBridge, UsersAuthBridge>();
 
         if (options.AuthAdapter != null)
