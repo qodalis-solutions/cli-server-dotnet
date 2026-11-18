@@ -125,6 +125,66 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Set-based: two small reads (the newest run, and the run at each count limit) and a delete per limit, never
+    /// loading the runs. The count limit deletes the runs older than the job's N-th newest run (ties by row id), the
+    /// same as "not among the newest N" and portable to databases without <c>LIMIT</c> in subqueries.
+    /// </remarks>
+    public async Task<int> PruneAsync(string jobId, JobHistoryRetention retention, DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        if (!retention.HasLimits) return 0;
+
+        await using var db = await CreateDbContextAsync(cancellationToken);
+        var runs = db.Executions.Where(e => e.JobId == jobId);
+        var newestFirst = runs.OrderByDescending(e => e.StartedAt).ThenByDescending(e => e.Id);
+        var newest = await newestFirst.Select(e => (int?)e.Id).FirstOrDefaultAsync(cancellationToken);
+        if (newest == null) return 0;
+
+        var running = nameof(JobExecutionStatus.Running);
+        var failed = nameof(JobExecutionStatus.Failed);
+        var deletable = runs.Where(e => e.Status != running && e.Id != newest);
+        var deleted = 0;
+
+        // Failed runs, then the others, each with their own limits
+        foreach (var isFailed in new[] { true, false })
+        {
+            var status = isFailed ? JobExecutionStatus.Failed : JobExecutionStatus.Completed;
+            var group = isFailed ? deletable.Where(e => e.Status == failed) : deletable.Where(e => e.Status != failed);
+
+            if (retention.MaxAgeFor(status) is { } maxAge)
+            {
+                var cutoff = now.UtcDateTime - maxAge;
+                deleted += await DeleteWithLogsAsync(db, group.Where(e => e.StartedAt < cutoff), cancellationToken);
+            }
+
+            if (retention.MaxRunsFor(status) is { } maxRuns)
+            {
+                // The oldest run that is still kept; every run after it in the order goes
+                var boundary = await newestFirst.Skip(maxRuns - 1)
+                    .Select(e => new { e.StartedAt, e.Id })
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (boundary != null)
+                {
+                    var older = group.Where(e => e.StartedAt < boundary.StartedAt
+                        || (e.StartedAt == boundary.StartedAt && e.Id < boundary.Id));
+                    deleted += await DeleteWithLogsAsync(db, older, cancellationToken);
+                }
+            }
+        }
+
+        return deleted;
+    }
+
+    private static async Task<int> DeleteWithLogsAsync(JobStorageDbContext db, IQueryable<JobExecutionEntity> executions,
+        CancellationToken cancellationToken)
+    {
+        _ = await db.LogEntries.Where(l => executions.Any(e => e.ExecutionId == l.ExecutionId))
+            .ExecuteDeleteAsync(cancellationToken);
+        return await executions.ExecuteDeleteAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task SaveExecutionAsync(JobExecution execution, CancellationToken cancellationToken = default)
     {
         await using var db = await CreateDbContextAsync(cancellationToken);
