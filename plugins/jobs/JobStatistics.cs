@@ -112,6 +112,7 @@ public static class JobStatistics
                         s.lastFailureAt,
                         recent = jobRuns.Take(RecentRuns).Select(r => new
                         {
+                            id = r.Id,
                             status = StatusName(r),
                             startedAt = TimeBuckets.Format(r.StartedAt),
                             duration = r.Duration,

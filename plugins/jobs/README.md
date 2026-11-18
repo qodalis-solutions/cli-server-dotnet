@@ -220,7 +220,7 @@ All endpoints are mounted at `/api/v1/qcli/jobs`.
 | DELETE | `/{id}/history/{execId}` | Delete a finished run and its logs (`404 EXECUTION_NOT_FOUND`, `409 EXECUTION_RUNNING`) |
 | DELETE | `/{id}/history` | Delete the job's finished runs, or only those of `?status=` (e.g. `failed`); answers `{ deleted }` |
 | GET | `/executions` | Executions across jobs, newest first: `?job=a,b&group=&tag=&status=&since=&limit=&offset=` (`tag` as in `/`) |
-| GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs); `job`, `group` and `tag` as in `/executions` |
+| GET | `/stats` | Statistics of the runs started in `[since, until)` (default the last 24 hours): outcomes per column (`buckets`, default 24, 1..200), totals and per-job figures (success rate, mean/p95/max duration, last failure, the 12 newest runs as `{ id, status, startedAt, duration }`, `id` being the execution id); `job`, `group` and `tag` as in `/executions` |
 
 Jobs without a schedule or interval run only on request (`trigger`). Executions carry `properties`, the job's own
 values. Keep job ids stable (`Id`): saved pauses and history are found again by id after a restart.
