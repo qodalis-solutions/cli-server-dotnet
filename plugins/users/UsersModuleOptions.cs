@@ -98,6 +98,15 @@ public class UsersModuleOptions
     /// </summary>
     public bool ProtectServer { get; set; } = true;
 
+    /// <summary>
+    /// When the plugin authenticates a CLI request itself (session, API token, WebSocket ticket), also set
+    /// <c>HttpContext.User</c> to the caller (<see cref="Authorization.CliHostUser"/>), so the host's services that read
+    /// the signed-in user the usual way see them, e.g. a host command run from a terminal linked with an API token.
+    /// A user the host's own authentication already set is kept. Only CLI routes are affected: an API token never
+    /// signs in to the host's own endpoints. Defaults to <c>true</c>.
+    /// </summary>
+    public bool SetHostUser { get; set; } = true;
+
     /// <summary>Absolute session lifetime in milliseconds (in addition to the idle timeout). Defaults to 12 hours.</summary>
     public long MaxSessionLifetimeMs { get; set; } = DefaultMaxSessionLifetimeMs;
 

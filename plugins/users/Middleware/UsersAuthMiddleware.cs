@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Plugin.Users.Authorization;
 using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
@@ -167,6 +168,9 @@ public class UsersAuthMiddleware
         if (rule.IsWebSocket && auth.ExternalRequest != null)
             authService.BindExternalRequest(principal, auth.ExternalRequest);
         context.SetCliPrincipal(principal);
+        // Host code (e.g. a host processor's services) reads HttpContext.User; keep a user the host already set.
+        if (options.SetHostUser && context.User.Identity?.IsAuthenticated != true)
+            context.User = CliHostUser.Create(principal, auth.User.Email);
         await _next(context);
     }
 
