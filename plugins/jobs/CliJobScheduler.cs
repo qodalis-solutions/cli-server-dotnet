@@ -122,9 +122,10 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// </summary>
     internal void ConfigureHistory(CliJobsHistoryOptions history)
     {
+        history.Validate("Jobs");
         if (history.PruneInterval <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(history), history.PruneInterval,
-                "Jobs:History:PruneInterval must be positive");
+                "Jobs: History.PruneInterval must be positive");
         History = history;
         if (_jobs.ContainsKey(PruneHistoryJob.JobId)) return;
         if (!history.HasLimits && !_jobs.Values.Any(r => r.Options.History.HasLimits && !r.Options.History.KeepAll))
@@ -147,8 +148,9 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         reg.Options.History.Resolve(History);
 
     /// <summary>
-    /// Deletes the runs that break the history retention of every registered job (running runs and each job's newest
-    /// run stay); returns how many were deleted.
+    /// Deletes the runs that break the history retention of every registered job, and with global limits those of the
+    /// jobs no longer registered that the store knows of (running runs and each job's newest run stay); returns how
+    /// many were deleted.
     /// </summary>
     internal async Task<int> PruneHistoryAsync(CancellationToken cancellationToken)
     {
@@ -159,6 +161,16 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             if (GetHistoryRetention(reg) is not { KeepAll: false } retention) continue;
             deleted += await _storage.PruneAsync(reg.Id, retention, now, cancellationToken);
+        }
+
+        if (History.HasLimits)
+        {
+            foreach (var orphan in await _storage.GetExecutionJobIdsAsync(cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_jobs.ContainsKey(orphan)) continue;
+                deleted += await _storage.PruneAsync(orphan, History, now, cancellationToken);
+            }
         }
         return deleted;
     }
@@ -179,6 +191,8 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         {
             throw new ArgumentException($"Job '{name}': {ex.Message}", nameof(options));
         }
+        options.History ??= new();
+        options.History.Validate($"Job '{name}'");
 
         string id;
         if (options.Id != null)

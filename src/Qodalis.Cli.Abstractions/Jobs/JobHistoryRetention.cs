@@ -1,27 +1,29 @@
 namespace Qodalis.Cli.Abstractions.Jobs;
 
 /// <summary>
-/// How long a job's history is kept: a run is deleted when it breaks any limit that is set. Failed runs use
-/// <see cref="FailedMaxAge"/> and <see cref="FailedMaxRunsPerJob"/> when those are set, else the normal limits.
-/// Running executions and the newest run of each job are never deleted.
+/// How long a job's history is kept: a run is deleted when it breaks any limit that is set. Failed runs (status
+/// <c>failed</c> only) use <see cref="FailedMaxAge"/> and <see cref="FailedMaxRunsPerJob"/> when those are set, else
+/// the normal limits. Running executions and the newest run of each job are never deleted, but take their place in
+/// the count. The same rules on every server (.NET, Node, Python).
 /// </summary>
 public class JobHistoryRetention
 {
-    /// <summary>Deletes runs that started longer ago than this.</summary>
+    /// <summary>Deletes runs that started longer ago than this (positive).</summary>
     public TimeSpan? MaxAge { get; set; }
 
     /// <summary>
-    /// Keeps at most this many runs per job: the job's runs are ranked newest first, and a run ranked at or past
-    /// the limit is deleted.
+    /// Keeps at most this many runs per job (at least 1): the job's runs are ranked newest first and a run ranked at or
+    /// past the limit is deleted. With <see cref="FailedMaxRunsPerJob"/> set, only the runs that did not fail are
+    /// ranked against it; otherwise every run of the job is.
     /// </summary>
     public int? MaxRunsPerJob { get; set; }
 
-    /// <summary>Like <see cref="MaxAge"/> for failed runs (status <c>failed</c>); null uses <see cref="MaxAge"/>.</summary>
+    /// <summary>Like <see cref="MaxAge"/> for failed runs; null uses <see cref="MaxAge"/>.</summary>
     public TimeSpan? FailedMaxAge { get; set; }
 
     /// <summary>
-    /// Like <see cref="MaxRunsPerJob"/> for failed runs (ranked among all the job's runs); null uses
-    /// <see cref="MaxRunsPerJob"/>.
+    /// Keeps at most this many failed runs per job (at least 1), ranked among the job's failed runs only; null ranks
+    /// failed runs with the others against <see cref="MaxRunsPerJob"/>.
     /// </summary>
     public int? FailedMaxRunsPerJob { get; set; }
 
@@ -29,15 +31,38 @@ public class JobHistoryRetention
     public bool HasLimits =>
         MaxAge != null || MaxRunsPerJob != null || FailedMaxAge != null || FailedMaxRunsPerJob != null;
 
+    /// <summary>Whether failed runs are counted on their own (<see cref="FailedMaxRunsPerJob"/> is set).</summary>
+    public bool CountsFailedSeparately => FailedMaxRunsPerJob != null;
+
     /// <summary>The age limit for a run with <paramref name="status"/>.</summary>
     public TimeSpan? MaxAgeFor(JobExecutionStatus status) =>
         status == JobExecutionStatus.Failed ? FailedMaxAge ?? MaxAge : MaxAge;
 
-    /// <summary>The count limit for a run with <paramref name="status"/> (at least 1: the newest run stays).</summary>
+    /// <summary>The count limit for a run with <paramref name="status"/>.</summary>
     public int? MaxRunsFor(JobExecutionStatus status) =>
-        (status == JobExecutionStatus.Failed ? FailedMaxRunsPerJob ?? MaxRunsPerJob : MaxRunsPerJob) is { } n
-            ? Math.Max(1, n)
-            : null;
+        status == JobExecutionStatus.Failed && CountsFailedSeparately ? FailedMaxRunsPerJob : MaxRunsPerJob;
+
+    /// <summary>
+    /// Throws <see cref="ArgumentOutOfRangeException"/> when a count limit is below 1 or a duration is not positive;
+    /// <paramref name="owner"/> names where the limits come from in the message.
+    /// </summary>
+    public void Validate(string owner)
+    {
+        void Positive(TimeSpan? value, string name)
+        {
+            if (value is { } v && v <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(name, v, $"{owner}: History.{name} must be positive");
+        }
+        void AtLeastOne(int? value, string name)
+        {
+            if (value is { } v && v < 1)
+                throw new ArgumentOutOfRangeException(name, v, $"{owner}: History.{name} must be an integer of at least 1");
+        }
+        Positive(MaxAge, nameof(MaxAge));
+        Positive(FailedMaxAge, nameof(FailedMaxAge));
+        AtLeastOne(MaxRunsPerJob, nameof(MaxRunsPerJob));
+        AtLeastOne(FailedMaxRunsPerJob, nameof(FailedMaxRunsPerJob));
+    }
 
     /// <summary>
     /// The runs of one job to delete under these limits at <paramref name="now"/>: <paramref name="runs"/> are all the
@@ -47,12 +72,16 @@ public class JobHistoryRetention
     public IEnumerable<T> SelectExpired<T>(IReadOnlyList<T> runs, Func<T, JobExecutionStatus> status,
         Func<T, DateTime> startedAt, DateTimeOffset now)
     {
-        // The newest run (index 0) always stays
-        for (var rank = 1; rank < runs.Count; rank++)
+        int failedRank = 0, otherRank = 0;
+        for (var index = 0; index < runs.Count; index++)
         {
-            var run = runs[rank];
+            var run = runs[index];
             var runStatus = status(run);
-            if (runStatus == JobExecutionStatus.Running) continue;
+            // Every run takes its place in the count, the ones that are never deleted too
+            var rank = !CountsFailedSeparately ? index
+                : runStatus == JobExecutionStatus.Failed ? failedRank++ : otherRank++;
+            if (index == 0 || runStatus == JobExecutionStatus.Running) continue;
+
             var tooOld = MaxAgeFor(runStatus) is { } age
                 && JobExecutionQuery.AsUtc(startedAt(run)) < now.UtcDateTime - age;
             var tooMany = MaxRunsFor(runStatus) is { } max && rank >= max;

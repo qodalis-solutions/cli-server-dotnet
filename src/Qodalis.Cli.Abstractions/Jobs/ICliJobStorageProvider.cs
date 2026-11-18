@@ -78,6 +78,13 @@ public interface ICliJobStorageProvider
     }
 
     /// <summary>
+    /// The ids of the jobs that have executions in the store, so the history retention also prunes the runs of jobs
+    /// that are no longer registered (with the global limits). The default knows none, so those runs are kept.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetExecutionJobIdsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>
     /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns
     /// whether it was deleted. The default keeps every execution and returns <c>false</c>.
     /// </summary>

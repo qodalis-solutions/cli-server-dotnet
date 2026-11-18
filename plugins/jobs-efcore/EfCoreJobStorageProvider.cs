@@ -126,7 +126,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// Set-based: two small reads (the newest run, and the run at each count limit) and a delete per limit, never
+    /// Set-based: small reads (the newest run, and the run at each count limit) and a delete per limit, never
     /// loading the runs. The count limit deletes the runs older than the job's N-th newest run (ties by row id), the
     /// same as "not among the newest N" and portable to databases without <c>LIMIT</c> in subqueries.
     /// </remarks>
@@ -160,8 +160,13 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
 
             if (retention.MaxRunsFor(status) is { } maxRuns)
             {
-                // The oldest run that is still kept; every run after it in the order goes
-                var boundary = await newestFirst.Skip(maxRuns - 1)
+                // Ranked among the failed runs or the others when failed runs count on their own, else among all
+                // runs; running runs and the newest run take their place. The oldest run that is still kept is the
+                // boundary: every run after it in the order goes.
+                var pool = !retention.CountsFailedSeparately ? runs
+                    : isFailed ? runs.Where(e => e.Status == failed) : runs.Where(e => e.Status != failed);
+                var boundary = await pool.OrderByDescending(e => e.StartedAt).ThenByDescending(e => e.Id)
+                    .Skip(maxRuns - 1)
                     .Select(e => new { e.StartedAt, e.Id })
                     .FirstOrDefaultAsync(cancellationToken);
                 if (boundary != null)
@@ -174,6 +179,13 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         }
 
         return deleted;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetExecutionJobIdsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await CreateDbContextAsync(cancellationToken);
+        return await db.Executions.Select(e => e.JobId).Distinct().ToListAsync(cancellationToken);
     }
 
     private static async Task<int> DeleteWithLogsAsync(JobStorageDbContext db, IQueryable<JobExecutionEntity> executions,
