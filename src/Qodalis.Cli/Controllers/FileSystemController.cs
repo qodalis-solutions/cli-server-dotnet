@@ -184,7 +184,10 @@ public class FileSystemController : ControllerBase, IActionFilter
     /// Uploads a file via multipart form data.
     /// </summary>
     /// <param name="file">The file to upload.</param>
-    /// <param name="path">The destination path on the server.</param>
+    /// <param name="path">
+    /// The file's full destination path, folder and file name (<c>/reports/rates.csv</c>); empty: the uploaded file's
+    /// name at the root. A folder, or a path without a file name, is refused with 400.
+    /// </param>
     /// <param name="ct">A token to cancel the operation.</param>
     [HttpPost("upload")]
     public async Task<IActionResult> UploadFile(IFormFile file, [FromForm] string path, CancellationToken ct)
@@ -196,9 +199,14 @@ public class FileSystemController : ControllerBase, IActionFilter
 
         _logger.LogDebug("Uploading file: {Path}, size={Size}", path, file.Length);
 
+        var filePath = string.IsNullOrEmpty(path) ? file.FileName : path;
+        if (string.IsNullOrWhiteSpace(filePath.Trim('/', '\\')))
+        {
+            return BadRequest(new { Error = UploadPathHint(filePath) });
+        }
+
         try
         {
-            var filePath = string.IsNullOrEmpty(path) ? file.FileName : path;
 
             using var ms = new MemoryStream();
             await file.CopyToAsync(ms, ct);
@@ -207,6 +215,14 @@ public class FileSystemController : ControllerBase, IActionFilter
             await _provider.UploadFileAsync(filePath, content, ct);
 
             return Ok(new { Path = filePath, Size = file.Length });
+        }
+        catch (FileStorageIsADirectoryError)
+        {
+            return BadRequest(new { Error = UploadPathHint(filePath) });
+        }
+        catch (FileStorageNotADirectoryError ex)
+        {
+            return BadRequest(new { Error = ex.Message });
         }
         catch (FileStorageNotFoundError ex)
         {
@@ -223,6 +239,10 @@ public class FileSystemController : ControllerBase, IActionFilter
             return StatusCode(500, new { Error = ex.Message });
         }
     }
+
+    /// <summary>Why an upload path was refused, with what to send instead.</summary>
+    private static string UploadPathHint(string path) =>
+        $"'{path}' is a folder: the upload path is the file's full path, folder and file name (e.g. /reports/rates.csv).";
 
     /// <summary>
     /// Creates a directory at the specified path.
