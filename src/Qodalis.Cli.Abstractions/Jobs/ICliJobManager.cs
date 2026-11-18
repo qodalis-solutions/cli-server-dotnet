@@ -191,6 +191,12 @@ public class CliJobInfo
     /// Clients hide the others.
     /// </summary>
     public IReadOnlyList<string>? Actions { get; set; }
+
+    /// <summary>
+    /// Gets or sets the history retention in effect for the job (global limits, or the job's own); <c>null</c> when no
+    /// limits apply to it (or the manager does not prune history).
+    /// </summary>
+    public CliJobHistoryRetentionInfo? HistoryRetention { get; set; }
 }
 
 /// <summary>What a manual trigger did: started a run, or queued one that starts when a slot frees.</summary>

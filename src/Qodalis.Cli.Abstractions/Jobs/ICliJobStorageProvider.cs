@@ -49,6 +49,35 @@ public interface ICliJobStorageProvider
     Task<int> PruneAsync(DateTimeOffset before, CancellationToken cancellationToken = default) => Task.FromResult(0);
 
     /// <summary>
+    /// Deletes the runs of job <paramref name="jobId"/> (and their logs) that break <paramref name="retention"/> at
+    /// <paramref name="now"/>; returns how many. Running executions and the job's newest run are never deleted. The
+    /// jobs plugin's <c>jobs:prune-history</c> job calls it for every job with limits. The default reads the job's
+    /// runs a page at a time and deletes the expired ones with <see cref="DeleteExecutionAsync"/> (so a store that
+    /// does not delete runs keeps them); override it with a set-based delete.
+    /// </summary>
+    async Task<int> PruneAsync(string jobId, JobHistoryRetention retention, DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        if (!retention.HasLimits) return 0;
+
+        const int pageSize = 500;
+        var runs = new List<(string Id, JobExecutionStatus Status, DateTime StartedAt)>();
+        for (var offset = 0; ; offset += pageSize)
+        {
+            var (items, _) = await GetExecutionsAsync(jobId, pageSize, offset, null, cancellationToken);
+            runs.AddRange(items.Select(e => (e.Id, e.Status, e.StartedAt)));
+            if (items.Count < pageSize) break;
+        }
+
+        var deleted = 0;
+        foreach (var run in retention.SelectExpired(runs, r => r.Status, r => r.StartedAt, now).ToList())
+        {
+            if (await DeleteExecutionAsync(run.Id, cancellationToken)) deleted++;
+        }
+        return deleted;
+    }
+
+    /// <summary>
     /// Deletes an execution (a run the job discarded, see <see cref="ICliJobExecutionContext.Discard"/>); returns
     /// whether it was deleted. The default keeps every execution and returns <c>false</c>.
     /// </summary>
