@@ -187,6 +187,22 @@ claude mcp add --transport http qcli http://localhost:8046/api/qcli/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
+### The host's user (`SetHostUser`)
+
+When the plugin authenticates a CLI request itself (a session, an API token or a WebSocket ticket), it also sets
+`HttpContext.User`, so the host's own code that reads the signed-in user the usual way sees the caller. For example,
+a host command run from a terminal linked with `server add` calls a service that reads the user id from
+`HttpContext.User`. The identity's authentication type is `CliHostUser.AuthenticationType` (`"QodalisCli"`), with
+`NameIdentifier` and `sub` set to the user id (with external auth, the id your adapter returned), `Name`, `Email`,
+one `qcli:permission` claim per effective permission and `qcli:auth` = `token` or `session`. Check `qcli:auth` to
+refuse API tokens for an operation that needs an interactive sign-in.
+
+- A user the host's own authentication already set (its JWT or cookie) is kept.
+- Only requests the CLI handles get it: an API token never signs in to the host's other endpoints.
+- A command's `RequiredPermissions` are still checked against the token's own (possibly narrowed) permissions
+  first; the host's services then apply their own checks to the user.
+- Turn it off with `o.SetHostUser = false`.
+
 ## Linking a terminal
 
 `server add` in the web CLI links a terminal to the server through the browser, like the OAuth device flow:
