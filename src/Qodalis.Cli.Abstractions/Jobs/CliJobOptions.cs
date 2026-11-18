@@ -77,6 +77,13 @@ public class CliJobOptions
     /// are going.
     /// </summary>
     public int MaxConcurrentRuns { get; set; } = 1;
+
+    /// <summary>
+    /// This job's history retention: a limit set here replaces the global one (<c>ConfigureJobs(o =&gt;
+    /// o.History...)</c>, <c>Jobs:History</c>) for this job, and <see cref="CliJobHistoryOptions.KeepAll"/> keeps
+    /// all of its runs. Nothing set: the global limits apply.
+    /// </summary>
+    public CliJobHistoryOptions History { get; set; } = new();
 }
 
 /// <summary>

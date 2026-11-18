@@ -75,6 +75,18 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<int> PruneAsync(string jobId, JobHistoryRetention retention, DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            var runs = _executions.Where(e => e.JobId == jobId).OrderByDescending(e => e.StartedAt).ToList();
+            var expired = retention.SelectExpired(runs, e => e.Status, e => e.StartedAt, now).ToHashSet();
+            return Task.FromResult(_executions.RemoveAll(expired.Contains));
+        }
+    }
+
+    /// <inheritdoc />
     public Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)
