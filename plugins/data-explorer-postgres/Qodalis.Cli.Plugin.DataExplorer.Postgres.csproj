@@ -27,4 +27,8 @@
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="8.0.5" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🐘" />
+  </ItemGroup>
 </Project>

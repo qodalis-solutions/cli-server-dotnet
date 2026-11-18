@@ -227,6 +227,15 @@ public static CliBuilder AddBilling(this CliBuilder cli)
 }
 ```
 
+Each package shows its icon (`icon`: one emoji or an image URL), declared in the plugin's project as assembly
+metadata; the dashboard shows a default icon for a package without one:
+
+```xml
+<ItemGroup>
+  <AssemblyMetadata Include="QodalisCliIcon" Value="💳" />
+</ItemGroup>
+```
+
 The status reports the `audit` feature when the users plugin is installed, which shows the dashboard's Audit page.
 
 ## Name and icon

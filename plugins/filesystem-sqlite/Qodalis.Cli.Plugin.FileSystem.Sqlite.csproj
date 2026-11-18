@@ -24,4 +24,8 @@
     <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🪶" />
+  </ItemGroup>
 </Project>

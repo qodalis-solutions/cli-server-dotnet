@@ -18,6 +18,9 @@ public class AwsModule : Cli.CliModule
     public override string Description => "AWS cloud resource management";
 
     /// <inheritdoc />
+    public override string? Icon => "☁️";
+
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor> Processors { get; } =
     [
         new AwsCommandProcessor(),

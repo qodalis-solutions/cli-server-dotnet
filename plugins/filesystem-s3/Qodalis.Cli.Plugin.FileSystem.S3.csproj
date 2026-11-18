@@ -24,4 +24,8 @@
     <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🪣" />
+  </ItemGroup>
 </Project>

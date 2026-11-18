@@ -3,6 +3,10 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+- **Icons for the installed plugins.** `/api/v1/qcli/plugins/installed` returns each package's `icon` (one emoji or an image URL, `null` when it has none), read from its `QodalisCliIcon` assembly metadata (`<AssemblyMetadata Include="QodalisCliIcon" Value="💳" />` in the plugin's project, `CliInstalledPlugin.IconMetadataKey`). Every package has one: Core 🖥️, Abstractions 🧱, Admin 🎛️, Audit 🛡️, Aws ☁️, Jobs ⏱️, Users 👥, Weather 🌤️, Logs.Seq 📜, FileSystem 📁 (Json 📄, Sqlite 🪶, S3 🪣), the data explorer providers (Sql 🪶, Postgres 🐘, Mysql 🐬, Mssql 🗃️, Mongo 🍃, Redis 🔴, Elasticsearch 🔍) and the EF Core stores 🗄️. The weather, aws and filesystem modules have icons too (`ICliModule.Icon`: 🌤️, ☁️, 📁).
+
 ## 1.0.0-beta.27
 
 - The admin plugin embeds dashboard 1.0.0-beta.23: built with Qodalis CLI 2.5.2; New token dialog, SQL editor with completion, the query as run ("Ran as"), module icons on the Plugins page, and the return to the dashboard after an external sign-in.
