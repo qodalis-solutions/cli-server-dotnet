@@ -137,6 +137,50 @@ does not run every job again:
 The run goes through the same slots as any due run. Cron timers compute the next occurrence from the one that just
 fired, so a tick that fires a few milliseconds early never runs an occurrence twice.
 
+## History retention
+
+Every run is kept until something deletes it. Set limits and the plugin prunes the history itself (off by default):
+
+```csharp
+cli.ConfigureJobs(o =>
+{
+    o.History.MaxAge = TimeSpan.FromDays(30);         // delete runs older than this
+    o.History.MaxRunsPerJob = 500;                    // keep at most this many runs per job (newest kept)
+    o.History.FailedMaxAge = TimeSpan.FromDays(90);   // optional: failed runs kept longer
+    o.History.FailedMaxRunsPerJob = 1000;             // optional
+    o.History.PruneInterval = TimeSpan.FromHours(6);  // how often to prune (default 1 day)
+});
+```
+
+Or from configuration (code wins; `ConfigureJobs` works before or after `AddJob`):
+
+```json
+{ "Jobs": { "History": { "MaxAge": "30.00:00:00", "MaxRunsPerJob": 500, "FailedMaxAge": "90.00:00:00", "PruneInterval": "06:00:00" } } }
+```
+
+- A run is deleted when it breaks any limit that is set. Failed runs (status `failed`) use `FailedMaxAge` and
+  `FailedMaxRunsPerJob` when those are set, else the normal limits. The count limit ranks a job's runs newest first:
+  a run ranked at or past its limit goes.
+- Running executions and the newest run of each job are never deleted.
+- Per job, `History` on the job's options replaces the global field it sets, and `KeepAll` keeps the job's whole
+  history:
+
+  ```csharp
+  cli.AddJob<FetchRatesJob>(o => { o.Interval = TimeSpan.FromMinutes(30); o.History.MaxRunsPerJob = 50; });
+  cli.AddJob<MonthlyReportJob>(o => { o.Schedule = "0 0 1 * *"; o.History.KeepAll = true; });
+  ```
+
+With a limit set (globally or on a job), the system job `jobs:prune-history` (group `system`, tag `system`) prunes
+every `PruneInterval`, and on start when it is due. Each run sets the property `deleted` to how many executions it
+deleted and logs it; pause or trigger it like any job. Its own history follows the global limits.
+
+Job info (`GET /jobs`, `GET /jobs/{id}`, `jobs_list`, `jobs_get`) carries `historyRetention`, the limits in effect
+for the job (durations in milliseconds), or `null` when none apply:
+
+```json
+"historyRetention": { "maxAge": 2592000000, "maxRunsPerJob": 50, "failedMaxAge": null, "failedMaxRunsPerJob": null, "overridden": true, "keepAll": false }
+```
+
 ## Interrupted runs
 
 When the scheduler starts, the runs of its registered jobs that its store still has as `running` (left by a process
@@ -214,8 +258,9 @@ cli.SetJobStorageProvider(new MyDatabaseStorageProvider());
 
 Besides saving and reading executions and states, a store may implement `QueryExecutionsAsync` (executions across
 jobs; the default merges per-job listings), `DeleteExecutionAsync` (for `Discard()`; the default keeps the run) and
-`PruneAsync(before)` (delete old executions; the default keeps everything). Call `PruneAsync` on a schedule, for
-example from a job, to keep the history bounded. `GET /jobs/stats` reads every run of its range through
+`PruneAsync(before)` (delete old executions; the default keeps everything), and
+`PruneAsync(jobId, retention, now)`, which the [history retention](#history-retention) calls per job (the default
+reads the job's runs and deletes the expired ones with `DeleteExecutionAsync`; override it with a set-based delete). `GET /jobs/stats` reads every run of its range through
 `QueryExecutionsAsync`, a page at a time, so it works with any store or job manager.
 
 ## Jobs that run elsewhere

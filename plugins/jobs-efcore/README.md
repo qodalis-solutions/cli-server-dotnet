@@ -65,11 +65,9 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 ## Retention
 
-The history is kept until pruned. Prune on a schedule, for example from a job:
-
-```csharp
-await context.Services.GetRequiredService<ICliJobStorageProvider>().PruneAsync(DateTimeOffset.UtcNow.AddDays(-30));
-```
+The history is kept until pruned. Set the jobs plugin's [history retention](../jobs/README.md#history-retention)
+(`cli.ConfigureJobs(o => o.History.MaxAge = TimeSpan.FromDays(30))` or `Jobs:History` in configuration); this store
+prunes with set-based deletes (the runs and their log entries), without loading the runs.
 
 ## License
 
