@@ -87,6 +87,15 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <inheritdoc />
+    public Task<IReadOnlyList<string>> GetExecutionJobIdsAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(_executions.Select(e => e.JobId).Distinct().ToList());
+        }
+    }
+
+    /// <inheritdoc />
     public Task<bool> DeleteExecutionAsync(string executionId, CancellationToken cancellationToken = default)
     {
         lock (_lock)

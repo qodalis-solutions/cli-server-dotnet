@@ -158,10 +158,16 @@ Or from configuration (code wins; `ConfigureJobs` works before or after `AddJob`
 { "Jobs": { "History": { "MaxAge": "30.00:00:00", "MaxRunsPerJob": 500, "FailedMaxAge": "90.00:00:00", "PruneInterval": "06:00:00" } } }
 ```
 
-- A run is deleted when it breaks any limit that is set. Failed runs (status `failed`) use `FailedMaxAge` and
-  `FailedMaxRunsPerJob` when those are set, else the normal limits. The count limit ranks a job's runs newest first:
-  a run ranked at or past its limit goes.
-- Running executions and the newest run of each job are never deleted.
+- A run is deleted when it breaks any limit that is set. Failed runs (status `failed` only; timed-out and cancelled
+  runs follow the normal limits) use `FailedMaxAge` when it is set, else `MaxAge`.
+- Count limits rank runs newest first; a run ranked at or past its limit goes. With `FailedMaxRunsPerJob` set, failed
+  runs are counted on their own (the newest N failed runs stay) and the other runs on their own against
+  `MaxRunsPerJob`; without it, every run of the job counts against `MaxRunsPerJob`.
+- Running executions and the newest run of each job are never deleted, but take their place in the count.
+- Runs of job ids that are no longer registered (a removed job) are pruned with the global limits, when any are set
+  and the store lists its job ids (`GetExecutionJobIdsAsync`; the in-memory and EF Core stores do).
+- Count limits must be integers of at least 1 and durations positive: an invalid value throws when the job is
+  registered or the scheduler is built.
 - Per job, `History` on the job's options replaces the global field it sets, and `KeepAll` keeps the job's whole
   history:
 
@@ -180,6 +186,12 @@ for the job (durations in milliseconds), or `null` when none apply:
 ```json
 "historyRetention": { "maxAge": 2592000000, "maxRunsPerJob": 50, "failedMaxAge": null, "failedMaxRunsPerJob": null, "overridden": true, "keepAll": false }
 ```
+
+A `keepAll` job reports every limit as `null` with `overridden` and `keepAll` true. Pruning runs in the process that
+hosts the scheduler, whatever job manager the API uses. A custom `ICliJobManager` reports the same field with
+`job.History.Resolve(global)` (`CliJobHistoryOptions.Resolve` in the abstractions), where `global` is the
+`JobHistoryRetention` its scheduler applies (`ICliJobScheduler.GetHistoryRetention(registration)` in a process that
+hosts this plugin's scheduler).
 
 ## Interrupted runs
 
@@ -260,7 +272,8 @@ Besides saving and reading executions and states, a store may implement `QueryEx
 jobs; the default merges per-job listings), `DeleteExecutionAsync` (for `Discard()`; the default keeps the run) and
 `PruneAsync(before)` (delete old executions; the default keeps everything), and
 `PruneAsync(jobId, retention, now)`, which the [history retention](#history-retention) calls per job (the default
-reads the job's runs and deletes the expired ones with `DeleteExecutionAsync`; override it with a set-based delete). `GET /jobs/stats` reads every run of its range through
+reads the job's runs and deletes the expired ones with `DeleteExecutionAsync`; override it with a set-based delete),
+and `GetExecutionJobIdsAsync` (the job ids that have runs, so removed jobs are pruned too; the default lists none). `GET /jobs/stats` reads every run of its range through
 `QueryExecutionsAsync`, a page at a time, so it works with any store or job manager.
 
 ## Jobs that run elsewhere

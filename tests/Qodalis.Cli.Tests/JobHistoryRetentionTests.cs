@@ -90,17 +90,58 @@ public abstract class JobHistoryRetentionStoreTests
     }
 
     [Fact]
-    public async Task FailedCountLimit_RanksAmongAllRuns()
+    public async Task FailedCountLimit_CountsFailedRunsOnTheirOwn()
+    {
+        var runs = new List<JobExecution>();
+        for (var i = 0; i < 8; i++)
+            runs.Add(await RunAsync("a", i + 1, i % 2 == 0 ? JobExecutionStatus.Completed : JobExecutionStatus.Failed));
+
+        // The newest 2 non-failed runs (0, 2) and the newest 3 failed ones (1, 3, 5)
+        var deleted = await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 2, FailedMaxRunsPerJob = 3 }, Now);
+
+        Assert.Equal(3, deleted);
+        Assert.Equal([runs[0].Id, runs[1].Id, runs[2].Id, runs[3].Id, runs[5].Id], await IdsAsync("a"));
+    }
+
+    [Fact]
+    public async Task FailedCountLimitOnly_LeavesOtherRunsUncounted()
     {
         var runs = new List<JobExecution>();
         for (var i = 0; i < 6; i++)
-            runs.Add(await RunAsync("a", i + 1, i % 2 == 0 ? JobExecutionStatus.Completed : JobExecutionStatus.Failed));
+            runs.Add(await RunAsync("a", i + 1, i < 3 ? JobExecutionStatus.Completed : JobExecutionStatus.Failed));
 
-        // Completed runs past rank 2 go, failed ones past rank 4
-        var deleted = await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 2, FailedMaxRunsPerJob = 4 }, Now);
+        var deleted = await Store.PruneAsync("a", new JobHistoryRetention { FailedMaxRunsPerJob = 1 }, Now);
 
-        Assert.Equal(3, deleted);
-        Assert.Equal([runs[0].Id, runs[1].Id, runs[3].Id], await IdsAsync("a"));
+        Assert.Equal(2, deleted);
+        Assert.Equal([runs[0].Id, runs[1].Id, runs[2].Id, runs[3].Id], await IdsAsync("a"));
+    }
+
+    [Fact]
+    public async Task CountLimit_WithoutFailedLimit_RanksFailedRunsWithTheOthers()
+    {
+        var newest = await RunAsync("a", 1, JobExecutionStatus.Failed);
+        var second = await RunAsync("a", 2);
+        await RunAsync("a", 3, JobExecutionStatus.Failed);
+        await RunAsync("a", 4);
+
+        var deleted = await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 2, FailedMaxAge = TimeSpan.FromDays(9) }, Now);
+
+        Assert.Equal(2, deleted);
+        Assert.Equal([newest.Id, second.Id], await IdsAsync("a"));
+    }
+
+    [Fact]
+    public async Task RunningRuns_TakeTheirPlaceInTheCount()
+    {
+        var newest = await RunAsync("a", 1);
+        var running = await RunAsync("a", 2, JobExecutionStatus.Running);
+        await RunAsync("a", 3);
+        await RunAsync("a", 4);
+
+        var deleted = await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 2 }, Now);
+
+        Assert.Equal(2, deleted);
+        Assert.Equal([newest.Id, running.Id], await IdsAsync("a"));
     }
 
     [Fact]
@@ -319,6 +360,63 @@ public class JobHistoryRetentionSchedulerTests : IDisposable
 
         await _scheduler.PruneHistoryAsync(CancellationToken.None);
         Assert.Equal(4, await CountAsync("a"));
+    }
+
+    [Fact]
+    public async Task Orphans_ArePrunedWithTheGlobalLimits()
+    {
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "a", History = { MaxRunsPerJob = 8 } });
+        _scheduler.ConfigureHistory(new CliJobsHistoryOptions { MaxRunsPerJob = 3 });
+        await SeedAsync("a", 10);
+        await SeedAsync("removed-job", 10);
+
+        Assert.Equal(2 + 7, await _scheduler.PruneHistoryAsync(CancellationToken.None));
+        Assert.Equal(8, await CountAsync("a"));
+        Assert.Equal(3, await CountAsync("removed-job"));
+    }
+
+    [Fact]
+    public async Task Orphans_KeptWithoutGlobalLimits()
+    {
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "a", History = { MaxRunsPerJob = 2 } });
+        _scheduler.ConfigureHistory(new CliJobsHistoryOptions());
+        await SeedAsync("removed-job", 5);
+
+        await _scheduler.PruneHistoryAsync(CancellationToken.None);
+        Assert.Equal(5, await CountAsync("removed-job"));
+    }
+
+    [Theory]
+    [InlineData(0, null, null)]
+    [InlineData(null, -1, null)]
+    [InlineData(null, null, 0)]
+    public void InvalidJobLimits_ThrowAtRegistration(int? maxRuns, int? failedMaxRuns, int? maxAgeSeconds)
+    {
+        var options = new CliJobOptions
+        {
+            Name = "bad",
+            History =
+            {
+                MaxRunsPerJob = maxRuns,
+                FailedMaxRunsPerJob = failedMaxRuns,
+                MaxAge = maxAgeSeconds is { } s ? TimeSpan.FromSeconds(s) : null,
+            },
+        };
+        Assert.Throws<ArgumentOutOfRangeException>(() => _scheduler.Register(new DummyJob(), options));
+    }
+
+    [Fact]
+    public void InvalidGlobalLimits_ThrowAtBuild()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _scheduler.ConfigureHistory(new CliJobsHistoryOptions { FailedMaxAge = TimeSpan.FromDays(-1) }));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _scheduler.ConfigureHistory(new CliJobsHistoryOptions { MaxRunsPerJob = 0 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _scheduler.ConfigureHistory(new CliJobsHistoryOptions { MaxAge = TimeSpan.FromDays(1), PruneInterval = TimeSpan.Zero }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => BuildScheduler(
+            cli => cli.AddJob(new DummyJob(), o => o.Name = "a"),
+            new Dictionary<string, string?> { ["Jobs:History:MaxRunsPerJob"] = "0" }));
     }
 
     [Fact]
