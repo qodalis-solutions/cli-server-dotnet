@@ -27,4 +27,8 @@
   <ItemGroup>
     <PackageReference Include="MongoDB.Driver" Version="3.13.0" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🍃" />
+  </ItemGroup>
 </Project>

@@ -41,7 +41,8 @@ public class CliBuilder
     /// <summary>
     /// Lists the package <paramref name="assembly"/> belongs to among the installed plugins (once). The built-in
     /// plugins (users, admin, jobs, storage providers, ...) call it themselves; call it from a plugin of your own.
-    /// The host application's own assembly is never listed.
+    /// The host application's own assembly is never listed. The package's icon is read from its
+    /// <c>QodalisCliIcon</c> assembly metadata (see <see cref="CliInstalledPlugin.IconMetadataKey"/>).
     /// </summary>
     public CliBuilder AddInstalledPlugin(Assembly assembly)
     {

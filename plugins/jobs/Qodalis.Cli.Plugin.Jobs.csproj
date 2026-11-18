@@ -30,4 +30,8 @@
   <ItemGroup>
     <PackageReference Include="Cronos" Version="0.11.1" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="⏱️" />
+  </ItemGroup>
 </Project>

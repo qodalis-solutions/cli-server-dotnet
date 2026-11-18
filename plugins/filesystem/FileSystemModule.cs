@@ -21,4 +21,7 @@ public class FileSystemModule : ICliModule
 
     /// <inheritdoc />
     public IEnumerable<ICliCommandProcessor> Processors => [];
+
+    /// <inheritdoc />
+    public string? Icon => "📁";
 }

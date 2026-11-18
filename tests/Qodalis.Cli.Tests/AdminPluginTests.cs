@@ -906,6 +906,25 @@ public class AdminPluginsControllerTests
         Assert.DoesNotContain('+', users.Version);
         Assert.Contains("User management", users.Description);
         Assert.Equal("Core", plugins[0].Name);
+        // Each package's icon, from its QodalisCliIcon assembly metadata
+        Assert.Equal("👥", users.Icon);
+        Assert.Equal(["🖥️", "🎛️", "👥", "🛡️", "⏱️"], plugins.Select(p => p.Icon));
+        Assert.Contains("\"icon\":", JsonSerializer.Serialize(users));
+    }
+
+    [Fact]
+    public void Installed_APackageWithoutAnIcon_HasNone()
+    {
+        // The test assembly declares no QodalisCliIcon
+        Assert.Null(CliInstalledPlugin.FromAssembly(typeof(AdminPluginsControllerTests).Assembly).Icon);
+    }
+
+    [Fact]
+    public void FirstPartyModules_HaveIcons()
+    {
+        var registry = new ModuleRegistry([new Qodalis.Cli.Plugin.Weather.WeatherModule(), new FileSystemModule()]);
+
+        Assert.Equal(["🌤️", "📁"], registry.List().Select(p => p.Icon));
     }
 
     [Fact]

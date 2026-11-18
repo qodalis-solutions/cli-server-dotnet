@@ -15,6 +15,9 @@ public class WeatherModule : Cli.CliModule
     public override string Description => "Provides weather information commands";
 
     /// <inheritdoc />
+    public override string? Icon => "🌤️";
+
+    /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor> Processors { get; } =
     [
         new CliWeatherCommandProcessor(),
