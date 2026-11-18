@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Controllers;
@@ -73,6 +74,40 @@ public class FileSystemControllerTests
         var objResult = result as ObjectResult;
         Assert.NotNull(objResult);
         Assert.Equal(400, objResult.StatusCode);
+    }
+
+    // --- UploadFile ---
+
+    private static FormFile Upload(string name, string content)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        return new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", name);
+    }
+
+    [Fact]
+    public async Task Upload_WritesTheFileAtItsFullPath()
+    {
+        await _provider.MkdirAsync("reports");
+
+        var result = await _controller.UploadFile(Upload("rates.csv", "EUR,1"), "/reports/rates.csv", CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("EUR,1", await _provider.ReadFileAsync("/reports/rates.csv"));
+    }
+
+    [Theory]
+    [InlineData("/reports")]
+    [InlineData("/")]
+    public async Task Upload_Returns400_WithAHint_WhenThePathIsAFolder(string path)
+    {
+        await _provider.MkdirAsync("reports");
+
+        var result = await _controller.UploadFile(Upload("rates.csv", "EUR,1"), path, CancellationToken.None);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("is a folder", json);
+        Assert.Contains("full path", json);
     }
 
     // --- GetFileInfo (stat) ---
