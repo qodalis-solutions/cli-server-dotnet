@@ -41,4 +41,10 @@ public interface ICliJobScheduler
 
     /// <summary>Changes the job's options and restarts its schedule.</summary>
     Task UpdateOptionsAsync(string jobId, Action<CliJobOptions> update, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The history retention in effect for the job (global limits, or its own), or <c>null</c> when no limits apply
+    /// to it. The default reports none.
+    /// </summary>
+    CliJobHistoryRetentionInfo? GetHistoryRetention(JobRegistration job) => null;
 }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -47,6 +48,22 @@ public static class CliBuilderJobExtensions
         options.Name ??= job.GetType().Name;
         configure?.Invoke(options);
         GetRegistrations(builder).Add((job, null, options));
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures the jobs plugin as a whole, e.g. the history retention:
+    /// <c>cli.ConfigureJobs(o =&gt; { o.History.MaxAge = TimeSpan.FromDays(30); o.History.MaxRunsPerJob = 500; })</c>.
+    /// Applied after the configuration section <c>Jobs</c> (<c>Jobs:History:MaxAge</c>, ...), so code wins; works
+    /// before or after <see cref="AddJob{T}"/>, and several calls add up.
+    /// </summary>
+    /// <param name="builder">The CLI builder instance.</param>
+    /// <param name="configure">Callback to configure the plugin's options.</param>
+    /// <returns>The builder for chaining.</returns>
+    public static CliBuilder ConfigureJobs(this CliBuilder builder, Action<CliJobsOptions> configure)
+    {
+        EnsureJobInfrastructure(builder);
+        GetState(builder).Configure.Add(configure);
         return builder;
     }
 
@@ -125,6 +142,11 @@ public static class CliBuilderJobExtensions
             var scheduler = new CliJobScheduler(storage, events, logger, sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetService<TimeProvider>());
 
+            var jobsOptions = new CliJobsOptions();
+            sp.GetService<IConfiguration>()?.GetSection(CliJobsOptions.SectionName).Bind(jobsOptions);
+            foreach (var configure in state.Configure)
+                configure(jobsOptions);
+
             foreach (var (job, jobType, options) in registrations)
             {
                 ICliJob resolvedJob;
@@ -138,6 +160,7 @@ public static class CliBuilderJobExtensions
                 }
                 scheduler.Register(resolvedJob, options);
             }
+            scheduler.ConfigureHistory(jobsOptions.History);
 
             return scheduler;
         });
@@ -152,12 +175,14 @@ public static class CliBuilderJobExtensions
         builder.Services.AddMcpToolProvider<JobsMcpToolProvider>();
     }
 
-    private static List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> GetRegistrations(CliBuilder builder)
+    private static List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> GetRegistrations(CliBuilder builder) =>
+        GetState(builder).Registrations;
+
+    private static JobsPluginState GetState(CliBuilder builder)
     {
         var descriptor = builder.Services.FirstOrDefault(d =>
             d.ServiceType == typeof(JobsPluginState));
-        var state = (JobsPluginState)descriptor!.ImplementationInstance!;
-        return state.Registrations;
+        return (JobsPluginState)descriptor!.ImplementationInstance!;
     }
 
     private static void RemoveService(IServiceCollection services, Type serviceType)
@@ -177,4 +202,7 @@ internal class JobsPluginState
     /// Gets the list of job registrations accumulated by <see cref="CliBuilderJobExtensions.AddJob{T}"/> calls.
     /// </summary>
     public List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> Registrations { get; } = [];
+
+    /// <summary>The <see cref="CliBuilderJobExtensions.ConfigureJobs"/> callbacks, applied in order.</summary>
+    public List<Action<CliJobsOptions>> Configure { get; } = [];
 }
