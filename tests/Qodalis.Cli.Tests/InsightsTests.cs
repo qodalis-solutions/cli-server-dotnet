@@ -155,7 +155,8 @@ public class JobStatsTests
     [Fact]
     public async Task Stats_CountsOutcomesPerColumn_TotalsAndJobs()
     {
-        var c = await ControllerAsync(new InMemoryJobStorageProvider(), SampleRuns());
+        var runs = SampleRuns();
+        var c = await ControllerAsync(new InMemoryJobStorageProvider(), runs);
 
         var json = Insights.Json(await Stats(c));
 
@@ -197,6 +198,8 @@ public class JobStatsTests
         Assert.Equal(JsonValueKind.Null, recent[0].GetProperty("duration").ValueKind);
         Assert.Equal("timedout", recent[2].GetProperty("status").GetString());
         Assert.Equal("2026-11-04T00:30:00.000Z", recent[4].GetProperty("startedAt").GetString());
+        Assert.Equal(runs[4].Id, recent[0].GetProperty("id").GetString());
+        Assert.Equal(runs[0].Id, recent[4].GetProperty("id").GetString());
         var b = jobs[1];
         Assert.Equal(1.0, b.GetProperty("successRate").GetDouble());
         Assert.Equal(JsonValueKind.Null, b.GetProperty("lastFailureAt").ValueKind);
