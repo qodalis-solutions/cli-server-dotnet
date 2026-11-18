@@ -112,6 +112,57 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     /// </summary>
     public IReadOnlyDictionary<string, JobRegistration> Jobs => _jobs;
 
+    /// <summary>The global history retention (<see cref="CliJobsOptions.History"/>); no limits by default.</summary>
+    public CliJobsHistoryOptions History { get; private set; } = new();
+
+    /// <summary>
+    /// Sets the global history retention and, when a limit is set globally or on a job, registers the system job
+    /// <c>jobs:prune-history</c> (group <c>system</c>, every <see cref="CliJobsHistoryOptions.PruneInterval"/>).
+    /// Call it once, after the jobs are registered and before the scheduler starts.
+    /// </summary>
+    internal void ConfigureHistory(CliJobsHistoryOptions history)
+    {
+        if (history.PruneInterval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(history), history.PruneInterval,
+                "Jobs:History:PruneInterval must be positive");
+        History = history;
+        if (_jobs.ContainsKey(PruneHistoryJob.JobId)) return;
+        if (!history.HasLimits && !_jobs.Values.Any(r => r.Options.History.HasLimits && !r.Options.History.KeepAll))
+            return;
+
+        Register(new PruneHistoryJob(this), new CliJobOptions
+        {
+            Id = PruneHistoryJob.JobId,
+            Name = PruneHistoryJob.JobId,
+            Description = "Deletes the job runs past the history retention",
+            Group = "system",
+            Tags = ["system"],
+            Interval = history.PruneInterval,
+            RunOnStart = true,
+        });
+    }
+
+    /// <summary>The history retention in effect for the job, or null when no limits apply to it.</summary>
+    public CliJobHistoryRetentionInfo? GetHistoryRetention(JobRegistration reg) =>
+        reg.Options.History.Resolve(History);
+
+    /// <summary>
+    /// Deletes the runs that break the history retention of every registered job (running runs and each job's newest
+    /// run stay); returns how many were deleted.
+    /// </summary>
+    internal async Task<int> PruneHistoryAsync(CancellationToken cancellationToken)
+    {
+        var deleted = 0;
+        var now = _time.GetUtcNow();
+        foreach (var reg in _jobs.Values.ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (GetHistoryRetention(reg) is not { KeepAll: false } retention) continue;
+            deleted += await _storage.PruneAsync(reg.Id, retention, now, cancellationToken);
+        }
+        return deleted;
+    }
+
     internal void Register(ICliJob job, CliJobOptions options)
     {
         var name = options.Name ?? job.GetType().Name;

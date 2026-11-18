@@ -22,11 +22,11 @@ public sealed class SchedulerJobManager : ICliJobManager
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CliJobInfo>> GetJobsAsync(CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<CliJobInfo>>(_scheduler.Jobs.Values.Select(ToInfo).ToList());
+        Task.FromResult<IReadOnlyList<CliJobInfo>>(_scheduler.Jobs.Values.Select(r => ToInfo(r, _scheduler.GetHistoryRetention(r))).ToList());
 
     /// <inheritdoc />
     public Task<CliJobInfo?> GetJobAsync(string jobId, CancellationToken cancellationToken) =>
-        Task.FromResult(_scheduler.Jobs.TryGetValue(jobId, out var reg) ? ToInfo(reg) : null);
+        Task.FromResult(_scheduler.Jobs.TryGetValue(jobId, out var reg) ? ToInfo(reg, _scheduler.GetHistoryRetention(reg)) : null);
 
     /// <inheritdoc />
     public Task TriggerAsync(string jobId, CancellationToken cancellationToken) =>
@@ -94,7 +94,7 @@ public sealed class SchedulerJobManager : ICliJobManager
             throw new NotSupportedException("The job store does not delete runs");
     }
 
-    internal static CliJobInfo ToInfo(JobRegistration r)
+    internal static CliJobInfo ToInfo(JobRegistration r, CliJobHistoryRetentionInfo? historyRetention = null)
     {
         IReadOnlyList<string> running;
         bool queued;
@@ -127,6 +127,7 @@ public sealed class SchedulerJobManager : ICliJobManager
             LastRunAt = r.LastRunAt,
             LastRunStatus = r.LastRunStatus,
             LastRunDuration = r.LastRunDuration,
+            HistoryRetention = historyRetention,
         };
     }
 }

@@ -484,6 +484,17 @@ public class CliJobsController : ControllerBase
         lastRunStatus = j.LastRunStatus,
         lastRunDuration = j.LastRunDuration,
         actions = j.Actions,
+        historyRetention = j.HistoryRetention is { } h
+            ? new
+            {
+                maxAge = (long?)h.MaxAge?.TotalMilliseconds,
+                maxRunsPerJob = h.MaxRunsPerJob,
+                failedMaxAge = (long?)h.FailedMaxAge?.TotalMilliseconds,
+                failedMaxRunsPerJob = h.FailedMaxRunsPerJob,
+                overridden = h.Overridden,
+                keepAll = h.KeepAll,
+            }
+            : null,
     };
 }
 
