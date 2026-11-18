@@ -477,6 +477,31 @@ public class JobHistoryRetentionSchedulerTests : IDisposable
     }
 
     [Fact]
+    public async Task JobInfo_WritesUnsetLimitsAsNull_WhenTheSerializerIgnoresNulls()
+    {
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "a", History = { MaxRunsPerJob = 3 } });
+        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "keep", History = { KeepAll = true } });
+        _scheduler.ConfigureHistory(new CliJobsHistoryOptions());
+        var controller = new CliJobsController(new SchedulerJobManager(_scheduler, _storage));
+        var options = new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+
+        foreach (var id in new[] { "a", "keep" })
+        {
+            var json = JsonSerializer.Serialize(((ObjectResult)await controller.GetJob(id)).Value, options);
+            var retention = JsonDocument.Parse(json).RootElement.GetProperty("historyRetention");
+            foreach (var key in new[] { "maxAge", "failedMaxAge", "failedMaxRunsPerJob" })
+                Assert.Equal(JsonValueKind.Null, retention.GetProperty(key).ValueKind);
+            Assert.True(retention.TryGetProperty("maxRunsPerJob", out _));
+            Assert.True(retention.TryGetProperty("overridden", out _));
+            Assert.True(retention.TryGetProperty("keepAll", out _));
+        }
+    }
+
+    [Fact]
     public async Task JobInfo_NoLimits_HistoryRetentionIsNull()
     {
         _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "a" });

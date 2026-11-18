@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Qodalis.Cli.Abstractions.Events;
@@ -484,18 +485,39 @@ public class CliJobsController : ControllerBase
         lastRunStatus = j.LastRunStatus,
         lastRunDuration = j.LastRunDuration,
         actions = j.Actions,
-        historyRetention = j.HistoryRetention is { } h
-            ? new
-            {
-                maxAge = (long?)h.MaxAge?.TotalMilliseconds,
-                maxRunsPerJob = h.MaxRunsPerJob,
-                failedMaxAge = (long?)h.FailedMaxAge?.TotalMilliseconds,
-                failedMaxRunsPerJob = h.FailedMaxRunsPerJob,
-                overridden = h.Overridden,
-                keepAll = h.KeepAll,
-            }
-            : null,
+        historyRetention = j.HistoryRetention is { } h ? new HistoryRetentionDto(h) : null,
     };
+}
+
+/// <summary>
+/// <c>historyRetention</c> in job info: every limit is written, <c>null</c> when unset, whatever the host's
+/// serializer does with nulls (the same keys on every server).
+/// </summary>
+internal sealed class HistoryRetentionDto(CliJobHistoryRetentionInfo h)
+{
+    /// <summary>Age limit in milliseconds.</summary>
+    [JsonPropertyName("maxAge"), JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public long? MaxAge { get; } = (long?)h.MaxAge?.TotalMilliseconds;
+
+    /// <summary>Count limit.</summary>
+    [JsonPropertyName("maxRunsPerJob"), JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? MaxRunsPerJob { get; } = h.MaxRunsPerJob;
+
+    /// <summary>Age limit of failed runs in milliseconds.</summary>
+    [JsonPropertyName("failedMaxAge"), JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public long? FailedMaxAge { get; } = (long?)h.FailedMaxAge?.TotalMilliseconds;
+
+    /// <summary>Count limit of failed runs.</summary>
+    [JsonPropertyName("failedMaxRunsPerJob"), JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? FailedMaxRunsPerJob { get; } = h.FailedMaxRunsPerJob;
+
+    /// <summary>Whether the job sets limits of its own.</summary>
+    [JsonPropertyName("overridden")]
+    public bool Overridden { get; } = h.Overridden;
+
+    /// <summary>Whether the job keeps its whole history.</summary>
+    [JsonPropertyName("keepAll")]
+    public bool KeepAll { get; } = h.KeepAll;
 }
 
 /// <summary>
