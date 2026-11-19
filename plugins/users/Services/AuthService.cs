@@ -107,6 +107,7 @@ public partial class AuthService
     public const string HostTokensCreatedByHostMessage = "host tokens can only be created by the host application";
     public const string InvalidAudienceMessage = "audience must be cli or host";
     public const string HostTokensCannotUseCliRoutesMessage = "forbidden: host tokens cannot use CLI routes";
+    public const string HostTokenRequiredMessage = "forbidden: a host token is required";
     public const string HostTokensNeedPermissionsMessage = "host tokens need permissions";
     public const string NotAHostPermissionMessagePrefix = "not a host permission: ";
     public const string ExpiryConflictMessage = "expiresInDays and neverExpires cannot both be set";

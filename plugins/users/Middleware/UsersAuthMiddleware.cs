@@ -190,7 +190,7 @@ public class UsersAuthMiddleware
         context.SetCliPrincipal(principal);
         // Host code (e.g. a host processor's services) reads HttpContext.User; keep a user the host already set.
         if (options.SetHostUser && context.User.Identity?.IsAuthenticated != true)
-            context.User = CliHostUser.Create(principal, auth.User.Email);
+            context.User = CliHostUser.Create(principal, auth.User.Email, auth.ApiToken);
         await _next(context);
     }
 
