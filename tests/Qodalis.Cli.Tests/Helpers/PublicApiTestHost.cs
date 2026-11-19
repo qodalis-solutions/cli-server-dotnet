@@ -12,7 +12,7 @@ namespace Qodalis.Cli.Tests.Helpers;
 
 /// <summary>
 /// <see cref="UsersTestHost"/> with the public-api plugin and the guarded routes <c>GET /v1/rates</c>
-/// (<c>rates:read</c>, answers the caller's token id), <c>GET /v1/open</c> (no permission) and <c>GET /v1/missing</c>
+/// (<c>rates:read</c>, answers the caller's token id, in the OpenAPI group <c>public</c>), <c>GET /v1/open</c> (no permission) and <c>GET /v1/missing</c>
 /// (answers 404 itself).
 /// </summary>
 public static class PublicApiTestHost
@@ -25,7 +25,8 @@ public static class PublicApiTestHost
 
     public static void MapRoutes(IEndpointRouteBuilder e)
     {
-        e.MapGet("/v1/rates", (HttpContext ctx) => ctx.GetQcliCaller()!.TokenId).RequirePublicApi("rates:read");
+        e.MapGet("/v1/rates", (HttpContext ctx) => ctx.GetQcliCaller()!.TokenId).RequirePublicApi("rates:read")
+            .WithGroupName("public").WithTags("Rates");
         e.MapGet("/v1/open", () => "open").RequirePublicApi();
         e.MapGet("/v1/missing", () => Results.NotFound()).RequirePublicApi();
     }
