@@ -165,3 +165,21 @@ public class PermissionCatalogTests
         Assert.Equal("cli", first.Find("users:read")!.Surface);
     }
 }
+
+public class PermissionCatalogPerAddCliTests
+{
+    [Fact]
+    public void ASecondAddCliOnTheSameServices_RegistersTheUsersPluginsEntriesAgain()
+    {
+        var services = new ServiceCollection();
+        var first = new CliBuilder(services);
+        first.AddUsers();
+        var second = new CliBuilder(services);
+        second.AddUsers();
+
+        // The last registration wins: the second builder's catalog has the plugin's entries too.
+        var catalog = services.BuildServiceProvider().GetRequiredService<ICliPermissionCatalog>();
+        Assert.Equal(23, catalog.All.Count);
+        Assert.NotNull(catalog.Find("users:read"));
+    }
+}

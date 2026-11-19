@@ -462,9 +462,11 @@ public partial class AuthService
     /// <summary>
     /// Authenticates a raw bearer token (looked up by its hash). Throws 401 on failure.
     /// </summary>
-    public async Task<UsersAuthContext> AuthenticateTokenAsync(string token)
+    public Task<UsersAuthContext> AuthenticateTokenAsync(string token) => AuthenticateTokenAsync(token, null);
+
+    private async Task<UsersAuthContext> AuthenticateTokenAsync(string token, HttpContext? context)
     {
-        if (IsApiToken(token)) return await AuthenticateApiTokenAsync(token);
+        if (IsApiToken(token)) return await AuthenticateApiTokenAsync(token, context);
 
         var session = await _sessionStore.GetSessionAsync(HashToken(token))
             ?? throw UsersApiException.Unauthorized("invalid or expired token");
@@ -560,7 +562,7 @@ public partial class AuthService
             // API tokens next to the host's sign-in (UsersModuleOptions.ApiTokensWithExternalAuth): a qcli_pat_ bearer
             // token is the plugin's own, so the adapter never sees it
             if (_options.ApiTokensWithExternalAuth && BearerToken(context) is { } bearer && IsApiToken(bearer))
-                return await AuthenticateApiTokenAsync(bearer);
+                return await AuthenticateApiTokenAsync(bearer, context);
 
             var result = await adapter.AuthenticateAsync(context, context.RequestAborted);
             return result?.User == null
@@ -569,7 +571,7 @@ public partial class AuthService
         }
 
         var token = BearerToken(context);
-        return token == null ? null : await AuthenticateTokenAsync(token);
+        return token == null ? null : await AuthenticateTokenAsync(token, context);
     }
 
     /// <summary>The bearer token from the Authorization header, or null.</summary>
@@ -920,20 +922,42 @@ public partial class AuthService
     }
 
     /// <summary>
-    /// True when <paramref name="bearer"/> is an API token (<c>qcli_pat_…</c>) whose stored audience is not exactly
+    /// True when the request's bearer is an API token (<c>qcli_pat_…</c>) whose stored audience is not exactly
     /// <c>cli</c>. Reads the token store only: no <c>LastUsedAt</c> update, no external adapter, no expiry or user check.
+    /// The stored token is kept on the request, so authenticating it afterwards does not read the store again.
     /// </summary>
-    public async Task<bool> IsHostApiTokenAsync(string? bearer)
+    public async Task<bool> IsHostApiTokenAsync(HttpContext context)
     {
+        var bearer = BearerToken(context);
         if (!IsApiToken(bearer)) return false;
-        var stored = await _apiTokens.GetTokenByHashAsync(HashToken(bearer!));
+        var stored = await FindApiTokenAsync(bearer!, context);
         return stored != null && stored.Audience != ApiTokenAudience.Cli;
     }
 
-    /// <summary>Authenticates a raw API token (looked up by its hash) and records its use. Throws 401 on failure.</summary>
-    public async Task<UsersAuthContext> AuthenticateApiTokenAsync(string token)
+    private const string ApiTokenLookupKey = "Qodalis.Cli.Plugin.Users.ApiTokenLookup";
+
+    /// <summary>A token store lookup made earlier in the request (by hash; the token is null when none matched).</summary>
+    private sealed record ApiTokenLookup(string Hash, ApiToken? Token);
+
+    /// <summary>The stored API token for <paramref name="token"/>, reusing the request's earlier lookup when there is one.</summary>
+    private async Task<ApiToken?> FindApiTokenAsync(string token, HttpContext? context)
     {
-        var stored = await _apiTokens.GetTokenByHashAsync(HashToken(token))
+        var hash = HashToken(token);
+        if (context?.Items.TryGetValue(ApiTokenLookupKey, out var item) == true && item is ApiTokenLookup lookup && lookup.Hash == hash)
+            return lookup.Token?.Clone();
+
+        var stored = await _apiTokens.GetTokenByHashAsync(hash);
+        if (context != null)
+            context.Items[ApiTokenLookupKey] = new ApiTokenLookup(hash, stored?.Clone());
+        return stored;
+    }
+
+    /// <summary>Authenticates a raw API token (looked up by its hash) and records its use. Throws 401 on failure.</summary>
+    public Task<UsersAuthContext> AuthenticateApiTokenAsync(string token) => AuthenticateApiTokenAsync(token, null);
+
+    private async Task<UsersAuthContext> AuthenticateApiTokenAsync(string token, HttpContext? context)
+    {
+        var stored = await FindApiTokenAsync(token, context)
             ?? throw UsersApiException.Unauthorized("invalid or expired token");
         var ctx = await ValidateApiTokenAsync(stored);
 

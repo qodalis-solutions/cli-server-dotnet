@@ -19,6 +19,7 @@ public class CliBuilder
     private readonly List<ICliModule> _modules = [];
     private readonly List<CliInstalledPlugin> _installedPlugins = [];
     private readonly CliPermissionCatalog _permissions = new();
+    private readonly HashSet<string> _permissionSources = new(StringComparer.Ordinal);
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
     internal bool HasDataExplorer { get; private set; }
@@ -149,6 +150,17 @@ public class CliBuilder
     ///     .Add("banks:read", "Banks and their buy and sell rates"));
     /// </code>
     /// </example>
+    /// <summary>
+    /// <see cref="AddPermissions(Action{CliPermissionCatalogBuilder}, string)"/> once per <paramref name="source"/> on this
+    /// builder: for plugins whose <c>Add*</c> method may run twice. Entries that collide with another source still throw.
+    /// </summary>
+    public CliBuilder AddPermissionsOnce(string source, Action<CliPermissionCatalogBuilder> configure,
+        string surface = CliPermissionSurface.Cli)
+    {
+        if (!_permissionSources.Add(source)) return this;
+        return AddPermissions(configure, surface);
+    }
+
     public CliBuilder AddPermissions(Action<CliPermissionCatalogBuilder> configure, string surface = CliPermissionSurface.Host)
     {
         var builder = new CliPermissionCatalogBuilder(surface);

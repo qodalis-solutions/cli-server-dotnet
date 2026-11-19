@@ -203,3 +203,125 @@ public class UnprotectedHostTokensAdapterTests
         Assert.Equal(0, calls);
     }
 }
+
+/// <summary>Counts hash lookups, and can fail them (a store that is down).</summary>
+internal sealed class CountingTokenStore(bool throwOnLookup = false) : IApiTokenStore
+{
+    private readonly InMemoryApiTokenStore _inner = new();
+    public int HashLookups;
+    public bool ThrowOnLookup { get; set; } = throwOnLookup;
+
+    public Task<ApiToken> CreateTokenAsync(ApiToken token) => _inner.CreateTokenAsync(token);
+    public Task<ApiToken?> GetTokenByHashAsync(string tokenHash)
+    {
+        Interlocked.Increment(ref HashLookups);
+        if (ThrowOnLookup) throw new InvalidOperationException("token store is down");
+        return _inner.GetTokenByHashAsync(tokenHash);
+    }
+    public Task<ApiToken?> GetTokenAsync(string id) => _inner.GetTokenAsync(id);
+    public Task<List<ApiToken>> GetTokensAsync(string? userId = null) => _inner.GetTokensAsync(userId);
+    public Task DeleteTokenAsync(string id) => _inner.DeleteTokenAsync(id);
+    public Task DeleteUserTokensAsync(string userId) => _inner.DeleteUserTokensAsync(userId);
+    public Task UpdateLastUsedAsync(string id, long lastUsedAt) => _inner.UpdateLastUsedAsync(id, lastUsedAt);
+}
+
+/// <summary>Edge cases of the host-token check: public routes, one store read, a failing store, the bearer scheme.</summary>
+public class HostTokenCheckEdgeTests
+{
+    private static async Task<(UsersTestHost H, string Host, string Cli, string AliceId)> StartAsync(bool protect, IApiTokenStore? store = null)
+    {
+        var h = await UsersTestHost.StartAsync(o =>
+            {
+                o.ProtectServer = protect;
+                if (store != null) o.ApiTokenStore = store;
+            },
+            configureCli: cli =>
+            {
+                cli.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"));
+                cli.AddProcessor(new TestProcessor("echo", "Echo"));
+            });
+        var root = await h.RootTokenAsync();
+        await h.CreateGroupAsync(root, "alice-group", "rates:read", "commands:execute");
+        var aliceId = (await h.CreateUserAsync(root, "alice", groups: ["alice-group"])).GetProperty("id").GetString()!;
+        var tokens = h.Service<IApiTokenManager>();
+        var host = (await tokens.CreateAsync(aliceId, new ApiTokenCreateOptions
+        {
+            Name = "site", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"],
+        })).Token;
+        var cli = (await tokens.CreateAsync(aliceId, new ApiTokenCreateOptions { Name = "cli" })).Token;
+        return (h, host, cli, aliceId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublicUsersRoutes_DoNotRefuseAHostBearer(bool protect)
+    {
+        var (h, host, _, _) = await StartAsync(protect);
+        await using var _h = h;
+
+        // Sign-in with a host bearer header: the credentials in the body decide.
+        var login = await h.SendAsync(HttpMethod.Post, "sessions", host, new { username = "alice", password = "pass1234" });
+        Assert.Equal(201, (int)login.StatusCode);
+
+        // A terminal asks to be linked, then polls: both public.
+        var link = await h.SendAsync(HttpMethod.Post, "link", host, new { });
+        Assert.NotEqual(403, (int)link.StatusCode);
+        Assert.DoesNotContain("host tokens", await link.Content.ReadAsStringAsync());
+        var poll = await h.GetAsync("link/unknown-link-id", host);
+        Assert.NotEqual(403, (int)poll.StatusCode);
+        Assert.DoesNotContain("host tokens", await poll.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ProtectedServer_ReadsTheTokenOncePerRequest()
+    {
+        var store = new CountingTokenStore();
+        var (h, host, cli, _) = await StartAsync(protect: true, store);
+        await using var _h = h;
+
+        Interlocked.Exchange(ref store.HashLookups, 0);
+        Assert.Equal(200, (int)(await h.GetAsync("/api/v1/qcli/commands", cli)).StatusCode);
+        Assert.Equal(1, store.HashLookups);
+
+        Interlocked.Exchange(ref store.HashLookups, 0);
+        Assert.Equal(403, (int)(await h.GetAsync("/api/v1/qcli/commands", host)).StatusCode);
+        Assert.Equal(1, store.HashLookups);
+    }
+
+    [Fact]
+    public async Task UnprotectedServer_AFailingStoreLetsTheRequestThrough()
+    {
+        var store = new CountingTokenStore();
+        var (h, host, _, _) = await StartAsync(protect: false, store);
+        await using var _h = h;
+        store.ThrowOnLookup = true;
+
+        var res = await h.GetAsync("/api/v1/qcli/commands", host);
+
+        Assert.Equal(200, (int)res.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("bearer")]
+    [InlineData("BEARER")]
+    public async Task TheCheckAcceptsAnyBearerSchemeCase_LikeTheAuthenticator(string scheme)
+    {
+        foreach (var protect in new[] { false, true })
+        {
+            var (h, host, cli, _) = await StartAsync(protect);
+            await using var _h = h;
+
+            var hostReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/commands");
+            hostReq.Headers.TryAddWithoutValidation("Authorization", $"{scheme} {host}");
+            var refused = await h.Client.SendAsync(hostReq);
+            Assert.Equal(403, (int)refused.StatusCode);
+            Assert.Contains("host tokens cannot use CLI routes", await refused.Content.ReadAsStringAsync());
+
+            // The authenticator accepts the same scheme spelling for a cli token.
+            var cliReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/qcli/tokens");
+            cliReq.Headers.TryAddWithoutValidation("Authorization", $"{scheme} {cli}");
+            Assert.Equal(200, (int)(await h.Client.SendAsync(cliReq)).StatusCode);
+        }
+    }
+}

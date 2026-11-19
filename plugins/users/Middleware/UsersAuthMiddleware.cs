@@ -65,10 +65,9 @@ public class UsersAuthMiddleware
         var rule = CliRoutePolicy.Resolve(method, path);
         // C1: with the users plugin the shell always needs a users session, even without ProtectServer.
         var isShellSocket = rule.IsWebSocket && rule.Permission == CliRoutePolicy.ShellExecute;
-        // Host tokens never reach a CLI route, protected server or not (anonymous and cli-token requests are
-        // unaffected). Only qcli_pat_ bearers are looked up, in the token store alone.
-        if ((isUsersRoute || (rule.IsCliRoute && !rule.IsPublic))
-            && await context.RequestServices.GetRequiredService<AuthService>().IsHostApiTokenAsync(AuthService.BearerToken(context)))
+        // Host tokens never reach a non-public CLI route (users routes included), protected server or not; anonymous
+        // and cli-token requests are unaffected. Only qcli_pat_ bearers are looked up, in the token store alone.
+        if (rule.IsCliRoute && !rule.IsPublic && await IsHostTokenAsync(context, path))
         {
             await FailAsync(context, isShellSocket, 403, AuthService.HostTokensCannotUseCliRoutesMessage);
             return;
@@ -191,6 +190,23 @@ public class UsersAuthMiddleware
         if (options.SetHostUser && context.User.Identity?.IsAuthenticated != true)
             context.User = CliHostUser.Create(principal, auth.User.Email);
         await _next(context);
+    }
+
+    /// <summary>
+    /// The host-token check. A store that fails here is logged and ignored: the request goes on as it would without the
+    /// check (an unprotected route passes; a protected one authenticates and reads the store again).
+    /// </summary>
+    private async Task<bool> IsHostTokenAsync(HttpContext context, string path)
+    {
+        try
+        {
+            return await context.RequestServices.GetRequiredService<AuthService>().IsHostApiTokenAsync(context);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Host-token check skipped for {Path}: the API token store failed", path);
+            return false;
+        }
     }
 
     /// <summary>

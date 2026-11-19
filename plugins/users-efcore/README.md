@@ -58,17 +58,22 @@ By default the store adds the nullable `Audience` column to an existing `api_tok
 
    Then run `dotnet ef migrations add QcliApiTokenAudience`. Safe order: apply the migration (`dotnet ef database update`, or `Database.Migrate()` at startup before requests are served), then let the app serve requests. Until the column exists, the store refuses to work: every token operation throws an `InvalidOperationException` that names the missing `Audience` column and `UpgradeSchema`. Tokens are not read with a guessed audience. Once the migration has run, the same process recovers on the next call.
 
+   `UpgradeSchema = false` only stops the store from altering an existing table: a **missing** `api_tokens` table is still created on first use (with every column), and the host's own migration that creates it would then fail. A host whose migrations create the table must therefore apply them before the first request reaches the store.
+
 2. **Keep the automatic upgrade and write the migration idempotently**, so it succeeds whether or not the store added the column first (either order is safe). Replace the generated `AddColumn` with:
 
    ```csharp
-   // PostgreSQL (and MariaDB): ADD COLUMN IF NOT EXISTS
+   // PostgreSQL: ADD COLUMN IF NOT EXISTS
    migrationBuilder.Sql("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS \"Audience\" character varying(16) NULL;");
+
+   // MariaDB: ADD COLUMN IF NOT EXISTS, with backtick-quoted identifiers
+   migrationBuilder.Sql("ALTER TABLE `api_tokens` ADD COLUMN IF NOT EXISTS `Audience` varchar(16) NULL;");
 
    // SQL Server: guarded by COL_LENGTH
    migrationBuilder.Sql("IF COL_LENGTH('api_tokens', 'Audience') IS NULL ALTER TABLE [api_tokens] ADD [Audience] nvarchar(16) NULL;");
    ```
 
-   MySQL has no `ADD COLUMN IF NOT EXISTS`: check `information_schema.COLUMNS` first, or use option 1. SQLite has no conditional `ADD COLUMN`; use option 1.
+   MySQL (unlike MariaDB) has no `ADD COLUMN IF NOT EXISTS`: check `information_schema.COLUMNS` first, or use option 1. SQLite has no conditional `ADD COLUMN`; use option 1.
 
 Existing rows keep `NULL`, which reads as `cli`.
 
