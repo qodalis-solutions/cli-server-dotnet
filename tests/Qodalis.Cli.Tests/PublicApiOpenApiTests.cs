@@ -25,7 +25,7 @@ public class PublicApiOpenApiTests
     }
 
     private static Task<UsersTestHost> StartAsync(Action<PublicApiOptions>? configure = null,
-        Action<OpenApiOptions>? configureDocument = null)
+        Action<OpenApiOptions>? configureDocument = null, string? pathBase = null, string? forcedPathBase = null)
     {
         return PublicApiTestHost.StartAsync(configure,
             configureServices: s =>
@@ -37,7 +37,17 @@ public class PublicApiOpenApiTests
                 });
                 s.AddOpenApi("v1");
             },
-            configureApp: app => app.UseQodalisPublicApi(),
+            configureApp: app =>
+            {
+                if (pathBase != null) app.UsePathBase(pathBase);
+                if (forcedPathBase != null)
+                    app.Use((context, next) =>
+                    {
+                        context.Request.PathBase = forcedPathBase;
+                        return next();
+                    });
+                app.UseQodalisPublicApi();
+            },
             endpoints: Endpoints);
     }
 
@@ -212,6 +222,58 @@ public class PublicApiOpenApiTests
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(script, "\"url\":"));
         Assert.Equal(200, (int)(await h.Client.GetAsync("/qcli/api/swagger/swagger-ui-bundle.js")).StatusCode);
         Assert.Equal(200, (int)(await h.Client.GetAsync("/qcli/api/swagger/index.css")).StatusCode);
+    }
+
+    [Fact]
+    public async Task SwaggerAndDocument_UnderPathBase()
+    {
+        await using var h = await StartAsync(pathBase: "/x");
+
+        foreach (var path in new[] { "/x/qcli/api/swagger", "/x/qcli/api/swagger/", "/x/qcli/api/swagger/index.html" })
+        {
+            var res = await h.Client.GetAsync(path);
+            Assert.Equal(200, (int)res.StatusCode);
+            Assert.Contains("<base href=\"/x/qcli/api/swagger/\" />", await res.Content.ReadAsStringAsync());
+        }
+        var script = await h.Client.GetStringAsync("/x/qcli/api/swagger/index.js");
+        Assert.Contains("\"/x/qcli/api/openapi.json\"", script);
+        Assert.Equal(200, (int)(await h.Client.GetAsync("/x/qcli/api/swagger/swagger-ui-bundle.js")).StatusCode);
+        Assert.Equal(200, (int)(await h.Client.GetAsync("/x/qcli/api/swagger/index.css")).StatusCode);
+
+        var doc = await DocumentAsync(h, "/x/qcli/api/openapi.json");
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""[ { "url": "http://localhost/x" } ]"""), doc["servers"]),
+            doc["servers"]?.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("//evil.example")]
+    [InlineData("/\\evil.example")]
+    public async Task ProtocolRelativePathBase_Refused(string pathBase)
+    {
+        await using var h = await StartAsync(forcedPathBase: pathBase);
+
+        foreach (var path in new[] { "/qcli/api/swagger/", "/qcli/api/swagger/index.html", "/qcli/api/swagger/index.js", "/qcli/api/openapi.json" })
+        {
+            var res = await h.Client.GetAsync(path);
+            Assert.Equal(400, (int)res.StatusCode);
+            Assert.Equal("""{"error":"invalid path base"}""", await res.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitlyEmptySecurityAndServers_AreFilled()
+    {
+        await using var h = await StartAsync(configureDocument: o => o.AddDocumentTransformer((doc, _, _) =>
+        {
+            doc.Security = [];
+            doc.Servers = [];
+            return Task.CompletedTask;
+        }));
+
+        var doc = await DocumentAsync(h);
+
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""[ { "qcliToken": [] } ]"""), doc["security"]), doc["security"]?.ToJsonString());
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""[ { "url": "http://localhost" } ]"""), doc["servers"]), doc["servers"]?.ToJsonString());
     }
 
     [Fact]

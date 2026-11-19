@@ -31,9 +31,42 @@ public static class CliBuilderPublicApiExtensions
             throw new ArgumentException("public-api: DocumentName is required");
 
         var services = builder.Services;
-        builder.AddInstalledPlugin(typeof(PublicApiOptions).Assembly);
         services.AddSingleton(options);
+        RegisterUsage(builder, options);
+
+        services.AddSingleton<PublicApiGuard>();
+        services.AddSingleton(new CliPortalSection(CliPortalSection.Api, options.Title, options.BasePath));
+
+        // After the host's own transformers (PostConfigure), so the host's values win.
+        services.PostConfigure<OpenApiOptions>(options.DocumentName.ToLowerInvariant(), o =>
+        {
+            o.AddOperationTransformer(PublicApiDocumentTransformers.AddGuardExtensions);
+            o.AddDocumentTransformer(PublicApiDocumentTransformers.AddSecurity);
+        });
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds only the usage side of the plugin, for the main application of a two-service host that creates the tokens
+    /// and shows "requests today" but serves no public routes: <see cref="IPublicApiUsage"/>, <c>usage</c> on the users
+    /// plugin's token views, over the usage store (in memory unless one is set, e.g. <c>AddEfCorePublicApiUsageStore</c>
+    /// in either order) and the quota resolver. No guard, no OpenAPI document, no portal section.
+    /// <see cref="AddPublicApi"/> includes it.
+    /// </summary>
+    public static CliBuilder AddPublicApiUsage(this CliBuilder builder, Action<PublicApiUsageOptions>? configure = null)
+    {
+        var options = new PublicApiUsageOptions();
+        configure?.Invoke(options);
+        return RegisterUsage(builder, options);
+    }
+
+    private static CliBuilder RegisterUsage(CliBuilder builder, PublicApiUsageOptions options)
+    {
+        var services = builder.Services;
+        builder.AddInstalledPlugin(typeof(PublicApiOptions).Assembly);
         services.TryAddSingleton(TimeProvider.System);
+        services.RemoveAll<PublicApiUsageOptions>();
+        services.AddSingleton(options);
 
         if (options.UsageStoreFactory is { } factory)
         {
@@ -47,18 +80,12 @@ public static class CliBuilderPublicApiExtensions
         if (options.QuotaResolverType != null)
             services.TryAddScoped(options.QuotaResolverType);
 
-        services.AddSingleton<PublicApiGuard>();
+        services.RemoveAll<PublicApiUsageService>();
+        services.RemoveAll<IPublicApiUsage>();
+        services.RemoveAll<IApiTokenUsageProvider>();
         services.AddSingleton<PublicApiUsageService>();
         services.AddSingleton<IPublicApiUsage>(sp => sp.GetRequiredService<PublicApiUsageService>());
         services.AddSingleton<IApiTokenUsageProvider>(sp => sp.GetRequiredService<PublicApiUsageService>());
-        services.AddSingleton(new CliPortalSection(CliPortalSection.Api, options.Title, options.BasePath));
-
-        // After the host's own transformers (PostConfigure), so the host's values win.
-        services.PostConfigure<OpenApiOptions>(options.DocumentName.ToLowerInvariant(), o =>
-        {
-            o.AddOperationTransformer(PublicApiDocumentTransformers.AddGuardExtensions);
-            o.AddDocumentTransformer(PublicApiDocumentTransformers.AddSecurity);
-        });
         return builder;
     }
 
@@ -79,49 +106,8 @@ public static class CliBuilderPublicApiExtensions
                            $"public-api: no OpenAPI document named '{options.DocumentName}'; call services.AddOpenApi(\"{options.DocumentName}\")");
 
         var endpoint = new PublicApiDocumentEndpoint(options, provider, services.GetService<IServer>());
-        var ui = endpoint.CreateSwaggerUIOptions();
-        var swaggerPrefix = options.BasePath + "/swagger/";
-        var titleGate = new SemaphoreSlim(1, 1);
-        var titled = false;
-        app.Use(async (context, next) =>
-        {
-            await endpoint.InvokeAsync(context, async () =>
-            {
-                // The page's title is the document's info.title, read once, before the first Swagger UI request is
-                // served (the document's endpoints are only known once the app runs); the options never change after.
-                if (!Volatile.Read(ref titled) && context.Request.Path.Value?.StartsWith(swaggerPrefix, StringComparison.Ordinal) == true)
-                {
-                    try
-                    {
-                        await titleGate.WaitAsync(context.RequestAborted);
-                    }
-                    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
-                    {
-                        return; // the client went away while another request read the title: end quietly
-                    }
-                    try
-                    {
-                        if (!titled)
-                        {
-                            var title = await endpoint.TitleAsync(context.RequestAborted);
-                            ui.DocumentTitle = title;
-                            ui.ConfigObject.Urls = [new UrlDescriptor { Url = endpoint.DocumentPath, Name = title }];
-                            Volatile.Write(ref titled, true);
-                        }
-                    }
-                    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                    finally
-                    {
-                        titleGate.Release();
-                    }
-                }
-                await next();
-            });
-        });
-        app.UseSwaggerUI(ui);
+        app.Use((context, next) => endpoint.InvokeAsync(context, () => next(context)));
+        app.UseSwaggerUI(endpoint.CreateSwaggerUIOptions());
         return app;
     }
 
