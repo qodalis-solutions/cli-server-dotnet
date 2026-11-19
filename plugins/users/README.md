@@ -59,6 +59,8 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `UsersReadOnly` / `ReadOnlyUsers()` | `bool` | `false` | The host owns the users: user writes answer `501` (see [Read-only stores](#read-only-stores)) |
 | `GroupsReadOnly` / `ReadOnlyGroups()` | `bool` | `false` | The host owns the groups: group writes answer `501` |
 | `AuthAdapter` / `UseExternalAuth(...)` (sync or async delegate, or an instance) / `UseExternalAuth<T>()` | adapter | `null` | Delegate authentication to the host app (see below) |
+| `SetHostUser` | `bool` | `true` | Set `HttpContext.User` to the caller on CLI requests and guarded host routes (see [The host's user](#the-hosts-user-sethostuser)) |
+| `GuardOnly` / `UseGuardOnly()` | `bool` | `false` | Only the guards: no users routes, no seeding, no server protection (see [Guard-only mode](#guard-only-mode-a-second-service)) |
 
 ## Permissions
 
@@ -280,6 +282,81 @@ routes (sign-in, link requests, version discovery) do not check. `ICliAuthBridge
 The EF Core store keeps the audience in the `api_tokens.Audience` column; see
 [Qodalis.Cli.Plugin.Users.EfCore](../users-efcore/README.md#upgrading-from-100-beta28-or-older-the-audience-column)
 for upgrading an existing table.
+
+### The caller of a guarded route (`GetQcliCaller`)
+
+`[QcliAuthorize]`, `.RequireQcliAuthorization(...)` and the public-api plugin's `RequirePublicApi` leave the caller on
+the request:
+
+```csharp
+app.MapGet("/api/rates", (HttpContext ctx) =>
+{
+    QcliCaller caller = ctx.GetQcliCaller()!; // namespace Qodalis.Cli.Plugin.Users.Authorization
+    return rates.For(caller.UserId);
+}).RequireQcliAuthorization("rates:read");
+```
+
+`QcliCaller(UserId, UserName, TokenId, Audience, Permissions)`: `TokenId` and `Audience` (`cli` or `host`; any stored
+audience other than exactly `cli` reads as `host`) are null for a session or an external-adapter caller;
+`Permissions` are the live effective permissions, narrowed by the token's scope. With `SetHostUser` (default) the
+guard also sets `HttpContext.User` (`CliHostUser`) unless the host's own authentication already set an authenticated
+user; for a token it carries `qcli:token` (the token id, `CliHostUser.TokenClaim`) and `qcli:audience`
+(`CliHostUser.AudienceClaim`). `GetUsersAuth()` keeps working.
+
+### Host-token-only routes (`HostTokenOnly`)
+
+```csharp
+app.MapGet("/v1/banks", GetBanks).RequireQcliAuthorization("banks:read", hostTokenOnly: true);
+
+[QcliAuthorize("rates:read", HostTokenOnly = true)]
+public IActionResult GetRates() => ...;
+```
+
+Order: authentication (401 `unauthorized`, 401 `invalid or expired token`, 403 `account disabled`, 403 `password change
+required`), then a session, an adapter caller or a `cli` token gets 403 `forbidden: a host token is required`, then the
+permission (403 `permission denied: <p>`). Without `HostTokenOnly` nothing changes.
+
+Both guards leave `IQcliAuthorizeMetadata` (`Permission`, `HostTokenOnly`) on the endpoint
+(`QcliAuthorizeEndpointMetadata` for minimal APIs, the attribute itself for MVC); the public-api plugin turns it into
+`x-required-permission` and `x-host-token-only` in the public OpenAPI document.
+
+### Token usage (`IApiTokenUsageProvider`)
+
+When an `IApiTokenUsageProvider` is registered (the public-api plugin registers one), `GET /tokens` (also
+`?all=true`) and `IApiTokenManager.ListAsync` add `usage` as the last field of every view:
+
+```json
+"usage": { "today": 12, "last30Days": 340, "days": [ { "date": "2026-10-21", "requests": 0 }, "… 30 entries, oldest first, the last one today (UTC)" ] }
+```
+
+The provider is called once per listing with every token id. A failing provider is logged and the tokens are listed
+without `usage`; `POST /tokens` and `CreateAsync` never include it. Without a provider the views are unchanged.
+
+### Guard-only mode (a second service)
+
+A second service that only validates tokens (it serves the host's public API and shares the main service's stores):
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.WithoutCliRoutes();                       // no CLI routes or sockets; UseCli() throws
+    cli.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"));
+    cli.AddUsers(o =>
+    {
+        o.UseGuardOnly();
+        o.SetUserStore<MyUserStore>();             // the stores the main service uses
+        o.SetGroupStore<MyGroupStore>();
+    });
+    cli.AddEfCoreApiTokenStore(o => o.UseNpgsql(connectionString));
+});
+```
+
+In guard-only mode the plugin serves no users routes (sign-in, users, groups, sessions, tokens, permissions, link,
+audit), seeds nothing (no `root`, no built-in groups), sweeps nothing and does not protect the server
+(`ProtectServer` is ignored). The guards authenticate `qcli_pat_` tokens against the stores. `UseQodalisUsers()` adds
+no middleware without CLI routes; a guard-only service that keeps the CLI routes still refuses host tokens on them.
+`IApiTokenManager` stays available, but tokens must be created and revoked from **one service only**: names and the
+20-token limit are checked in the process that creates the token.
 
 ### The host's user (`SetHostUser`)
 

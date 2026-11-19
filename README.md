@@ -272,6 +272,7 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `AddPermissions(Action<CliPermissionCatalogBuilder>, surface = "host")` | Adds entries to the permission catalog users pick from (see [Permission catalog](#permission-catalog)) |
 | `Services` | The `IServiceCollection`, for plugin registrations |
 | `ServerOptions.MaxTableRows` | Rows an unpaged table may return before it is cut (default 200, `0` = no limit); see [Paging](#paging) |
+| `WithoutCliRoutes()` | Leaves out every CLI route and socket (`/api/qcli/*`, `/api/v1/qcli/*`, `/api/v2/qcli/*`, `/api/cli/*`, `/ws/*`): no controllers of core or plugins, `UseCli()` throws. For a service that only uses the guards and services, e.g. with the users plugin's `UseGuardOnly()`; the permission catalog, events and services stay |
 
 ### Permission catalog
 
@@ -525,6 +526,10 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |
 | [`Qodalis.Cli.Plugin.Audit.EfCore`](plugins/audit-efcore) | EF Core audit log storage | `cli.AddEfCoreAuditStore(...)` |
 | [`Qodalis.Cli.Plugin.Users.EfCore`](plugins/users-efcore) | EF Core API token storage | `cli.AddEfCoreApiTokenStore(...)` |
+| [`Qodalis.Cli.Plugin.PublicApi`](plugins/public-api) | Public API: host routes guarded by host tokens with per-account quotas, usage per token, the public OpenAPI document and Swagger UI | `cli.AddPublicApi(...)` + `app.UseQodalisPublicApi()` + `.RequirePublicApi("rates:read")` |
+| [`Qodalis.Cli.Plugin.PublicApi.EfCore`](plugins/public-api-efcore) | EF Core usage counters, shared by every process | `cli.AddEfCorePublicApiUsageStore(...)` |
+| [`Qodalis.Cli.Plugin.Docs`](plugins/docs) | Markdown guides from folders or code, served as JSON | `cli.AddDocs(...)` + `app.UseQodalisDocs()` |
+| [`Qodalis.Cli.Plugin.Portal`](plugins/portal) | The documentation site (guides, API reference) at one mount | `cli.AddPortal(...)` + `app.UseQodalisPortal()` |
 | [`Qodalis.Cli.Plugin.Logs.Seq`](plugins/logs-seq) | Logs in Seq: persistent, shared by several services, the dashboard's log history | `cli.AddSeqLogs(...)` |
 | [`Qodalis.Cli.Plugin.Admin`](plugins/admin) | Admin dashboard at `/qcli/admin` | `cli.AddAdmin(...)` + `app.UseQodalisAdmin()` |
 | [`Qodalis.Cli.Plugin.Weather`](plugins/weather) | Example module (`weather current`, `weather forecast`) | `cli.AddModule(new WeatherModule())` |

@@ -8,7 +8,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+        <!-- 10.x: Microsoft.OpenApi 2, as Microsoft.AspNetCore.OpenApi (public-api plugin) -->
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.*" />
     </ItemGroup>
 
     <ItemGroup>
@@ -30,6 +32,14 @@
         <ProjectReference Include="../plugins/data-explorer-elasticsearch/Qodalis.Cli.Plugin.DataExplorer.Elasticsearch.csproj" />
         <ProjectReference Include="../plugins/aws/Qodalis.Cli.Plugin.Aws.csproj" />
         <ProjectReference Include="../plugins/users/Qodalis.Cli.Plugin.Users.csproj" />
+        <ProjectReference Include="../plugins/public-api/Qodalis.Cli.Plugin.PublicApi.csproj" />
+        <ProjectReference Include="../plugins/docs/Qodalis.Cli.Plugin.Docs.csproj" />
+        <ProjectReference Include="../plugins/portal/Qodalis.Cli.Plugin.Portal.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The guides (cli.AddDocs(o => o.AddFolder("docs"))), read from the content root -->
+        <None Update="docs\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>
