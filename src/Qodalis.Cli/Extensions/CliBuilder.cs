@@ -63,6 +63,16 @@ public class CliBuilder
     public CliServerOptions ServerOptions { get; } = new();
 
     /// <summary>
+    /// Leaves the CLI's HTTP routes and sockets out (<see cref="CliServerOptions.CliRoutes"/>): for a second service that
+    /// only validates tokens and serves the host's own routes (with the users plugin in guard-only mode).
+    /// </summary>
+    public CliBuilder WithoutCliRoutes()
+    {
+        ServerOptions.CliRoutes = false;
+        return this;
+    }
+
+    /// <summary>
     /// Enables (or disables) the interactive shell WebSockets. Disabled by default.
     /// Enabling alone does not grant access: with the users plugin the session needs
     /// <c>shell:execute</c>; without it configure a token, an authorize callback or

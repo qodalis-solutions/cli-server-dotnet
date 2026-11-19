@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Services;
 using Qodalis.Cli.Plugin.Users.Stores;
@@ -19,11 +20,16 @@ public class TokensController : UsersControllerBase
 {
     private readonly AuthService _auth;
     private readonly IUserStore _userStore;
+    private readonly IApiTokenUsageProvider? _usage;
+    private readonly ILogger<TokensController> _logger;
 
-    public TokensController(AuthService auth, IUserStore userStore)
+    public TokensController(AuthService auth, IUserStore userStore, ILogger<TokensController> logger,
+        IApiTokenUsageProvider? usage = null)
     {
         _auth = auth;
         _userStore = userStore;
+        _logger = logger;
+        _usage = usage;
     }
 
     /// <summary>List the caller's tokens, or every user's tokens with <c>?all=true</c> (<c>tokens:read</c>).</summary>
@@ -44,7 +50,9 @@ public class TokensController : UsersControllerBase
             if (!names.ContainsKey(t.UserId))
                 names[t.UserId] = (await _userStore.GetUserAsync(t.UserId))?.Name ?? t.UserId;
         }
-        return JsonOk(tokens.Select(t => AuthService.ToApiTokenView(t, names[t.UserId])).ToList());
+        var views = tokens.Select(t => AuthService.ToApiTokenView(t, names[t.UserId])).ToList();
+        await ApiTokenUsageViews.AddUsageAsync(_usage, views, _logger, HttpContext.RequestAborted);
+        return JsonOk(views);
     }
 
     /// <summary>Create a token for the caller. Requires a session (403 with an API token).</summary>

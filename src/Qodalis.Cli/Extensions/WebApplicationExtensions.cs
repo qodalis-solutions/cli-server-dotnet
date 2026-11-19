@@ -22,6 +22,8 @@ public static class WebApplicationExtensions
     /// <returns>The application builder for chaining.</returns>
     public static IApplicationBuilder UseCli(this IApplicationBuilder app)
     {
+        if (app.ApplicationServices.GetService<CliServerOptions>()?.CliRoutes == false)
+            throw new InvalidOperationException("UseCli() is not available: the CLI routes are turned off (WithoutCliRoutes)");
         LogShellConfiguration(app.ApplicationServices);
 
         app.Use(async (context, next) =>

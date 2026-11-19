@@ -45,6 +45,14 @@ public sealed class CliServerOptions
     public int MaxTableRows { get; set; } = 200;
 
     /// <summary>
+    /// Serve the CLI's HTTP routes and sockets (<c>/api/qcli/*</c>, <c>/api/v1/qcli/*</c>, <c>/api/v2/qcli/*</c>,
+    /// <c>/api/cli/*</c>, <c>/ws/*</c>). Default <c>true</c>; <c>false</c> (set with <c>CliBuilder.WithoutCliRoutes()</c>)
+    /// is for a service that only uses the CLI's services and guards: no controller of core or of a plugin is added
+    /// and <c>UseCli()</c> throws. The permission catalog, events and services stay.
+    /// </summary>
+    public bool CliRoutes { get; set; } = true;
+
+    /// <summary>
     /// MCP endpoint options (<c>POST /api/qcli/mcp</c>); <c>null</c> = disabled (default).
     /// Set with <c>CliBuilder.AddMcp()</c>.
     /// </summary>
