@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using Qodalis.Cli.Appearance;
 
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
@@ -106,24 +106,8 @@ public class AdminTheme
     /// <summary>Overrides for the light scheme.</summary>
     public AdminThemeColors Light { get; set; } = new();
 
-    private const int MaxColorLength = 100;
-
-    // A hex color, a color function with plain numeric arguments, or a named color:
-    // nothing that can end the declaration (; { } quotes) or load anything (url(, var().
-    private static readonly Regex[] ColorPatterns =
-    {
-        new(@"^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-        new(@"^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\([0-9a-z.,%+\-\s/]*\)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-        new(@"^[a-z]{3,30}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-    };
-
-    /// <summary>True when <paramref name="value"/> is a color the dashboard accepts.</summary>
-    public static bool IsColor(string? value)
-    {
-        if (value == null) return false;
-        var v = value.Trim();
-        return v.Length > 0 && v.Length <= MaxColorLength && ColorPatterns.Any(p => p.IsMatch(v));
-    }
+    /// <summary>True when <paramref name="value"/> is a color the dashboard accepts (<see cref="CliColor"/>).</summary>
+    public static bool IsColor(string? value) => CliColor.IsValid(value);
 
     /// <summary>
     /// Validates the theme and returns the <c>theme.json</c> document:
