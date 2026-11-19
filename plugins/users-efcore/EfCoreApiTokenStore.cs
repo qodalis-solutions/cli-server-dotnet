@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
@@ -45,6 +46,7 @@ public class EfCoreApiTokenStore : IApiTokenStore
             ExpiresAt = token.ExpiresAt,
             LastUsedAt = token.LastUsedAt,
             Permissions = token.Permissions == null ? null : JsonSerializer.Serialize(token.Permissions),
+            Audience = token.Audience,
         });
         await db.SaveChangesAsync();
         return token.Clone();
@@ -125,6 +127,7 @@ public class EfCoreApiTokenStore : IApiTokenStore
     /// <summary>
     /// Creates the database with the table, or only the table in a database that already exists (the host's own,
     /// whose other tables make <c>EnsureCreated</c> do nothing). A table the host created in its migrations is kept.
+    /// A table created before tokens had an audience (1.0.0-beta.28 and older) gets the <c>Audience</c> column.
     /// </summary>
     private static async Task EnsureTableAsync(ApiTokenStorageDbContext db, CancellationToken cancellationToken)
     {
@@ -143,6 +146,49 @@ public class EfCoreApiTokenStore : IApiTokenStore
                 if (!await ExistsAsync(db, cancellationToken))
                     throw;
             }
+        }
+
+        await EnsureAudienceColumnAsync(db, cancellationToken);
+    }
+
+    /// <summary>
+    /// Adds the nullable <c>Audience</c> column to an existing table that lacks it (existing rows keep null, read as
+    /// <c>cli</c>). Identifiers are quoted by the provider, so it works on SQLite, PostgreSQL, SQL Server and MySQL.
+    /// </summary>
+    private static async Task EnsureAudienceColumnAsync(ApiTokenStorageDbContext db, CancellationToken cancellationToken)
+    {
+        if (await HasAudienceColumnAsync(db, cancellationToken))
+            return;
+
+        var entityType = db.Model.FindEntityType(typeof(ApiTokenEntity))!;
+        var tableName = entityType.GetTableName()!;
+        var store = StoreObjectIdentifier.Table(tableName, entityType.GetSchema());
+        var columnName = entityType.FindProperty(nameof(ApiTokenEntity.Audience))!.GetColumnName(store)!;
+        var sql = db.GetService<ISqlGenerationHelper>();
+        var alter = $"ALTER TABLE {sql.DelimitIdentifier(tableName, entityType.GetSchema())} " +
+                    $"ADD {sql.DelimitIdentifier(columnName)} VARCHAR(16) NULL";
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(alter, cancellationToken);
+        }
+        catch (DbException)
+        {
+            // Another instance of the server may have added it meanwhile
+            if (!await HasAudienceColumnAsync(db, cancellationToken))
+                throw;
+        }
+    }
+
+    private static async Task<bool> HasAudienceColumnAsync(ApiTokenStorageDbContext db, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await db.Tokens.AsNoTracking().Select(t => t.Audience).Take(1).ToListAsync(cancellationToken);
+            return true;
+        }
+        catch (DbException)
+        {
+            return false;
         }
     }
 
@@ -169,5 +215,6 @@ public class EfCoreApiTokenStore : IApiTokenStore
         ExpiresAt = entity.ExpiresAt,
         LastUsedAt = entity.LastUsedAt,
         Permissions = entity.Permissions == null ? null : JsonSerializer.Deserialize<List<string>>(entity.Permissions),
+        Audience = entity.Audience ?? ApiTokenAudience.Cli,
     };
 }

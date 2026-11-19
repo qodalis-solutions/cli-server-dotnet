@@ -44,6 +44,7 @@ public static class ApiTokenStorageModelBuilderExtensions
             entity.Property(e => e.UserId).HasMaxLength(128);
             entity.Property(e => e.Name).HasMaxLength(64);
             entity.Property(e => e.TokenHash).HasMaxLength(64);
+            entity.Property(e => e.Audience).HasMaxLength(16);
         });
 
         return modelBuilder;

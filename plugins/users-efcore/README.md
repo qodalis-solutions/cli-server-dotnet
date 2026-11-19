@@ -24,7 +24,7 @@ builder.Services
     });
 ```
 
-The `api_tokens` table is created on first use, also inside a database that already has other tables. Expired tokens are deleted when tokens are listed (they are refused anyway).
+The `api_tokens` table is created on first use, also inside a database that already has other tables. Expired tokens are deleted when tokens are listed (they are refused anyway). A table created by 1.0.0-beta.28 or older gets the nullable `Audience` column on first use (`ALTER TABLE ... ADD`); its rows keep `NULL`, read as `cli`.
 
 ## Hosts with their own sign-in
 
@@ -45,6 +45,8 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
     modelBuilder.ApplyApiTokenStorageModel();
 }
 ```
+
+After upgrading from 1.0.0-beta.28 or older, add a migration for the new `Audience` column (`dotnet ef migrations add QcliApiTokenAudience`); the store then finds the column and changes nothing.
 
 ## License
 
