@@ -18,6 +18,7 @@ public class CliBuilder
 {
     private readonly List<ICliModule> _modules = [];
     private readonly List<CliInstalledPlugin> _installedPlugins = [];
+    private readonly CliPermissionCatalog _permissions = new();
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
     internal bool HasDataExplorer { get; private set; }
@@ -131,6 +132,29 @@ public class CliBuilder
     {
         Services = services;
         AddInstalledPlugin(typeof(CliBuilder).Assembly);
+        AddPermissions(CliPermissionCatalog.AddCoreEntries, CliPermissionSurface.Cli);
+        Services.AddSingleton<ICliPermissionCatalog>(_ => _permissions.Freeze());
+    }
+
+    /// <summary>
+    /// Adds permissions to the catalog users choose from when they grant permissions (the dashboard's and the
+    /// console's pickers, <c>GET /api/v1/qcli/permissions</c>). Entries default to the <c>host</c> surface: the
+    /// permissions the host application's own routes check, the only ones a <c>host</c> API token may carry.
+    /// Plugins pass <see cref="CliPermissionSurface.Cli"/>. Startup only; an invalid or duplicate entry throws.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.AddPermissions(p =&gt; p.Group("Rates")
+    ///     .Add("rates:read", "Official exchange rates")
+    ///     .Add("banks:read", "Banks and their buy and sell rates"));
+    /// </code>
+    /// </example>
+    public CliBuilder AddPermissions(Action<CliPermissionCatalogBuilder> configure, string surface = CliPermissionSurface.Host)
+    {
+        var builder = new CliPermissionCatalogBuilder(surface);
+        configure(builder);
+        _permissions.AddRange(builder.Entries);
+        return this;
     }
 
     /// <summary>
