@@ -26,6 +26,8 @@ public sealed class ManualTimeProvider : TimeProvider
     public override DateTimeOffset GetUtcNow() => _now;
 
     public void Advance(TimeSpan by) => _now = _now.Add(by);
+
+    public void SetUtcNow(DateTimeOffset now) => _now = now;
 }
 
 /// <summary>Captures log messages (to read the generated root password in tests).</summary>
@@ -115,12 +117,15 @@ public sealed class UsersTestHost : IAsyncDisposable
         bool realEventSockets = false,
         Action<IApplicationBuilder>? configureApp = null,
         Action<IMvcBuilder>? configureMvc = null,
-        Action<IApplicationBuilder>? configureAuth = null)
+        Action<IApplicationBuilder>? configureAuth = null,
+        ManualTimeProvider? time = null,
+        bool validateScopes = false)
     {
         var events = new FakeEventSocketManager();
-        var time = new ManualTimeProvider();
+        time ??= new ManualTimeProvider();
 
         var builder = new HostBuilder()
+            .UseDefaultServiceProvider(o => o.ValidateScopes = validateScopes)
             .ConfigureWebHost(webHost =>
             {
                 webHost.UseTestServer();
