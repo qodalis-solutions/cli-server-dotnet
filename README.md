@@ -269,8 +269,31 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `AddDataExplorerProvider<T>(...)` / `AddDataExplorerProvider(instance, ...)` | Registers a data explorer source (read-only by default, see [Data explorer sources](#data-explorer-sources)) |
 | `AddProcessor`, `AddProcessorsFromAssembly`, `AddModule` | Registers commands |
 | `AddApplicationPart(Assembly)` | Adds a plugin assembly's controllers |
+| `AddPermissions(Action<CliPermissionCatalogBuilder>, surface = "host")` | Adds entries to the permission catalog users pick from (see [Permission catalog](#permission-catalog)) |
 | `Services` | The `IServiceCollection`, for plugin registrations |
 | `ServerOptions.MaxTableRows` | Rows an unpaged table may return before it is cut (default 200, `0` = no limit); see [Paging](#paging) |
+
+### Permission catalog
+
+The server keeps a catalog of the permissions users can choose when they grant them (the dashboard's and the console's pickers, `GET /api/v1/qcli/permissions` of the users plugin). Each entry is `{ name, description, group, surface }`:
+
+```json
+{ "name": "files:read", "description": "List, read and download files", "group": "Files", "surface": "cli" }
+```
+
+Core registers the 11 permissions its route policy checks (`commands:execute`, `shell:execute`, `files:read`, `files:write`, `data:query`, `jobs:read`, `jobs:manage`, `logs:read`, `admin:access`, `audit:read`, `audit:clear`); the users plugin adds its 12 (`users:*`, `groups:*`, `sessions:*`, `tokens:*`). Your app adds the permissions its own routes check:
+
+```csharp
+cli.AddPermissions(p => p.Group("Rates")
+    .Add("rates:read", "Official exchange rates")
+    .Add("banks:read", "Banks and their buy and sell rates"));
+```
+
+- Your entries get the `host` surface: they are the only permissions a `host` API token can carry (see [host tokens](plugins/users/README.md#host-tokens-iapitokenmanager)). Plugins register theirs with `AddPermissions(configure, CliPermissionSurface.Cli)`.
+- `ICliPermissionCatalog.All` lists the `cli` entries (core, then plugins, in registration order), then the `host` entries, whatever order the calls ran in. `Find(name)` is case-insensitive.
+- A name is lower case with one `:` and no `*` (`^[a-z0-9_.-]+:[a-z0-9_.-]+$`); a description is 1-200 characters on one line, a group 1-64 characters. An invalid entry fails startup with `invalid permission entry: <name>`, a name already registered (case-insensitive, also one a plugin owns, in either call order) with `permission already registered: <name>`.
+- Registration is startup only: `AddPermissions` after the catalog is first resolved throws.
+- The catalog is for choosing, not for validating: groups and `cli` tokens still accept any permission, including wildcards and commands' own `RequiredPermissions`.
 
 ### Shell (`CliShellOptions`)
 
@@ -345,7 +368,7 @@ claude mcp add qcli -e QCLI_URL=http://localhost:8046 -e QCLI_TOKEN=<token> -- n
 
 ### Security
 
-Without an authentication plugin the server is open. Install the users plugin (`cli.AddUsers()` and `app.UseQodalisUsers()` before `app.UseCli()`); with its default `ProtectServer = true` every CLI route and socket requires a session, except sign-in and version discovery. See [plugins/users/README.md](plugins/users/README.md).
+Without an authentication plugin the server is open. Install the users plugin (`cli.AddUsers()` and `app.UseQodalisUsers()` before `app.UseCli()`); with its default `ProtectServer = true` every CLI route and socket requires a session, except sign-in and version discovery. `host` API tokens (created by your app for its own routes) are refused on every CLI route and socket, protected or not. See [plugins/users/README.md](plugins/users/README.md).
 
 ## Use with your app's sign-in
 
