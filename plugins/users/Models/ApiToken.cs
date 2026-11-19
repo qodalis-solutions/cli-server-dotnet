@@ -4,6 +4,19 @@ using System.Text.Json.Serialization;
 namespace Qodalis.Cli.Plugin.Users.Models;
 
 /// <summary>
+/// Who an API token is for. <see cref="Cli"/> tokens use the CLI server's routes (commands, MCP, files, the
+/// users routes, ...); <see cref="Host"/> tokens, created by the host application through
+/// <c>IApiTokenManager</c>, are accepted only by the host's own guarded routes (<c>[QcliAuthorize]</c>).
+/// </summary>
+public static class ApiTokenAudience
+{
+    public const string Cli = "cli";
+    public const string Host = "host";
+
+    public static bool IsValid(string? value) => value is Cli or Host;
+}
+
+/// <summary>
 /// A stored API token: a long-lived, revocable bearer token (<c>qcli_pat_…</c>) for MCP clients,
 /// CI and scripts. Only the SHA-256 hash of the token is stored. Never returned by the API
 /// directly — see <see cref="ApiTokenView"/>.
@@ -31,6 +44,18 @@ public class ApiToken
     /// <summary>Optional scope; <c>null</c> = the user's full effective permissions.</summary>
     public List<string>? Permissions { get; set; }
 
+    private string _audience = ApiTokenAudience.Cli;
+
+    /// <summary>
+    /// <see cref="ApiTokenAudience.Cli"/> (default) or <see cref="ApiTokenAudience.Host"/>. A store that has no
+    /// value (rows written before audiences existed, stores that drop unknown fields) gives <c>cli</c>.
+    /// </summary>
+    public string Audience
+    {
+        get => _audience;
+        set => _audience = string.IsNullOrEmpty(value) ? ApiTokenAudience.Cli : value;
+    }
+
     public bool IsExpired(long now) => ExpiresAt.HasValue && now >= ExpiresAt.Value;
 
     public ApiToken Clone() => new()
@@ -43,6 +68,7 @@ public class ApiToken
         ExpiresAt = ExpiresAt,
         LastUsedAt = LastUsedAt,
         Permissions = Permissions == null ? null : [.. Permissions],
+        Audience = Audience,
     };
 }
 
@@ -75,6 +101,11 @@ public class ApiTokenView
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public long? LastUsedAt { get; set; }
 
+    /// <summary><c>cli</c> or <c>host</c>; always written.</summary>
+    [JsonPropertyName("audience")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string Audience { get; set; } = ApiTokenAudience.Cli;
+
     /// <summary>The scope; omitted when the token is unscoped.</summary>
     [JsonPropertyName("permissions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -82,14 +113,16 @@ public class ApiTokenView
 }
 
 /// <summary>
-/// Request body for <c>POST /tokens</c>: <c>{ name, expiresInDays?, permissions? }</c>.
-/// <see cref="ExpiresInDays"/> is kept raw to tell an absent value (default 90 days) from <c>null</c> (never expires).
+/// Request body for <c>POST /tokens</c>: <c>{ name, expiresInDays?, permissions?, audience? }</c>.
+/// <see cref="ExpiresInDays"/> is kept raw to tell an absent value (default 90 days) from <c>null</c> (never expires),
+/// <see cref="Audience"/> to tell an absent value from <c>null</c> or a non-string.
 /// </summary>
 public class CreateApiTokenRequest
 {
     public string? Name { get; set; }
     public JsonElement ExpiresInDays { get; set; }
     public List<string>? Permissions { get; set; }
+    public JsonElement Audience { get; set; }
 }
 
 /// <summary>Response body for <c>POST /tokens</c>: <c>{ token, apiToken }</c>. The token is shown only once.</summary>

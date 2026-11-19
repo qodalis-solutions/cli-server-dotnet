@@ -30,7 +30,10 @@ public sealed record CliPermission(
 /// </summary>
 public interface ICliPermissionCatalog
 {
-    /// <summary>Every entry in registration order (core, plugins, host).</summary>
+    /// <summary>
+    /// Every entry in registration order: the <c>cli</c> entries (core, then plugins), then the <c>host</c> entries,
+    /// whatever order the host's <c>AddPermissions</c> and the plugins' <c>Add*</c> calls came in.
+    /// </summary>
     IReadOnlyList<CliPermission> All { get; }
 
     /// <summary>The entry named <paramref name="name"/> (case-insensitive), or null.</summary>
@@ -67,11 +70,13 @@ internal sealed class CliPermissionCatalog : ICliPermissionCatalog
 {
     private static readonly Regex NamePattern = new("^[a-z0-9_.-]+:[a-z0-9_.-]+$", RegexOptions.CultureInvariant);
 
-    private readonly List<CliPermission> _entries = [];
+    private readonly List<CliPermission> _cli = [];
+    private readonly List<CliPermission> _host = [];
+    private List<CliPermission>? _all;
     private readonly Dictionary<string, CliPermission> _byName = new(StringComparer.OrdinalIgnoreCase);
     private volatile bool _frozen;
 
-    public IReadOnlyList<CliPermission> All => _entries;
+    public IReadOnlyList<CliPermission> All => _all ??= [.. _cli, .. _host];
 
     public CliPermission? Find(string name) => _byName.GetValueOrDefault(name);
 
@@ -100,7 +105,8 @@ internal sealed class CliPermissionCatalog : ICliPermissionCatalog
 
         foreach (var entry in entries)
         {
-            _entries.Add(entry);
+            (entry.Surface == CliPermissionSurface.Host ? _host : _cli).Add(entry);
+            _all = null;
             _byName[entry.Name] = entry;
         }
     }
