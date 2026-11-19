@@ -28,6 +28,9 @@ public sealed class UsersAuthContext
     /// <summary>The API token that authenticated the request (no session), when applicable.</summary>
     public ApiToken? ApiToken { get; init; }
 
+    /// <summary>Authenticated by a <c>host</c> API token: accepted only by the host's guards, never by CLI routes.</summary>
+    public bool IsHostToken => ApiToken?.Audience == ApiTokenAudience.Host;
+
     /// <summary>Id of the API token that authenticated the request, when applicable.</summary>
     public string? ApiTokenId => ApiToken?.Id;
     public long LoginTime { get; init; }
