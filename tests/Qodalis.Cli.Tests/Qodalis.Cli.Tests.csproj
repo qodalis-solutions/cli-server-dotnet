@@ -43,6 +43,7 @@
     <ProjectReference Include="..\..\plugins\admin\Qodalis.Cli.Plugin.Admin.csproj" />
     <ProjectReference Include="..\..\plugins\users\Qodalis.Cli.Plugin.Users.csproj" />
     <ProjectReference Include="..\..\plugins\public-api\Qodalis.Cli.Plugin.PublicApi.csproj" />
+    <ProjectReference Include="..\..\plugins\public-api-efcore\Qodalis.Cli.Plugin.PublicApi.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\data-explorer-sql\Qodalis.Cli.Plugin.DataExplorer.Sql.csproj" />
     <ProjectReference Include="..\..\plugins\data-explorer-postgres\Qodalis.Cli.Plugin.DataExplorer.Postgres.csproj" />
   </ItemGroup>

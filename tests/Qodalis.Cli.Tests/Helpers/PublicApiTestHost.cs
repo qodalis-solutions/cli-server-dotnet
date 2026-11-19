@@ -37,11 +37,13 @@ public static class PublicApiTestHost
         Action<IEndpointRouteBuilder>? endpoints = null,
         Action<IMvcBuilder>? configureMvc = null,
         Action<CliBuilder>? configureCli = null,
-        bool validateScopes = false)
+        bool validateScopes = false,
+        Action<Qodalis.Cli.Plugin.Users.UsersModuleOptions>? configureUsers = null)
     {
         var time = new ManualTimeProvider();
         time.SetUtcNow(LateEvening);
         return UsersTestHost.StartAsync(
+            configureUsers,
             configureServices: configureServices,
             configureCli: cli =>
             {
