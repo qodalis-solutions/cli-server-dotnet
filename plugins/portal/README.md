@@ -57,7 +57,8 @@ app.MapControllers();
 
 The options are checked when `UseQodalisPortal()` runs (`ArgumentException`): `portal name must be 1-80 characters
 without control characters`, `portal logo must be an http(s) URL, a root-relative path or a data:image URL`,
-`invalid portal colour <scheme>.<token>: <value>`, `invalid portal footer link: <label>`, `invalid portal path: <path>`.
+`invalid portal colour <scheme>.<token>: <value>`, `invalid portal theme mode: <mode>` (a `Mode` outside
+`System`, `Dark`, `Light`), `invalid portal footer link: <label>`, `invalid portal path: <path>`.
 Two sections of one kind fail with `InvalidOperationException("portal section already registered: <kind>")`.
 
 ## Routes

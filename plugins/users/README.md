@@ -312,8 +312,9 @@ app.MapGet("/v1/banks", GetBanks).RequireQcliAuthorization("banks:read", hostTok
 public IActionResult GetRates() => ...;
 ```
 
-Order: authentication (401 `unauthorized`, 401 `invalid or expired token`, 403 `account disabled`, 403 `password change
-required`), then a session, an adapter caller or a `cli` token gets 403 `forbidden: a host token is required`, then the
+Order: authentication (401 `unauthorized`; 401 `invalid or expired token` for an unknown or expired token or one whose
+user is missing or disabled; 401 `account disabled` for a disabled session user or auth-adapter caller; 403 `password
+change required`), then a session, an adapter caller or a `cli` token gets 403 `forbidden: a host token is required`, then the
 permission (403 `permission denied: <p>`). Without `HostTokenOnly` nothing changes.
 
 Both guards leave `IQcliAuthorizeMetadata` (`Permission`, `HostTokenOnly`) on the endpoint
