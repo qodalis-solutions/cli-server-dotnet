@@ -106,6 +106,11 @@ public partial class AuthService
     public const string ApiTokensCannotCreateTokensMessage = "forbidden: API tokens cannot create tokens";
     public const string HostTokensCreatedByHostMessage = "host tokens can only be created by the host application";
     public const string InvalidAudienceMessage = "audience must be cli or host";
+    public const string HostTokensNeedPermissionsMessage = "host tokens need permissions";
+    public const string NotAHostPermissionMessagePrefix = "not a host permission: ";
+    public const string ExpiryConflictMessage = "expiresInDays and neverExpires cannot both be set";
+    private const string ApiTokenNameMessage = "name must be 1-64 characters of [A-Za-z0-9._ -]";
+    private const string ApiTokenExpiryMessage = "expiresInDays must be an integer between 1 and 365";
     public const string ApiTokensCannotChangePasswordsMessage = "forbidden: API tokens cannot change passwords";
 
     [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9._ -]{1,64}$")]
@@ -991,35 +996,86 @@ public partial class AuthService
 
         var name = request.Name;
         if (name == null || !ApiTokenNameRegex().IsMatch(name))
-            throw UsersApiException.BadRequest("name must be 1-64 characters of [A-Za-z0-9._ -]");
+            throw UsersApiException.BadRequest(ApiTokenNameMessage);
 
-        var now = Now();
-        long? expiresAt;
+        int? expiresInDays = null;
+        var neverExpires = false;
         switch (request.ExpiresInDays.ValueKind)
         {
             case JsonValueKind.Undefined:
-                expiresAt = now + DefaultApiTokenExpiryDays * DayMs;
                 break;
             case JsonValueKind.Null:
-                if (!_options.AllowNonExpiringTokens)
-                    throw UsersApiException.BadRequest("non-expiring tokens are not allowed");
-                expiresAt = null;
+                neverExpires = true;
                 break;
             default:
-                if (request.ExpiresInDays.ValueKind != JsonValueKind.Number ||
-                    !request.ExpiresInDays.TryGetInt32(out var days) || days < 1 || days > MaxApiTokenExpiryDays)
-                    throw UsersApiException.BadRequest($"expiresInDays must be an integer between 1 and {MaxApiTokenExpiryDays}");
-                expiresAt = now + days * DayMs;
+                if (request.ExpiresInDays.ValueKind != JsonValueKind.Number || !request.ExpiresInDays.TryGetInt32(out var days))
+                    throw UsersApiException.BadRequest(ApiTokenExpiryMessage);
+                expiresInDays = days;
                 break;
         }
 
-        List<string>? permissions = null;
-        if (request.Permissions != null)
+        return await CreateApiTokenForAsync(caller.User, caller.Permissions, new ApiTokenCreateOptions
         {
-            permissions = UsersValidation.Permissions(request.Permissions)!;
+            Name = name,
+            ExpiresInDays = expiresInDays,
+            NeverExpires = neverExpires,
+            Permissions = request.Permissions,
+            Audience = ApiTokenAudience.Cli,
+        }, caller.User.Name, caller.User.Id);
+    }
+
+    /// <summary>
+    /// The creation path shared by <c>POST /tokens</c> and <see cref="IApiTokenManager"/> (contract rules 3-7):
+    /// name and expiry (400), permission syntax (400), for <c>host</c> tokens the catalog's <c>host</c> entries
+    /// (400; stored with the catalog's spelling), each permission held by <paramref name="grantable"/> (403),
+    /// then the name (409) and the 20-token limit (400). Audits <c>token_created</c> as <paramref name="actorName"/>.
+    /// </summary>
+    internal async Task<(string Token, ApiToken ApiToken)> CreateApiTokenForAsync(User owner, IReadOnlyList<string> grantable,
+        ApiTokenCreateOptions options, string actorName, string? actorId, ICliPermissionCatalog? catalog = null)
+    {
+        var name = options.Name;
+        if (name == null || !ApiTokenNameRegex().IsMatch(name))
+            throw UsersApiException.BadRequest(ApiTokenNameMessage);
+
+        var now = Now();
+        long? expiresAt;
+        if (options.NeverExpires)
+        {
+            if (options.ExpiresInDays != null)
+                throw UsersApiException.BadRequest(ExpiryConflictMessage);
+            if (!_options.AllowNonExpiringTokens)
+                throw UsersApiException.BadRequest("non-expiring tokens are not allowed");
+            expiresAt = null;
+        }
+        else
+        {
+            var days = options.ExpiresInDays ?? DefaultApiTokenExpiryDays;
+            if (days < 1 || days > MaxApiTokenExpiryDays)
+                throw UsersApiException.BadRequest(ApiTokenExpiryMessage);
+            expiresAt = now + days * DayMs;
+        }
+
+        List<string>? permissions = null;
+        if (options.Permissions != null)
+            permissions = UsersValidation.Permissions([.. options.Permissions])!;
+
+        if (options.Audience == ApiTokenAudience.Host)
+        {
+            if (permissions == null || permissions.Count == 0)
+                throw UsersApiException.BadRequest(HostTokensNeedPermissionsMessage);
+            permissions = permissions
+                .Select(p => catalog?.Find(p) is { Surface: CliPermissionSurface.Host } entry
+                    ? entry.Name
+                    : throw UsersApiException.BadRequest(NotAHostPermissionMessagePrefix + p))
+                .Distinct()
+                .ToList();
+        }
+
+        if (permissions != null)
+        {
             foreach (var p in permissions)
             {
-                if (!PermissionMatcher.HasPermission(caller.Permissions, p))
+                if (!PermissionMatcher.HasPermission(grantable, p))
                     throw UsersApiException.Forbidden($"forbidden: cannot grant {p}");
             }
         }
@@ -1027,7 +1083,7 @@ public partial class AuthService
         await _tokenGate.WaitAsync();
         try
         {
-            var existing = await _apiTokens.GetTokensAsync(caller.User.Id);
+            var existing = await _apiTokens.GetTokensAsync(owner.Id);
             if (existing.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
                 throw UsersApiException.Conflict($"token '{name}' already exists");
             if (existing.Count(t => !t.IsExpired(now)) >= MaxApiTokensPerUser)
@@ -1037,18 +1093,19 @@ public partial class AuthService
             var apiToken = await _apiTokens.CreateTokenAsync(new ApiToken
             {
                 Id = Guid.NewGuid().ToString(),
-                UserId = caller.User.Id,
+                UserId = owner.Id,
                 Name = name,
                 TokenHash = HashToken(token),
                 CreatedAt = now,
                 ExpiresAt = expiresAt,
                 Permissions = permissions,
+                Audience = options.Audience,
             });
 
-            await AuditAsync(AuditEvents.TokenCreated, caller.User.Name, $"{apiToken.Name} ({apiToken.Id})",
-                caller.User.Name, new AuditMetadata { TokenId = apiToken.Id, TokenName = apiToken.Name },
-                caller.User.Id, caller.User.Id);
-            await Events.TokenAsync(UsersEvents.TokenCreated, apiToken, caller.User.Name);
+            await AuditAsync(AuditEvents.TokenCreated, owner.Name, $"{apiToken.Name} ({apiToken.Id})",
+                actorName, new AuditMetadata { TokenId = apiToken.Id, TokenName = apiToken.Name },
+                owner.Id, actorId);
+            await Events.TokenAsync(UsersEvents.TokenCreated, apiToken, actorName);
             return (token, apiToken);
         }
         finally
@@ -1068,13 +1125,19 @@ public partial class AuthService
         if (token == null || (token.UserId != caller.User.Id && !canRevokeAny))
             throw UsersApiException.NotFound("token not found");
 
-        await _apiTokens.DeleteTokenAsync(token.Id);
         var ownerName = token.UserId == caller.User.Id
             ? caller.User.Name
             : (await _userStore.GetUserAsync(token.UserId))?.Name ?? token.UserId;
-        await AuditAsync(AuditEvents.TokenRevoked, ownerName, $"{token.Name} ({token.Id})", caller.User.Name,
-            new AuditMetadata { TokenId = token.Id, TokenName = token.Name }, token.UserId, caller.User.Id);
-        await Events.TokenAsync(UsersEvents.TokenRevoked, token, caller.User.Name);
+        await RevokeApiTokenCoreAsync(token, ownerName, caller.User.Name, caller.User.Id);
+    }
+
+    /// <summary>Deletes a token found by the caller, audits <c>token_revoked</c>, publishes the event and closes its sockets.</summary>
+    internal async Task RevokeApiTokenCoreAsync(ApiToken token, string ownerName, string actorName, string? actorId)
+    {
+        await _apiTokens.DeleteTokenAsync(token.Id);
+        await AuditAsync(AuditEvents.TokenRevoked, ownerName, $"{token.Name} ({token.Id})", actorName,
+            new AuditMetadata { TokenId = token.Id, TokenName = token.Name }, token.UserId, actorId);
+        await Events.TokenAsync(UsersEvents.TokenRevoked, token, actorName);
 
         NotifyApiTokensChanged();
         await CloseEndedSessionSocketsAsync();
