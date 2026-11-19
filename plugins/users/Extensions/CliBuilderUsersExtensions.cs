@@ -70,18 +70,11 @@ public static class CliBuilderUsersExtensions
         services.AddHostedService(sp => sp.GetRequiredService<UsersBootstrapService>());
 
         // Once per builder: AddUsers may run twice, while a host entry with one of these names must still collide.
-        if (!services.Any(d => d.ServiceType == typeof(UsersPermissionsRegistered)))
-        {
-            builder.AddPermissions(AddCatalogEntries, CliPermissionSurface.Cli);
-            services.AddSingleton<UsersPermissionsRegistered>();
-        }
+        builder.AddPermissionsOnce(typeof(UsersModuleOptions).FullName!, AddCatalogEntries, CliPermissionSurface.Cli);
         builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
         return builder;
     }
-
-    /// <summary>Marks a builder whose catalog already has the plugin's permissions.</summary>
-    private sealed class UsersPermissionsRegistered;
 
     /// <summary>The permissions the plugin's routes check, for the permission pickers (audit:* are core's).</summary>
     private static void AddCatalogEntries(CliPermissionCatalogBuilder p) => p

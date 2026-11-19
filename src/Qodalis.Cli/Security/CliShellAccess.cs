@@ -67,6 +67,14 @@ public static class CliShellAccess
     public const string NotConfigured = "shell access is not configured";
     public const string ShellDisabled = "shell disabled";
 
+    /// <summary>The longest WebSocket close reason, in UTF-8 bytes (RFC 6455).</summary>
+    public const int MaxCloseReasonBytes = 123;
+
+    private static string CloseReason(string? message) =>
+        string.IsNullOrEmpty(message) || System.Text.Encoding.UTF8.GetByteCount(message) > MaxCloseReasonBytes
+            ? Forbidden
+            : message;
+
     /// <summary>
     /// The access mode: <c>users</c> when an authentication plugin is installed, otherwise
     /// <c>token</c>, then <c>custom</c>, then <c>anonymous</c> (explicit opt-in), else <c>locked</c>.
@@ -101,10 +109,10 @@ public static class CliShellAccess
             if (principal == null)
             {
                 var failure = context.Items.TryGetValue(CliAuthFailure.ItemKey, out var f) ? f as CliAuthFailure : null;
-                // A 403 closes with the plugin's own text (e.g. host tokens, origin not allowed, password change).
+                // A 403 closes with the plugin's own text (e.g. host tokens, origin not allowed, password change),
+                // unless it does not fit a WebSocket close reason (123 UTF-8 bytes).
                 return failure?.StatusCode == StatusCodes.Status403Forbidden
-                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden,
-                        string.IsNullOrEmpty(failure.Message) ? Forbidden : failure.Message)
+                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden, CloseReason(failure.Message))
                     : CliShellAccessResult.Deny(mode, CliShellCloseCodes.Unauthorized, LoginRequired);
             }
             if (!principal.Can(CliRoutePolicy.ShellExecute))
