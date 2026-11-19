@@ -925,14 +925,19 @@ public partial class AuthService
     /// True when the request's bearer is an API token (<c>qcli_pat_…</c>) whose stored audience is not exactly
     /// <c>cli</c>. Reads the token store only: no <c>LastUsedAt</c> update, no external adapter, no expiry or user check.
     /// The stored token is kept on the request, so authenticating it afterwards does not read the store again.
+    /// With <paramref name="exceptExpired"/> an expired host token gives false, so authentication answers 401 for it
+    /// like for any expired token.
     /// </summary>
-    public async Task<bool> IsHostApiTokenAsync(HttpContext context)
+    public async Task<bool> IsHostApiTokenAsync(HttpContext context, bool exceptExpired = false)
     {
         var bearer = BearerToken(context);
         if (!IsApiToken(bearer)) return false;
         var stored = await FindApiTokenAsync(bearer!, context);
-        return stored != null && stored.Audience != ApiTokenAudience.Cli;
+        return stored != null && stored.Audience != ApiTokenAudience.Cli && !(exceptExpired && stored.IsExpired(Now()));
     }
+
+    /// <summary>A stored API token by id, expired or not (no pruning, no validation).</summary>
+    internal Task<ApiToken?> GetApiTokenAsync(string id) => _apiTokens.GetTokenAsync(id);
 
     private const string ApiTokenLookupKey = "Qodalis.Cli.Plugin.Users.ApiTokenLookup";
 
@@ -1002,7 +1007,8 @@ public partial class AuthService
         CreatedAt = token.CreatedAt,
         ExpiresAt = token.ExpiresAt,
         LastUsedAt = token.LastUsedAt,
-        Audience = token.Audience,
+        // The API only ever answers cli or host: any stored value but exactly cli is a host token (fail closed).
+        Audience = token.Audience == ApiTokenAudience.Cli ? ApiTokenAudience.Cli : ApiTokenAudience.Host,
         Permissions = token.Permissions == null ? null : [.. token.Permissions],
     };
 

@@ -260,4 +260,40 @@ public class HostTokensTests : IAsyncLifetime
         Assert.Equal("cli", new ApiToken { Audience = null! }.Audience);
         Assert.Equal("cli", new ApiToken { Audience = "" }.Audience);
     }
+
+    [Fact]
+    public async Task TokenViews_NormaliseAStoredAudienceToCliOrHost()
+    {
+        await using var h = await UsersTestHost.StartAsync(o => o.ApiTokenStore = new RespellingTokenStore("HOST"),
+            configureCli: Rates);
+        var root = await h.RootTokenAsync();
+        await h.CreateGroupAsync(root, "alice-group", "rates:read");
+        var aliceId = (await h.CreateUserAsync(root, "alice", groups: ["alice-group"])).GetProperty("id").GetString()!;
+        var tokens = h.Service<IApiTokenManager>();
+        await tokens.CreateAsync(aliceId, new ApiTokenCreateOptions
+        {
+            Name = "site", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"],
+        });
+        await tokens.CreateAsync(aliceId, new ApiTokenCreateOptions { Name = "cli" });
+
+        Assert.Equal(["host", "cli"], (await tokens.ListAsync(aliceId)).Select(t => t.Audience));
+        var all = await UsersTestHost.ReadJsonAsync(await h.GetAsync("tokens?all=true", root));
+        Assert.Equal(["host", "cli"], all.EnumerateArray().Select(t => t.GetProperty("audience").GetString()));
+    }
+
+    [Fact]
+    public async Task ExpiredHostToken_OnAProtectedServer_Answers401LikeAnyExpiredToken()
+    {
+        var expiring = (await _h.Service<IApiTokenManager>().CreateAsync(_aliceId, new ApiTokenCreateOptions
+        {
+            Name = "short", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"], ExpiresInDays = 1,
+        })).Token;
+        _h.Time.Advance(TimeSpan.FromDays(2));
+
+        Assert.Equal("invalid or expired token",
+            await UsersTestHost.AssertErrorAsync(await _h.GetAsync("/api/v1/qcli/commands", expiring), 401));
+        Assert.Equal("invalid or expired token",
+            await UsersTestHost.AssertErrorAsync(await _h.GetAsync("/api/v1/qcli/tokens", expiring), 401));
+    }
 }
+

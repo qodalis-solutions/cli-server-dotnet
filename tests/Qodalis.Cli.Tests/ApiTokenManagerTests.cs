@@ -322,4 +322,40 @@ public class ApiTokenManagerTests : IAsyncLifetime
         await Assert.ThrowsAnyAsync<ArgumentException>(() => _tokens.GetGrantablePermissionsAsync(userId!));
         Assert.NotNull(await _h.Service<IApiTokenStore>().GetTokenAsync(host.ApiToken.Id));
     }
+
+    [Fact]
+    public async Task Revoke_AnExpiredToken_TrueAndAudited()
+    {
+        var created = await _tokens.CreateAsync(_aliceId, new ApiTokenCreateOptions { Name = "short", ExpiresInDays = 1 });
+        _h.Time.Advance(TimeSpan.FromDays(2));
+
+        Assert.True(await _tokens.RevokeAsync(_aliceId, created.ApiToken.Id));
+
+        var audit = await _h.Service<IAuditStore>().GetEntriesAsync(new AuditQueryOptions { Event = AuditEvents.TokenRevoked });
+        Assert.Single(audit, e => e.Metadata?.TokenId == created.ApiToken.Id);
+        Assert.Null(await _h.Service<IApiTokenStore>().GetTokenAsync(created.ApiToken.Id));
+    }
+
+    [Fact]
+    public async Task Revoke_AnExpiredToken_TrueAndAudited_EfCoreStore()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        await using var h = await UsersTestHost.StartAsync(configureCli: cli =>
+            Qodalis.Cli.Plugin.Users.EfCore.EfCoreApiTokenStoreExtensions.AddEfCoreApiTokenStore(cli,
+                o => Microsoft.EntityFrameworkCore.SqliteDbContextOptionsBuilderExtensions.UseSqlite(o, connection)));
+        Assert.IsType<Qodalis.Cli.Plugin.Users.EfCore.EfCoreApiTokenStore>(h.Service<IApiTokenStore>());
+        var root = await h.RootTokenAsync();
+        var aliceId = (await h.CreateUserAsync(root, "alice")).GetProperty("id").GetString()!;
+        var tokens = h.Service<IApiTokenManager>();
+        var created = await tokens.CreateAsync(aliceId, new ApiTokenCreateOptions { Name = "short", ExpiresInDays = 1 });
+        h.Time.Advance(TimeSpan.FromDays(2));
+
+        Assert.True(await tokens.RevokeAsync(aliceId, created.ApiToken.Id));
+
+        var audit = await h.Service<IAuditStore>().GetEntriesAsync(new AuditQueryOptions { Event = AuditEvents.TokenRevoked });
+        Assert.Single(audit, e => e.Metadata?.TokenId == created.ApiToken.Id);
+        Assert.False(await tokens.RevokeAsync(aliceId, created.ApiToken.Id));
+    }
 }
+

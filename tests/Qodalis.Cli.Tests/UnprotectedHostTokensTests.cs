@@ -110,6 +110,22 @@ public class UnprotectedHostTokensTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ExpiredHostToken_StillRefusedOnUnprotectedCliRoutes()
+    {
+        var expiring = (await _h.Service<IApiTokenManager>().CreateAsync(_aliceId, new ApiTokenCreateOptions
+        {
+            Name = "short", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"], ExpiresInDays = 1,
+        })).Token;
+        _h.Time.Advance(TimeSpan.FromDays(2));
+
+        var res = await _h.GetAsync("/api/v1/qcli/commands", expiring);
+        Assert.Equal(403, (int)res.StatusCode);
+        Assert.Equal(Refused, await res.Content.ReadAsStringAsync());
+        // Users routes authenticate on any server: the expired token answers 401 there.
+        await UsersTestHost.AssertErrorAsync(await _h.GetAsync("/api/v1/qcli/tokens", expiring), 401);
+    }
+
+    [Fact]
     public async Task HostToken_StillAcceptedByTheGuard()
     {
         Assert.Equal(200, (int)(await _h.GetAsync("/host/rates", _host)).StatusCode);
