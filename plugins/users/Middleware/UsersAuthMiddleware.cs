@@ -21,7 +21,8 @@ namespace Qodalis.Cli.Plugin.Users.Middleware;
 /// (a present Origin must then be allowed or same-origin).</item>
 /// <item>CSRF: state-changing requests without a bearer token must not carry a disallowed
 /// <c>Origin</c>; in adapter mode they must carry an allowed one. The request's own origin is always allowed.</item>
-/// <item><c>host</c> API tokens are refused (403) on every route authenticated here; only the host's guards accept them.</item>
+/// <item><c>host</c> API tokens are refused (403) on every users route and every non-public CLI route and socket, also
+/// when the server is not protected; only the host's guards accept them.</item>
 /// <item>Sessions with <c>mustChangePassword</c> may only read/end the current session and change their own password.</item>
 /// </list>
 /// </summary>
@@ -64,6 +65,15 @@ public class UsersAuthMiddleware
         var rule = CliRoutePolicy.Resolve(method, path);
         // C1: with the users plugin the shell always needs a users session, even without ProtectServer.
         var isShellSocket = rule.IsWebSocket && rule.Permission == CliRoutePolicy.ShellExecute;
+        // Host tokens never reach a CLI route, protected server or not (anonymous and cli-token requests are
+        // unaffected). Only qcli_pat_ bearers are looked up, in the token store alone.
+        if ((isUsersRoute || (rule.IsCliRoute && !rule.IsPublic))
+            && await context.RequestServices.GetRequiredService<AuthService>().IsHostApiTokenAsync(AuthService.BearerToken(context)))
+        {
+            await FailAsync(context, isShellSocket, 403, AuthService.HostTokensCannotUseCliRoutesMessage);
+            return;
+        }
+
         if (!isUsersRoute && !isShellSocket && !(options.ProtectServer && rule.IsCliRoute))
         {
             await _next(context);
