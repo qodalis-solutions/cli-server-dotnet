@@ -20,9 +20,11 @@ public class PermissionsController : UsersControllerBase
     }
 
     [HttpGet]
-    public IActionResult Get([FromQuery] string? all)
+    public IActionResult Get()
     {
         var caller = Auth;
+        // Read raw: model binding turns ?all= into null, which must answer 400 like any other value.
+        string? all = Request.Query.TryGetValue("all", out var values) ? values.ToString() : null;
         if (all != null && all != "true" && all != "false")
             throw UsersApiException.BadRequest("all must be true or false");
         var listAll = all == "true";

@@ -114,8 +114,10 @@ internal sealed class ApiTokenManager : IApiTokenManager
     public async Task<bool> RevokeAsync(string userId, string tokenId, string? actor = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(userId);
-        var token = (await _auth.ListApiTokensAsync(userId)).FirstOrDefault(t => t.Id == tokenId);
-        if (token == null) return false;
+        // By id, not through the listing: a store may prune expired tokens as it lists them, and an expired token is
+        // still revoked (and audited) like any other.
+        var token = string.IsNullOrEmpty(tokenId) ? null : await _auth.GetApiTokenAsync(tokenId);
+        if (token == null || token.UserId != userId) return false;
 
         var owner = await _users.GetUserAsync(userId);
         var ownerName = owner?.Name ?? userId;

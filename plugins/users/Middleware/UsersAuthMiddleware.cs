@@ -67,7 +67,9 @@ public class UsersAuthMiddleware
         var isShellSocket = rule.IsWebSocket && rule.Permission == CliRoutePolicy.ShellExecute;
         // Host tokens never reach a non-public CLI route (users routes included), protected server or not; anonymous
         // and cli-token requests are unaffected. Only qcli_pat_ bearers are looked up, in the token store alone.
-        if (rule.IsCliRoute && !rule.IsPublic && await IsHostTokenAsync(context, path))
+        // Where the request is authenticated next, an expired host token is left to it (401, as any expired token).
+        var authenticates = isUsersRoute || isShellSocket || (options.ProtectServer && rule.IsCliRoute);
+        if (rule.IsCliRoute && !rule.IsPublic && await IsHostTokenAsync(context, path, exceptExpired: authenticates))
         {
             await FailAsync(context, isShellSocket, 403, AuthService.HostTokensCannotUseCliRoutesMessage);
             return;
@@ -196,11 +198,11 @@ public class UsersAuthMiddleware
     /// The host-token check. A store that fails here is logged and ignored: the request goes on as it would without the
     /// check (an unprotected route passes; a protected one authenticates and reads the store again).
     /// </summary>
-    private async Task<bool> IsHostTokenAsync(HttpContext context, string path)
+    private async Task<bool> IsHostTokenAsync(HttpContext context, string path, bool exceptExpired)
     {
         try
         {
-            return await context.RequestServices.GetRequiredService<AuthService>().IsHostApiTokenAsync(context);
+            return await context.RequestServices.GetRequiredService<AuthService>().IsHostApiTokenAsync(context, exceptExpired);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

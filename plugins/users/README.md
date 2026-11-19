@@ -176,7 +176,7 @@ Authorization: Bearer <session token>
 - Creating a token **requires a session**: with an API token → 403 `forbidden: API tokens cannot create tokens`.
   With an external auth adapter token creation answers 501.
 - Views (`GET /tokens`) never contain the token or its hash: `{ id, name, userId, userName, createdAt, expiresAt,
-  lastUsedAt, audience, permissions }` (`audience` is always present, `"cli"` or `"host"`; `permissions` omitted when
+  lastUsedAt, audience, permissions }` (`audience` is always present, `"cli"` or `"host"`: a stored value other than exactly `cli` is shown as `host`; `permissions` omitted when
   unscoped; `lastUsedAt` is updated at most once a minute). A stored token without an audience (created before
   1.0.0-beta.29, or kept by a store that drops the field) reads as `"cli"`.
 
@@ -240,7 +240,7 @@ app.MapPost("/account/tokens", async (IApiTokenManager tokens, ClaimsPrincipal u
 |---|---|
 | `CreateAsync(userId, ApiTokenCreateOptions, ct)` | Creates a `cli` or `host` token for the user → `CreatedApiToken { Token, ApiToken }` (same JSON as `POST /tokens`) |
 | `ListAsync(userId, ct)` | The user's tokens, both audiences, oldest first (`[]` for an unknown user) |
-| `RevokeAsync(userId, tokenId, actor?, ct)` | `true` after revoking; `false` when the token does not exist or belongs to another user |
+| `RevokeAsync(userId, tokenId, actor?, ct)` | `true` after revoking (also an expired token, audited like any other); `false` when the token does not exist or belongs to another user |
 | `GetGrantablePermissionsAsync(userId, audience = "cli", ct)` | Catalog entries the user holds: for `host` only the `host` entries |
 
 `ApiTokenCreateOptions`: `Name` (required), `ExpiresInDays` (1-365, default 90), `NeverExpires` (needs
@@ -269,7 +269,9 @@ and the guards check the user's live permissions on every request.
 `{"error":"forbidden: host tokens cannot use CLI routes"}`, before any permission check and whether or not
 `ProtectServer` is on: the users routes (`/users`, `/sessions`, `/groups`, `/audit`, `/tokens`, `/link/code/…`,
 `/permissions`), commands, MCP, files, data explorer, jobs, the admin API, and the events and logs socket upgrades
-(HTTP 403). The shell socket closes with `4403` and the same text. A host token cannot get a WebSocket ticket. On an
+(HTTP 403). The shell socket closes with `4403` and the same text. An **expired** host token is answered like any expired
+token (401 `invalid or expired token`) wherever the request is authenticated (users routes, the shell, every CLI
+route with `ProtectServer`); on an unprotected server's CLI routes it is still refused with the 403. A host token cannot get a WebSocket ticket. On an
 unprotected server only `qcli_pat_` bearers are looked up (in the token store only: no `lastUsedAt` update, no
 adapter call; a failing store is logged and ignored); anonymous and `cli`-token requests behave as before. Public
 routes (sign-in, link requests, version discovery) do not check. `ICliAuthBridge.AuthenticateAsync` throws

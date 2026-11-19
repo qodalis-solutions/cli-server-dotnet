@@ -26,6 +26,8 @@ builder.Services
 
 The `api_tokens` table is created on first use, also inside a database that already has other tables. Expired tokens are deleted when tokens are listed (they are refused anyway). A table created by 1.0.0-beta.28 or older gets the nullable `Audience` column on first use (see [Upgrading](#upgrading-from-100-beta28-or-older-the-audience-column)); its rows keep `NULL`, read as `cli`.
 
+Token-name uniqueness (per user, case-insensitive) and the limit of 20 tokens per user are enforced in process, not by the database. Two services sharing one `api_tokens` table can each pass the check at the same moment, so a user could end up with two tokens of the same name, or 21 tokens. A host that creates tokens from more than one service should create them from one of them, or add a unique index on `(UserId, Name)` in its own migration (the name check is case-insensitive, so use a case-insensitive collation where the database supports one).
+
 ## Hosts with their own sign-in
 
 A host that signs users in itself (`UseExternalAuth`) turns tokens on with `AllowApiTokens()`; then its users create tokens and approve terminal links, and the plugin checks each token's user in the host's user store on every use:

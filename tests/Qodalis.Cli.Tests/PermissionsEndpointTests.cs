@@ -82,10 +82,13 @@ public class PermissionsEndpointTests : IAsyncLifetime
         Assert.Equal(24, (await GetEntriesAsync(_root, "?all=true")).Count);
     }
 
-    [Fact]
-    public async Task All_InvalidValue_Returns400()
+    [Theory]
+    [InlineData("?all=yes")]
+    [InlineData("?all=")]
+    [InlineData("?all=TRUE")]
+    public async Task All_InvalidValue_Returns400(string query)
     {
-        var res = await _h.GetAsync("permissions?all=yes", _root);
+        var res = await _h.GetAsync("permissions" + query, _root);
 
         Assert.Equal("all must be true or false", await UsersTestHost.AssertErrorAsync(res, 400));
     }

@@ -150,6 +150,14 @@ public class CliBuilder
     ///     .Add("banks:read", "Banks and their buy and sell rates"));
     /// </code>
     /// </example>
+    public CliBuilder AddPermissions(Action<CliPermissionCatalogBuilder> configure, string surface = CliPermissionSurface.Host)
+    {
+        var builder = new CliPermissionCatalogBuilder(surface);
+        configure(builder);
+        _permissions.AddRange(builder.Entries);
+        return this;
+    }
+
     /// <summary>
     /// <see cref="AddPermissions(Action{CliPermissionCatalogBuilder}, string)"/> once per <paramref name="source"/> on this
     /// builder: for plugins whose <c>Add*</c> method may run twice. Entries that collide with another source still throw.
@@ -159,14 +167,6 @@ public class CliBuilder
     {
         if (!_permissionSources.Add(source)) return this;
         return AddPermissions(configure, surface);
-    }
-
-    public CliBuilder AddPermissions(Action<CliPermissionCatalogBuilder> configure, string surface = CliPermissionSurface.Host)
-    {
-        var builder = new CliPermissionCatalogBuilder(surface);
-        configure(builder);
-        _permissions.AddRange(builder.Entries);
-        return this;
     }
 
     /// <summary>
