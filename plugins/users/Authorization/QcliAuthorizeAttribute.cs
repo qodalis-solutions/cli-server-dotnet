@@ -16,10 +16,14 @@ namespace Qodalis.Cli.Plugin.Users.Authorization;
 public static class QcliAuthorization
 {
     /// <summary>
-    /// Authenticates the request (reusing the middleware's result when present) and checks
-    /// <paramref name="permission"/>. Returns <c>(status, error)</c> on failure, or null on success.
+    /// Authenticates the request (reusing the middleware's result when present), refuses anything but a <c>host</c>
+    /// token when <paramref name="hostTokenOnly"/> is set, and checks <paramref name="permission"/>. Returns
+    /// <c>(status, error)</c> on failure, or null on success; on success the caller is available through
+    /// <see cref="QcliCallerHttpContextExtensions.GetQcliCaller"/> and, with <see cref="UsersModuleOptions.SetHostUser"/>,
+    /// as <c>HttpContext.User</c> unless the host's own authentication already set a user.
     /// </summary>
-    public static async Task<(int Status, string Error)?> AuthorizeAsync(HttpContext context, string? permission)
+    public static async Task<(int Status, string Error)?> AuthorizeAsync(HttpContext context, string? permission,
+        bool hostTokenOnly = false)
     {
         var auth = context.GetUsersAuth();
         if (auth == null)
@@ -40,18 +44,43 @@ public static class QcliAuthorization
         }
 
         if (auth.User.MustChangePassword) return (403, AuthService.PasswordChangeRequiredMessage);
+        // The audience is checked before the permission: a cli token never learns which permissions a route needs.
+        if (hostTokenOnly && !auth.IsHostToken) return (403, AuthService.HostTokenRequiredMessage);
         if (permission != null && !auth.Can(permission)) return (403, $"permission denied: {permission}");
+
+        context.SetQcliCaller(auth.ToQcliCaller());
+        var options = context.RequestServices.GetService<UsersModuleOptions>();
+        if (options?.SetHostUser != false && context.User.Identity?.IsAuthenticated != true)
+            context.User = CliHostUser.Create(auth.ToCliPrincipal(), auth.User.Email, auth.ApiToken);
         return null;
     }
 }
 
 /// <summary>
+/// What a users-plugin guard requires, left on the endpoint so the public OpenAPI document can show it
+/// (<c>x-required-permission</c>, <c>x-host-token-only</c>).
+/// </summary>
+public interface IQcliAuthorizeMetadata
+{
+    /// <summary>The required permission; null means "authenticated".</summary>
+    string? Permission { get; }
+
+    /// <summary>Only <c>host</c> tokens are accepted.</summary>
+    bool HostTokenOnly { get; }
+}
+
+/// <summary>The metadata <see cref="QcliAuthorizeEndpointExtensions.RequireQcliAuthorization{TBuilder}"/> adds.</summary>
+public sealed record QcliAuthorizeEndpointMetadata(string? Permission, bool HostTokenOnly) : IQcliAuthorizeMetadata;
+
+/// <summary>
 /// Protects a host MVC controller or action with the users plugin: requires an authenticated
 /// session (bearer token or external adapter) and, optionally, a permission.
 /// <code>[QcliAuthorize("reports:read")]</code>
+/// With <see cref="HostTokenOnly"/> only <c>host</c> tokens are accepted:
+/// <code>[QcliAuthorize("rates:read", HostTokenOnly = true)]</code>
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
-public sealed class QcliAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
+public sealed class QcliAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter, IQcliAuthorizeMetadata
 {
     public QcliAuthorizeAttribute() { }
 
@@ -60,20 +89,23 @@ public sealed class QcliAuthorizeAttribute : Attribute, IAsyncAuthorizationFilte
     /// <summary>Required permission; null means "authenticated".</summary>
     public string? Permission { get; }
 
+    /// <summary>Refuse sessions, external-adapter callers and <c>cli</c> tokens (403 <c>forbidden: a host token is required</c>).</summary>
+    public bool HostTokenOnly { get; init; }
+
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        var failure = await QcliAuthorization.AuthorizeAsync(context.HttpContext, Permission);
+        var failure = await QcliAuthorization.AuthorizeAsync(context.HttpContext, Permission, HostTokenOnly);
         if (failure is { } f)
             context.Result = new JsonResult(new ErrorResponse(f.Error)) { StatusCode = f.Status };
     }
 }
 
 /// <summary>Endpoint filter for minimal APIs; see <see cref="QcliAuthorizeEndpointExtensions"/>.</summary>
-public sealed class QcliAuthorizeEndpointFilter(string? permission) : IEndpointFilter
+public sealed class QcliAuthorizeEndpointFilter(string? permission, bool hostTokenOnly = false) : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var failure = await QcliAuthorization.AuthorizeAsync(context.HttpContext, permission);
+        var failure = await QcliAuthorization.AuthorizeAsync(context.HttpContext, permission, hostTokenOnly);
         if (failure is { } f)
             return Results.Json(new ErrorResponse(f.Error), statusCode: f.Status);
         return await next(context);
@@ -86,8 +118,12 @@ public static class QcliAuthorizeEndpointExtensions
     /// <summary>
     /// Requires a users-plugin session (and optionally <paramref name="permission"/>) for the endpoint:
     /// <code>app.MapGet("/reports", ...).RequireQcliAuthorization("reports:read");</code>
+    /// With <paramref name="hostTokenOnly"/> only <c>host</c> tokens are accepted. Also adds
+    /// <see cref="QcliAuthorizeEndpointMetadata"/> for the public OpenAPI document.
     /// </summary>
-    public static TBuilder RequireQcliAuthorization<TBuilder>(this TBuilder builder, string? permission = null)
+    public static TBuilder RequireQcliAuthorization<TBuilder>(this TBuilder builder, string? permission = null,
+        bool hostTokenOnly = false)
         where TBuilder : IEndpointConventionBuilder =>
-        builder.AddEndpointFilter(new QcliAuthorizeEndpointFilter(permission));
+        builder.AddEndpointFilter(new QcliAuthorizeEndpointFilter(permission, hostTokenOnly))
+            .WithMetadata(new QcliAuthorizeEndpointMetadata(permission, hostTokenOnly));
 }
