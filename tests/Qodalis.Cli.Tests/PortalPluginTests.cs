@@ -364,6 +364,10 @@ public class PortalPluginTests
     [Theory]
     [InlineData("//evil.example")]
     [InlineData("/\\evil.example")]
+    [InlineData("/\t/evil.example")]
+    [InlineData("/\r/evil.example")]
+    [InlineData("/\n/evil.example")]
+    [InlineData("/a b")]
     public async Task ProtocolRelativePathBase_Refused(string pathBase)
     {
         using var host = await StartAsync(pathBase: pathBase);
