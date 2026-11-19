@@ -93,7 +93,7 @@ Checks, in order; the first failure answers `{ "error": "<text>" }` and nothing 
 
 | # | Condition | Answer |
 |---|---|---|
-| 1 | authentication fails | 401 `unauthorized`, 401 `invalid or expired token`, 403 `account disabled`, 403 `password change required` |
+| 1 | authentication fails | 401 `unauthorized` (no credentials), 401 `invalid or expired token` (an unknown or expired token, or a token whose user is missing or disabled), 401 `account disabled` / `session expired` (a session or an auth-adapter caller), 403 `password change required` |
 | 2 | not a `host` token (a session, an external-adapter caller, a `cli` token) | 403 `forbidden: a host token is required` |
 | 3 | the permission is not held | 403 `forbidden: missing permission <permission>` |
 | 4 | the quota resolver throws | 500 `internal server error` (logged; the error text is never sent) |
