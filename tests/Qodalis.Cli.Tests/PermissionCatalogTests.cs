@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Tests;
@@ -129,5 +130,38 @@ public class PermissionCatalogTests
         Assert.Equal(
             """{"name":"files:read","description":"List, read and download files","group":"Files","surface":"cli"}""",
             json);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HostRegisteringAUsersPluginPermission_Throws_WhateverTheOrder(bool hostFirst)
+    {
+        void Host() => _builder.AddPermissions(p => p.Group("Mine").Add("users:read", "My users"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+        {
+            if (hostFirst) Host();
+            _builder.AddUsers();
+            if (!hostFirst) Host();
+        });
+
+        Assert.Equal("permission already registered: users:read", ex.Message);
+    }
+
+    [Fact]
+    public void AddUsersTwice_RegistersThePluginsPermissionsOnce()
+    {
+        _builder.AddUsers();
+        _builder.AddUsers();
+        var provider = _services.BuildServiceProvider();
+
+        var first = provider.GetRequiredService<ICliPermissionCatalog>();
+        var second = provider.GetRequiredService<ICliPermissionCatalog>();
+
+        Assert.Same(first, second);
+        Assert.Equal(23, first.All.Count);
+        Assert.Equal(first.All.Count, first.All.Select(p => p.Name).Distinct().Count());
+        Assert.Equal("cli", first.Find("users:read")!.Surface);
     }
 }

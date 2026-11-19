@@ -919,6 +919,17 @@ public partial class AuthService
         };
     }
 
+    /// <summary>
+    /// True when <paramref name="bearer"/> is an API token (<c>qcli_pat_…</c>) whose stored audience is not exactly
+    /// <c>cli</c>. Reads the token store only: no <c>LastUsedAt</c> update, no external adapter, no expiry or user check.
+    /// </summary>
+    public async Task<bool> IsHostApiTokenAsync(string? bearer)
+    {
+        if (!IsApiToken(bearer)) return false;
+        var stored = await _apiTokens.GetTokenByHashAsync(HashToken(bearer!));
+        return stored != null && stored.Audience != ApiTokenAudience.Cli;
+    }
+
     /// <summary>Authenticates a raw API token (looked up by its hash) and records its use. Throws 401 on failure.</summary>
     public async Task<UsersAuthContext> AuthenticateApiTokenAsync(string token)
     {
