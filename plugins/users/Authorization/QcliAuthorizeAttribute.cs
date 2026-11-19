@@ -84,7 +84,8 @@ public static class QcliAuthorization
     /// <summary>
     /// Undoes <see cref="Admit"/>: removes the caller and gives <c>HttpContext.User</c> back the principal it had
     /// before, when <see cref="Admit"/> replaced it. A guard stacked after a users guard calls it when it refuses the
-    /// request, so a refused request never carries a caller. Does nothing for a request that was not admitted.
+    /// request, so a refused request never carries a caller. It restores the principal that was current before the
+    /// guard admitted the request. Does nothing for a request that was not admitted.
     /// </summary>
     public static void Revoke(HttpContext context)
     {

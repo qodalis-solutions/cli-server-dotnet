@@ -4,6 +4,7 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -11,13 +12,15 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
+using Qodalis.Cli.Portal;
 using Swashbuckle.AspNetCore.SwaggerUI;
 
 namespace Qodalis.Cli.Plugin.PublicApi;
 
 /// <summary>
 /// Serves <c>&lt;base&gt;/openapi.json</c> (anonymous, credentials ignored, CORS <c>*</c>) and Swagger UI at
-/// <c>&lt;base&gt;/swagger</c> for that document only. Every other path falls through.
+/// <c>&lt;base&gt;/swagger</c> for that document only. Under <c>&lt;base&gt;/swagger/</c> any other path that is not one
+/// of Swagger UI's static files answers 404; every other path falls through.
 /// </summary>
 internal sealed class PublicApiDocumentEndpoint
 {
@@ -34,7 +37,15 @@ internal sealed class PublicApiDocumentEndpoint
         _server = server;
         _documentPath = options.BasePath + "/openapi.json";
         _swaggerPath = options.BasePath + "/swagger";
+        // Swashbuckle's index routes: "^/?{prefix}/?index.html$", "^/?{prefix}/?index.js$" and its redirect
+        // "^/?{prefix}/?$", case-insensitive (its '.' is a regex dot, so these match at least as much).
+        var prefix = Regex.Escape(_swaggerPath.TrimStart('/'));
+        _pageRoute = new Regex($"^/?{prefix}/?(?:index.html)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        _scriptRoute = new Regex($"^/?{prefix}/?index.js$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
+
+    private readonly Regex _pageRoute;
+    private readonly Regex _scriptRoute;
 
     public string DocumentPath => _documentPath;
 
@@ -71,34 +82,46 @@ internal sealed class PublicApiDocumentEndpoint
 
     public async Task InvokeAsync(HttpContext context, Func<Task> next)
     {
-        var path = context.Request.Path.Value;
+        var path = context.Request.Path.Value ?? "";
         var method = context.Request.Method;
         var isDocument = path == _documentPath;
-        var isPage = path == _swaggerPath || path == _swaggerPath + "/" || path == _swaggerPath + "/index.html";
-        var isScript = path == _swaggerPath + "/index.js";
+        // Every form Swashbuckle's own index routes match (case-insensitive, with or without the slash), so its default
+        // page and script are never served.
+        var isPage = !isDocument && _pageRoute.IsMatch(path);
+        var isScript = !isDocument && !isPage && _scriptRoute.IsMatch(path);
         if (!isDocument && !isPage && !isScript)
         {
+            if (path.StartsWith(_swaggerPath + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Under the Swagger UI prefix only Swagger UI's static files are served (by its middleware, next).
+                if ((HttpMethods.IsGet(method) || HttpMethods.IsHead(method)) &&
+                    SwaggerAssets.Contains(path[(_swaggerPath.Length + 1)..].Replace('/', '.')))
+                {
+                    await next();
+                    return;
+                }
+                await WriteErrorAsync(context, StatusCodes.Status404NotFound, NotFoundBody);
+                return;
+            }
             await next();
             return;
         }
 
-        // The page, its script and the document's servers carry the request's path base; a protocol-relative one
-        // (//host or /\host) would point the browser at another origin.
-        var pathBase = context.Request.PathBase.Value ?? "";
-        if (pathBase.StartsWith("//", StringComparison.Ordinal) || pathBase.StartsWith("/\\", StringComparison.Ordinal))
+        // The page, its script and the document's servers carry the request's path base.
+        if (CliPathBase.IsUnsafe(context.Request.PathBase.Value))
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            context.Response.ContentType = "application/json; charset=utf-8";
-            await context.Response.WriteAsync("{\"error\":\"invalid path base\"}", context.RequestAborted);
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, CliPathBase.InvalidBody);
             return;
         }
 
         if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method))
         {
-            await next();
+            if (isDocument) await next();
+            else await WriteErrorAsync(context, StatusCodes.Status404NotFound, NotFoundBody);
             return;
         }
 
+        var pathBase = context.Request.PathBase.Value ?? "";
         string body;
         string contentType;
         if (isDocument)
@@ -124,6 +147,23 @@ internal sealed class PublicApiDocumentEndpoint
         response.Headers.CacheControl = "no-cache";
         if (HttpMethods.IsGet(method)) await response.WriteAsync(body, Encoding.UTF8, context.RequestAborted);
     }
+
+    private const string NotFoundBody = "{\"error\":\"not found\"}";
+
+    private static async Task WriteErrorAsync(HttpContext context, int status, string body)
+    {
+        context.Response.StatusCode = status;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        if (!HttpMethods.IsHead(context.Request.Method)) await context.Response.WriteAsync(body, context.RequestAborted);
+    }
+
+    private const string AssetPrefix = "Swashbuckle.AspNetCore.SwaggerUI.node_modules.swagger_ui_dist.";
+
+    /// <summary>Swagger UI's static files as its middleware's file provider names them (case-sensitive).</summary>
+    private static readonly HashSet<string> SwaggerAssets = typeof(SwaggerUIOptions).Assembly.GetManifestResourceNames()
+        .Where(n => n.StartsWith(AssetPrefix, StringComparison.Ordinal))
+        .Select(n => n[AssetPrefix.Length..])
+        .ToHashSet(StringComparer.Ordinal);
 
     private volatile string? _title;
 

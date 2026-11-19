@@ -96,9 +96,9 @@ public static partial class CliBuilderPortalExtensions
             var response = context.Response;
             var pathBase = context.Request.PathBase.Value ?? string.Empty;
             var isSiteRoute = IsSiteRoute(relative);
-            if ((isSiteRoute || relative == "/portal.json") && IsProtocolRelative(pathBase))
+            if ((isSiteRoute || relative == "/portal.json") && CliPathBase.IsUnsafe(pathBase))
             {
-                // A path base like //evil.example would turn the site's base and portal.json's URLs into another host.
+                // A path base like //evil.example (or /\t/evil.example) would turn the site's base and portal.json's URLs into another host.
                 response.StatusCode = StatusCodes.Status400BadRequest;
                 response.ContentType = "application/json; charset=utf-8";
                 await response.WriteAsync(InvalidPathBaseBody, context.RequestAborted);
@@ -134,10 +134,8 @@ public static partial class CliBuilderPortalExtensions
         return app;
     }
 
-    internal const string InvalidPathBaseBody = "{\"error\":\"invalid path base\"}";
+    internal const string InvalidPathBaseBody = CliPathBase.InvalidBody;
 
-    private static bool IsProtocolRelative(string pathBase) =>
-        pathBase.Length >= 2 && pathBase[0] == '/' && (pathBase[1] == '/' || pathBase[1] == '\\');
 
     /// <summary>The path below the mount (<c>""</c> for the mount itself), or null when it is not under it.</summary>
     private static string? Relative(string path, string prefix)

@@ -16,7 +16,8 @@ public class DocsPluginTests
 {
     internal static readonly string Fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures", "docs");
 
-    internal static async Task<IHost> StartAsync(Action<DocsOptions>? configure = null, bool fixtures = true)
+    internal static async Task<IHost> StartAsync(Action<DocsOptions>? configure = null, bool fixtures = true,
+        string? forcedPathBase = null)
     {
         var builder = new HostBuilder().ConfigureWebHost(web =>
         {
@@ -30,6 +31,12 @@ public class DocsPluginTests
             })));
             web.Configure(app =>
             {
+                if (forcedPathBase != null)
+                    app.Use((context, next) =>
+                    {
+                        context.Request.PathBase = forcedPathBase;
+                        return next();
+                    });
                 app.UseRouting();
                 app.UseQodalisDocs();
                 app.UseEndpoints(e => e.MapControllers());
@@ -307,5 +314,24 @@ public class DocsPluginTests
         var section = Assert.Single(host.Services.GetServices<CliPortalSection>());
 
         Assert.Equal(new CliPortalSection("docs", "Guides", "/qcli/docs"), section);
+    }
+
+    [Theory]
+    [InlineData("//evil.example")]
+    [InlineData("/\\evil.example")]
+    [InlineData("/\t/evil.example")]
+    [InlineData("/\r/evil.example")]
+    [InlineData("/\n/evil.example")]
+    [InlineData("/a b")]
+    public async Task UnsafePathBase_Refused(string pathBase)
+    {
+        using var host = await StartAsync(forcedPathBase: pathBase);
+
+        foreach (var path in new[] { "/qcli/docs/pages", "/qcli/docs/pages/index" })
+        {
+            var (res, body) = await GetAsync(host, path);
+            Assert.Equal(400, (int)res.StatusCode);
+            Assert.Equal("""{"error":"invalid path base"}""", body);
+        }
     }
 }

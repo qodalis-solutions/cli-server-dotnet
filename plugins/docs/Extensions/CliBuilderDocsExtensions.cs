@@ -65,6 +65,15 @@ public static class CliBuilderDocsExtensions
                 return;
             }
 
+            if (CliPathBase.IsUnsafe(context.Request.PathBase.Value))
+            {
+                // {{ baseUrl }} carries the path base; //evil.example would make the guides' links point elsewhere.
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "application/json; charset=utf-8";
+                if (HttpMethods.IsGet(method)) await context.Response.WriteAsync(CliPathBase.InvalidBody, context.RequestAborted);
+                return;
+            }
+
             var variables = Variables(options, context.Request);
             object body;
             var status = StatusCodes.Status200OK;

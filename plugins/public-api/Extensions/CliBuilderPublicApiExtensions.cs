@@ -31,6 +31,8 @@ public static class CliBuilderPublicApiExtensions
             throw new ArgumentException("public-api: DocumentName is required");
 
         var services = builder.Services;
+        if (services.Any(d => d.ServiceType == typeof(UsageOnlyMarker)))
+            throw new InvalidOperationException(BothMessage);
         services.AddSingleton(options);
         RegisterUsage(builder, options);
 
@@ -55,10 +57,20 @@ public static class CliBuilderPublicApiExtensions
     /// </summary>
     public static CliBuilder AddPublicApiUsage(this CliBuilder builder, Action<PublicApiUsageOptions>? configure = null)
     {
+        if (builder.Services.Any(d => d.ServiceType == typeof(PublicApiOptions)))
+            throw new InvalidOperationException(BothMessage);
         var options = new PublicApiUsageOptions();
         configure?.Invoke(options);
+        builder.Services.TryAddSingleton<UsageOnlyMarker>();
         return RegisterUsage(builder, options);
     }
+
+    private const string BothMessage =
+        "public-api: call AddPublicApi or AddPublicApiUsage, not both (AddPublicApi already includes the usage; " +
+        "use AddPublicApiUsage only in a service that serves no public routes)";
+
+    /// <summary>Registered by <see cref="AddPublicApiUsage"/>, so <see cref="AddPublicApi"/> can refuse the pair.</summary>
+    private sealed class UsageOnlyMarker;
 
     private static CliBuilder RegisterUsage(CliBuilder builder, PublicApiUsageOptions options)
     {

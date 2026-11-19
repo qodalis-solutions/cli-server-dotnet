@@ -248,6 +248,11 @@ public class PublicApiOpenApiTests
     [Theory]
     [InlineData("//evil.example")]
     [InlineData("/\\evil.example")]
+    [InlineData("/\t/evil.example")]
+    [InlineData("/\r/evil.example")]
+    [InlineData("/\n/evil.example")]
+    [InlineData("/app\n")]
+    [InlineData("/a b")]
     public async Task ProtocolRelativePathBase_Refused(string pathBase)
     {
         await using var h = await StartAsync(forcedPathBase: pathBase);
@@ -258,6 +263,69 @@ public class PublicApiOpenApiTests
             Assert.Equal(400, (int)res.StatusCode);
             Assert.Equal("""{"error":"invalid path base"}""", await res.Content.ReadAsStringAsync());
         }
+    }
+
+    [Theory]
+    [InlineData("/qcli/api/swagger")]
+    [InlineData("/qcli/api/swagger/")]
+    [InlineData("/qcli/api/swagger/index.html")]
+    [InlineData("/qcli/api/swaggerindex.html")]
+    [InlineData("/QCLI/API/SWAGGER")]
+    [InlineData("/Qcli/Api/Swagger/")]
+    [InlineData("/qcli/api/SWAGGER/INDEX.HTML")]
+    [InlineData("/qcli/api/swaggerINDEX.html")]
+    public async Task SwaggerPage_EveryIndexForm_IsThePluginsPage(string path)
+    {
+        await using var h = await StartAsync(forcedPathBase: "/x");
+
+        var res = await h.Client.GetAsync(path);
+
+        Assert.Equal(200, (int)res.StatusCode);
+        var html = await res.Content.ReadAsStringAsync();
+        Assert.Contains("<base href=\"/x/qcli/api/swagger/\" />", html);
+        Assert.DoesNotContain("%(", html);
+    }
+
+    [Theory]
+    [InlineData("/qcli/api/swagger/index.js")]
+    [InlineData("/qcli/api/swaggerindex.js")]
+    [InlineData("/QCLI/API/SWAGGER/INDEX.JS")]
+    public async Task SwaggerScript_EveryForm_IsThePluginsScript(string path)
+    {
+        await using var h = await StartAsync(forcedPathBase: "/x");
+
+        var res = await h.Client.GetAsync(path);
+
+        Assert.Equal(200, (int)res.StatusCode);
+        var js = await res.Content.ReadAsStringAsync();
+        Assert.Contains("\"/x/qcli/api/openapi.json\"", js);
+        Assert.DoesNotContain("%(", js);
+    }
+
+    [Theory]
+    [InlineData("/qcli/api/swagger/nope.js")]
+    [InlineData("/qcli/api/swagger/v1/swagger.json")]
+    [InlineData("/qcli/api/swagger/index.htm")]
+    [InlineData("/qcli/api/swagger/index.html/x")]
+    public async Task SwaggerPrefix_UnknownPath_Is404(string path)
+    {
+        await using var h = await StartAsync();
+
+        var res = await h.Client.GetAsync(path);
+
+        Assert.Equal(404, (int)res.StatusCode);
+        Assert.Equal("""{"error":"not found"}""", await res.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("/qcli/api/swagger/swagger-ui-bundle.js")]
+    [InlineData("/qcli/api/swagger/swagger-ui.css")]
+    [InlineData("/qcli/api/swagger/favicon-32x32.png")]
+    public async Task SwaggerPrefix_StaticAssets_Served(string path)
+    {
+        await using var h = await StartAsync();
+
+        Assert.Equal(200, (int)(await h.Client.GetAsync(path)).StatusCode);
     }
 
     [Fact]

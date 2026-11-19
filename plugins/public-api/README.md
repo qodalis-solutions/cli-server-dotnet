@@ -191,8 +191,12 @@ An unknown user throws `UsersApiException` 404 `user not found`.
 | `GET <BasePath>/swagger`, `<BasePath>/swagger/` | Swagger UI for that document only (no persisted authorization, "try it out" on, titled with `info.title`) |
 
 Under a request path base (`app.UsePathBase("/x")`, a proxy's prefix) the page, its document URL and the document's
-`servers` carry it (`/x<BasePath>/swagger/`, `/x<BasePath>/openapi.json`). A path base starting with `//` or `/\`
-answers 400 `{ "error": "invalid path base" }` on these routes.
+`servers` carry it (`/x<BasePath>/swagger/`, `/x<BasePath>/openapi.json`). A path base starting with `//` or `/\`, or
+holding whitespace or a control character, answers 400 `{ "error": "invalid path base" }` on these routes.
+
+The plugin serves Swagger UI's page and script itself for every form of their paths (`<BasePath>/swagger`, with or
+without the trailing `/`, `index.html`, `index.js`, case-insensitive). Under `<BasePath>/swagger/` anything else that
+is not one of Swagger UI's static files answers 404 `{ "error": "not found" }`.
 
 The document is the host's `AddOpenApi(DocumentName)` document. The plugin adds, only where the host has not:
 
@@ -270,7 +274,8 @@ builder.Services.AddControllers().AddCli(cli =>
 `AddPublicApiUsage(Action<PublicApiUsageOptions>? configure = null)` takes `UseQuotaResolver<T>()`,
 `UseQuotaResolver((caller, services, ct) => ...)` and `SetUsageStore<T>()` / `SetUsageStore(sp => ...)`;
 `AddEfCorePublicApiUsageStore` works before or after it. `AddPublicApi` includes it, so a service calls one or the
-other.
+other: calling both throws `InvalidOperationException` (`public-api: call AddPublicApi or AddPublicApiUsage, not
+both ...`), in either order.
 
 Tokens must be created and revoked from one service only: the users plugin checks token names and the 20-token limit
 in the process that creates the token. Every service may validate tokens over the shared stores.

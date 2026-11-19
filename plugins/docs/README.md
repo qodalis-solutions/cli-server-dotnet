@@ -48,6 +48,7 @@ app.MapControllers();
 | `GET <BasePath>/pages` | 200, `Cache-Control: no-cache`: `[ { "slug", "title", "group", "order" } ]` in page order |
 | `GET <BasePath>/pages/<slug>` | 200, `Cache-Control: no-cache`: `{ "slug", "title", "group", "order", "markdown" }` |
 | unknown or invalid slug | 404 `{ "error": "page not found" }` |
+| a request path base starting with `//` or `/\`, or holding whitespace or a control character | 400 `{ "error": "invalid path base" }` (`{{ baseUrl }}` carries the path base) |
 
 `HEAD` too. No sign-in; credentials are ignored. Page order: `order`, then `title` (case-insensitive), then `slug`.
 

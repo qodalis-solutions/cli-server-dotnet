@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.PublicApi;
 using Qodalis.Cli.Plugin.PublicApi.EfCore;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -75,5 +76,27 @@ public class PublicApiUsageOnlyTests
 
         Assert.IsType<EfCorePublicApiUsageStore>(h.Service<IPublicApiUsageStore>());
         await AssertUsageAsync(h);
+    }
+
+    [Fact]
+    public void AddPublicApiAndAddPublicApiUsage_Throw_InEitherOrder()
+    {
+        var first = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddControllers().AddCli(cli =>
+            {
+                cli.AddPublicApi();
+                cli.AddPublicApiUsage();
+            }));
+        var second = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddControllers().AddCli(cli =>
+            {
+                cli.AddPublicApiUsage();
+                cli.AddPublicApi();
+            }));
+        foreach (var ex in new[] { first, second })
+            Assert.Contains("AddPublicApi or AddPublicApiUsage, not both", ex.Message);
+
+        // AddPublicApiUsage twice is fine (the last options win).
+        new ServiceCollection().AddControllers().AddCli(cli => { cli.AddPublicApiUsage(); cli.AddPublicApiUsage(); });
     }
 }
