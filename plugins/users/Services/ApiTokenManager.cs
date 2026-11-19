@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Plugin.Users.Controllers;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
@@ -54,7 +56,10 @@ public interface IApiTokenManager
     /// <summary>Creates a token for <paramref name="userId"/>, checked against the user's live permissions.</summary>
     Task<CreatedApiToken> CreateAsync(string userId, ApiTokenCreateOptions options, CancellationToken ct = default);
 
-    /// <summary>The user's tokens (both audiences), oldest first.</summary>
+    /// <summary>
+    /// The user's tokens (both audiences), oldest first; with an <see cref="IApiTokenUsageProvider"/> each view carries
+    /// its <c>usage</c>.
+    /// </summary>
     Task<IReadOnlyList<ApiTokenView>> ListAsync(string userId, CancellationToken ct = default);
 
     /// <summary>Revokes a token of <paramref name="userId"/>; false when it does not exist or belongs to another user.</summary>
@@ -75,13 +80,18 @@ internal sealed class ApiTokenManager : IApiTokenManager
     private readonly IUserStore _users;
     private readonly ICliPermissionCatalog _catalog;
     private readonly UsersModuleOptions _options;
+    private readonly IApiTokenUsageProvider? _usage;
+    private readonly ILogger<ApiTokenManager> _logger;
 
-    public ApiTokenManager(AuthService auth, IUserStore users, ICliPermissionCatalog catalog, UsersModuleOptions options)
+    public ApiTokenManager(AuthService auth, IUserStore users, ICliPermissionCatalog catalog, UsersModuleOptions options,
+        IApiTokenUsageProvider? usage = null, ILogger<ApiTokenManager>? logger = null)
     {
         _auth = auth;
         _users = users;
         _catalog = catalog;
         _options = options;
+        _usage = usage;
+        _logger = logger ?? NullLogger<ApiTokenManager>.Instance;
     }
 
     public async Task<CreatedApiToken> CreateAsync(string userId, ApiTokenCreateOptions options, CancellationToken ct = default)
@@ -108,7 +118,9 @@ internal sealed class ApiTokenManager : IApiTokenManager
         var tokens = await _auth.ListApiTokensAsync(userId);
         if (tokens.Count == 0) return [];
         var name = (await _users.GetUserAsync(userId))?.Name ?? userId;
-        return tokens.Select(t => AuthService.ToApiTokenView(t, name)).ToList();
+        var views = tokens.Select(t => AuthService.ToApiTokenView(t, name)).ToList();
+        await ApiTokenUsageViews.AddUsageAsync(_usage, views, _logger, ct);
+        return views;
     }
 
     public async Task<bool> RevokeAsync(string userId, string tokenId, string? actor = null, CancellationToken ct = default)

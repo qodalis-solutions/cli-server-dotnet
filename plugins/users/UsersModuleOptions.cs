@@ -169,6 +169,24 @@ public class UsersModuleOptions
     /// </summary>
     public bool GroupsReadOnly { get; set; }
 
+    /// <summary>
+    /// Guard-only mode, for a second service that only validates tokens over the stores of the service that owns the
+    /// users: no users routes (sign-in, users, groups, sessions, tokens, permissions, link, audit), no seeding (no
+    /// <c>root</c>, no built-in groups), no server protection (<see cref="ProtectServer"/> is ignored). The host's guards
+    /// (<c>[QcliAuthorize]</c>, <c>.RequireQcliAuthorization(...)</c>, the public-api guard) authenticate
+    /// <c>qcli_pat_</c> tokens against the shared stores. <see cref="Services.IApiTokenManager"/> stays available, but
+    /// tokens should be created and revoked from one service only (the name and 20-token checks run in-process).
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool GuardOnly { get; set; }
+
+    /// <summary>Sets <see cref="GuardOnly"/>.</summary>
+    public UsersModuleOptions UseGuardOnly(bool guardOnly = true)
+    {
+        GuardOnly = guardOnly;
+        return this;
+    }
+
     /// <summary>Sets <see cref="UsersReadOnly"/>.</summary>
     public UsersModuleOptions ReadOnlyUsers(bool readOnly = true)
     {

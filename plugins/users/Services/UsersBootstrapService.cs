@@ -52,6 +52,8 @@ public class UsersBootstrapService : IHostedService, IDisposable
     /// <summary>Runs seeding once; subsequent calls return the same task.</summary>
     public Task EnsureSeededAsync()
     {
+        // Guard-only: the service that owns the users seeds them.
+        if (_options.GuardOnly) return Task.CompletedTask;
         lock (_seedLock)
         {
             if (_seedTask == null || _seedTask.IsFaulted || _seedTask.IsCanceled)
@@ -146,6 +148,8 @@ public class UsersBootstrapService : IHostedService, IDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // Guard-only: no seeding and no sweeps of the shared stores; the service that owns the users does both.
+        if (_options.GuardOnly) return;
         await EnsureSeededAsync();
 
         var external = _options.UsesExternalAuth;

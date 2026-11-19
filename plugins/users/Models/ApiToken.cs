@@ -110,7 +110,36 @@ public class ApiTokenView
     [JsonPropertyName("permissions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Permissions { get; set; }
+
+    /// <summary>
+    /// Requests made with the token over the last 30 days (UTC); set on listings only when an
+    /// <see cref="Services.IApiTokenUsageProvider"/> is registered (the public-api plugin registers one), else omitted.
+    /// </summary>
+    [JsonPropertyName("usage")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiTokenUsage? Usage { get; set; }
 }
+
+/// <summary>A token's requests: today, the last 30 days, and one entry per day (oldest first, the last one today, UTC).</summary>
+public sealed class ApiTokenUsage
+{
+    /// <summary>Requests today (UTC); equals the last entry of <see cref="Days"/>.</summary>
+    [JsonPropertyName("today")]
+    public long Today { get; init; }
+
+    /// <summary>The sum of <see cref="Days"/>.</summary>
+    [JsonPropertyName("last30Days")]
+    public long Last30Days { get; init; }
+
+    /// <summary>Exactly 30 entries, zeros included, oldest first.</summary>
+    [JsonPropertyName("days")]
+    public IReadOnlyList<ApiTokenUsageDay> Days { get; init; } = [];
+}
+
+/// <summary>Requests made with a token on one UTC day (<c>yyyy-MM-dd</c>).</summary>
+public sealed record ApiTokenUsageDay(
+    [property: JsonPropertyName("date")] string Date,
+    [property: JsonPropertyName("requests")] long Requests);
 
 /// <summary>
 /// Request body for <c>POST /tokens</c>: <c>{ name, expiresInDays?, permissions?, audience? }</c>.

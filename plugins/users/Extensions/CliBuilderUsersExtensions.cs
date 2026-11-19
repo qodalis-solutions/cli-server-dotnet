@@ -48,6 +48,8 @@ public static class CliBuilderUsersExtensions
         RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
         RegisterStore<IApiTokenStore, InMemoryApiTokenStore>(services, options, options.ApiTokenStore);
 
+        // Guard-only: the users routes and the server protection belong to the service that owns the users.
+        if (options.GuardOnly) options.ProtectServer = false;
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;
         // The host application signs users in (admin dashboard: GET /api/v1/qcli/auth/mode)
@@ -71,7 +73,8 @@ public static class CliBuilderUsersExtensions
 
         // Once per builder: AddUsers may run twice, while a host entry with one of these names must still collide.
         builder.AddPermissionsOnce(typeof(UsersModuleOptions).FullName!, AddCatalogEntries, CliPermissionSurface.Cli);
-        builder.AddApplicationPart(typeof(SessionsController).Assembly);
+        if (!options.GuardOnly)
+            builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
         return builder;
     }
@@ -115,9 +118,12 @@ public static class CliBuilderUsersExtensions
     /// Adds the users auth middleware to the pipeline. Call after UseCors(), before
     /// UseAuthorization() and before UseCli(). Without it, every users endpoint except login —
     /// and, with ProtectServer, every CLI route and socket — answers 401.
+    /// Without CLI routes (<c>WithoutCliRoutes()</c>) there is nothing for it to protect and no middleware is added;
+    /// in guard-only mode with CLI routes it only refuses <c>host</c> tokens on them.
     /// </summary>
     public static IApplicationBuilder UseQodalisUsers(this IApplicationBuilder app)
     {
+        if (app.ApplicationServices.GetService<CliServerOptions>()?.CliRoutes == false) return app;
         app.UseMiddleware<UsersAuthMiddleware>();
         return app;
     }
