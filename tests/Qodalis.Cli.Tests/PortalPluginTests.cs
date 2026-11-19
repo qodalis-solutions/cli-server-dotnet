@@ -23,7 +23,8 @@ public class PortalPluginTests
 
     private static async Task<IHost> StartAsync(Action<PortalOptions>? configure = null, bool docs = true, bool api = true,
         Action<IEndpointRouteBuilder>? endpoints = null, bool portalAfterEndpoints = false,
-        Action<IServiceCollection>? configureServices = null, Action<CliBuilder>? configureCli = null)
+        Action<IServiceCollection>? configureServices = null, Action<CliBuilder>? configureCli = null,
+        string? pathBase = null)
     {
         var builder = new HostBuilder().ConfigureWebHost(web =>
         {
@@ -49,6 +50,12 @@ public class PortalPluginTests
             });
             web.Configure(app =>
             {
+                if (pathBase != null)
+                    app.Use((context, next) =>
+                    {
+                        context.Request.PathBase = pathBase;
+                        return next();
+                    });
                 app.UseRouting();
                 if (docs) app.UseQodalisDocs();
                 if (api) app.UseQodalisPublicApi();
@@ -325,6 +332,32 @@ public class PortalPluginTests
         Assert.Equal(200, (await SendAsync(host, "/developers/portal.json")).Status);
         Assert.Contains("<base href=\"/developers/\" />", (await SendAsync(host, "/developers/guides/auth")).Body);
         Assert.Equal(404, (await SendAsync(host, "/qcli/portal/portal.json")).Status);
+    }
+
+    [Fact]
+    public async Task PathBase_PrefixesUrlsAndBase()
+    {
+        using var host = await StartAsync(pathBase: "/app");
+
+        Assert.Contains("<base href=\"/app/qcli/portal/\" />", (await SendAsync(host, "/qcli/portal/")).Body);
+        var json = (await SendAsync(host, "/qcli/portal/portal.json")).Body;
+        Assert.Contains("\"pages\":\"/app/qcli/docs/pages\"", json);
+        Assert.Contains("\"openapi\":\"/app/qcli/api/openapi.json\"", json);
+    }
+
+    [Theory]
+    [InlineData("//evil.example")]
+    [InlineData("/\\evil.example")]
+    public async Task ProtocolRelativePathBase_Refused(string pathBase)
+    {
+        using var host = await StartAsync(pathBase: pathBase);
+
+        foreach (var path in new[] { "/qcli/portal/", "/qcli/portal/portal.json", "/qcli/portal/guides/auth" })
+        {
+            var (status, body, _) = await SendAsync(host, path);
+            Assert.Equal(400, status);
+            Assert.Equal("""{"error":"invalid path base"}""", body);
+        }
     }
 
     [Fact]

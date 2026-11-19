@@ -36,7 +36,7 @@ app.MapControllers();
 | `BasePath` | `/qcli/docs` | Where the pages are served; starts with `/`, no trailing `/`, not `/` (else `invalid docs base path: <path>`) |
 | `Title` | `Guides` | The guides section's label on the portal |
 | `Name` | `Documentation` | The built-in variable `{{ name }}` |
-| `BaseUrl` | the request's `scheme://host[pathBase]` | The built-in variable `{{ baseUrl }}` (no trailing slash) |
+| `BaseUrl` | the request's `scheme://host[pathBase]` | The built-in variable `{{ baseUrl }}` (no trailing slash). **Set it in production**: otherwise the request's `Host` header ends up in the pages |
 | `Variables` | empty | The host's variables, e.g. `o.Variables["support"] = "help@ratebell.app"` |
 | `AddFolder(path)` | | Every `*.md` file directly in the folder |
 | `AddPage(slug, markdown)` | | A page from code |

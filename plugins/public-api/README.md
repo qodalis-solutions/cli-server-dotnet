@@ -14,6 +14,10 @@ Public API plugin for the Qodalis CLI Server. It turns the host's own routes int
 
 It needs the users plugin, which authenticates the tokens.
 
+> **Requires Microsoft.OpenApi 2.** The package depends on `Microsoft.AspNetCore.OpenApi` 10, which brings
+> Microsoft.OpenApi 2.x. A host that also uses Swashbuckle needs Swashbuckle 10 or later: older Swashbuckle versions
+> are built on Microsoft.OpenApi 1.x and fail at run time next to it.
+
 ## Install
 
 ```bash
@@ -72,7 +76,7 @@ var created = await tokens.CreateAsync(userId, new ApiTokenCreateOptions
 | `BasePath` | `/qcli/api` | Where `openapi.json` and `swagger` are served; starts with `/`, no trailing `/`, not `/` (else `ArgumentException("invalid public-api base path: <path>")`) |
 | `DocumentName` | `public` | The `services.AddOpenApi(name)` document that is published |
 | `Title` | `API reference` | The API section's label on the portal (the document keeps its own `info.title`) |
-| `ServerUrl` | the request's `scheme://host[pathBase]` | The document's `servers` when the host's document has none |
+| `ServerUrl` | the request's `scheme://host[pathBase]` | The document's `servers` when the host's document has none. **Set it in production**: otherwise the request's `Host` header ends up in the published document |
 | `UsageRetentionDays` | `31` | Days of per-day counters kept (token views show 30) |
 | `UseQuotaResolver<T>()` | none (unlimited) | An `IPublicApiQuotaResolver`, registered scoped and resolved from the request's services |
 | `UseQuotaResolver((caller, services, ct) => ...)` | none | A delegate resolver; `services` is the request's provider |
@@ -105,6 +109,18 @@ the users plugin's `SetHostUser` (default), `HttpContext.User`.
 not 401, 403 or 500) carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds until the
 window resets, at least 1). They describe the daily limit when there is one, otherwise the per-minute limit, and are
 not sent when both are unlimited. A 429 has `X-RateLimit-Remaining: 0` and `Retry-After`.
+
+**Stacked guards.** A route group with `.RequirePublicApi()` and an endpoint in it with `.RequirePublicApi("rates:read")`
+(or `[RequirePublicApi]` on a controller and on its action) count the request once. The first guard to run checks
+every public-api guard's permission on the endpoint before counting, so a request the stricter guard refuses (403
+`forbidden: missing permission <p>`) is not counted; the others only check their own permission.
+
+**Store failures.** When the usage store fails after the request was counted (a later increment or the account read
+throws), the counts already taken are taken back (best effort) and the request answers 500 `internal server error`.
+
+**Only `RequirePublicApi` routes are counted.** A route guarded with `.RequireQcliAuthorization(..., hostTokenOnly:
+true)` or `[QcliAuthorize(..., HostTokenOnly = true)]` accepts only host tokens and appears in the public document with
+its permission, but has no quota and no usage. Use `RequirePublicApi` for every route that should be counted.
 
 Windows are fixed UTC days (`yyyy-MM-dd`) and minutes, whatever the server's time zone. Revoking a token and creating
 a new one does not reset the quota: the account's count includes the revoked token's requests.
@@ -164,6 +180,11 @@ The document is the host's `AddOpenApi(DocumentName)` document. The plugin adds,
 - `x-required-permission` and `x-host-token-only: true` on each operation guarded by `RequirePublicApi` or by a users
   guard (`[QcliAuthorize]`, `.RequireQcliAuthorization(...)`; `x-host-token-only` with `HostTokenOnly`).
 
+**Calling the API from the portal ("try it").** On the same origin nothing is needed. When the portal or Swagger UI
+runs on another origin than the API, the host's API needs CORS for that origin (with the `Authorization` header
+allowed) and `Access-Control-Expose-Headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After`
+so the browser shows the quota headers. `openapi.json` itself is served with `Access-Control-Allow-Origin: *`.
+
 A host's own `x-codeSamples` pass through untouched; the portal site generates code samples itself. Without the named
 document, `UseQodalisPublicApi()` throws `InvalidOperationException("public-api: no OpenAPI document named 'public';
 call services.AddOpenApi(\"public\")")`.
@@ -176,6 +197,10 @@ keep usage across restarts), use [Qodalis.Cli.Plugin.PublicApi.EfCore](../public
 ```csharp
 cli.AddEfCorePublicApiUsageStore(o => o.UseNpgsql(connectionString));
 ```
+
+User ids up to 128 characters (the `qcli_api_usage.UserId` column, as `api_tokens.UserId`); the guard prunes old
+counters at most once an hour with one delete over the table, which is fine at the table's size (31 days of rows per
+token).
 
 In one process exactly the limit is admitted, also under parallel requests. Across processes the store's
 increment-then-check-then-compensate never admits more than the limit; under contention a request may be refused

@@ -304,7 +304,8 @@ builder.Services
     });
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Schemas named by full type name: the users and admin plugins both have a LoginRequest.
+builder.Services.AddSwaggerGen(o => o.CustomSchemaIds(type => type.FullName!.Replace('+', '.')));
 // The public API's own document: only the routes in the "public" group.
 builder.Services.AddOpenApi("public", o => o.ShouldInclude = d => d.GroupName == "public");
 
