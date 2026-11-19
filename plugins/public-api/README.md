@@ -16,7 +16,9 @@ It needs the users plugin, which authenticates the tokens.
 
 > **Requires Microsoft.OpenApi 2.** The package depends on `Microsoft.AspNetCore.OpenApi` 10, which brings
 > Microsoft.OpenApi 2.x. A host that also uses Swashbuckle needs Swashbuckle 10 or later: older Swashbuckle versions
-> are built on Microsoft.OpenApi 1.x and fail at run time next to it.
+> are built on Microsoft.OpenApi 1.x and fail at run time next to it. A host that references
+> `Microsoft.AspNetCore.OpenApi` itself needs the plugin's version (10.0.15) or newer: a lower direct reference is a
+> package downgrade, which the build stops with error NU1605.
 
 ## Install
 
@@ -54,6 +56,10 @@ app.MapGet("/v1/rates", (HttpContext ctx, RatesService rates) => rates.Today(ctx
     .WithGroupName("public")
     .WithTags("Rates");
 ```
+
+An endpoint without a group name lands in every OpenAPI document of the host, the public one included. Give the
+public routes a group name (`.WithGroupName("public")`, `[ApiExplorerSettings(GroupName = "public")]`) and select them
+with `ShouldInclude` as above, so internal routes stay out of the published document.
 
 The host creates the tokens for its users (an account page, a sign-up flow):
 
@@ -115,6 +121,17 @@ not sent when both are unlimited. A 429 has `X-RateLimit-Remaining: 0` and `Retr
 every public-api guard's permission on the endpoint before counting, so a request the stricter guard refuses (403
 `forbidden: missing permission <p>`) is not counted; the others only check their own permission.
 
+**With a users guard.** `RequirePublicApi` and the users plugin's guards (`.RequireQcliAuthorization(...)`,
+`[QcliAuthorize]`) can be combined on one endpoint, in either order (a route group's guard and its endpoint's, a
+controller's and its action's):
+
+- The request is counted once, by the public-api guard, and only after every permission on the endpoint passed: the
+  public-api guard checks the users guards' permissions too before counting (403 `forbidden: missing permission <p>`),
+  so a request the users guard would refuse is not counted.
+- A request the public-api guard refuses carries no caller, even when a users guard admitted it first: the caller
+  (`GetQcliCaller()`) and the `HttpContext.User` that guard set are removed.
+- The public-api guard always requires a `host` token, whatever the users guard's `hostTokenOnly`.
+
 **Store failures.** When the usage store fails after the request was counted (a later increment or the account read
 throws), the counts already taken are taken back (best effort) and the request answers 500 `internal server error`.
 
@@ -173,6 +190,10 @@ An unknown user throws `UsersApiException` 404 `user not found`.
 | `GET <BasePath>/openapi.json` | The document (OpenAPI 3.1), `Cache-Control: no-cache`, `Access-Control-Allow-Origin: *`; anonymous, credentials ignored |
 | `GET <BasePath>/swagger`, `<BasePath>/swagger/` | Swagger UI for that document only (no persisted authorization, "try it out" on, titled with `info.title`) |
 
+Under a request path base (`app.UsePathBase("/x")`, a proxy's prefix) the page, its document URL and the document's
+`servers` carry it (`/x<BasePath>/swagger/`, `/x<BasePath>/openapi.json`). A path base starting with `//` or `/\`
+answers 400 `{ "error": "invalid path base" }` on these routes.
+
 The document is the host's `AddOpenApi(DocumentName)` document. The plugin adds, only where the host has not:
 
 - `components.securitySchemes.qcliToken` (HTTP bearer, format `qcli_pat`) and a top-level `security` on it;
@@ -209,7 +230,9 @@ In one process exactly the limit is admitted, also under parallel requests. Acro
 increment-then-check-then-compensate never admits more than the limit; under contention a request may be refused
 while the account is just below it.
 
-## A second service that only serves the API
+## Two services
+
+### A service that only serves the API
 
 A service that serves the public API next to the main one (sharing its database) needs no CLI routes and no users
 routes of its own:
@@ -227,6 +250,27 @@ builder.Services.AddControllers().AddCli(cli =>
     cli.AddEfCorePublicApiUsageStore(o => o.UseNpgsql(connectionString));
 });
 ```
+
+### The main service: usage without the API
+
+The main service creates the tokens and shows their usage, but serves no public routes. `AddPublicApiUsage` adds only
+the usage side: `IPublicApiUsage` and `usage` on the users plugin's token views, over the usage store and the quota
+resolver. No guard, no OpenAPI document, no Swagger UI and no portal section (do not call `UseQodalisPublicApi()`):
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.AddUsers();
+    cli.AddEfCoreApiTokenStore(o => o.UseNpgsql(connectionString));
+    cli.AddPublicApiUsage(o => o.UseQuotaResolver<PlanQuotaResolver>());
+    cli.AddEfCorePublicApiUsageStore(o => o.UseNpgsql(connectionString));
+});
+```
+
+`AddPublicApiUsage(Action<PublicApiUsageOptions>? configure = null)` takes `UseQuotaResolver<T>()`,
+`UseQuotaResolver((caller, services, ct) => ...)` and `SetUsageStore<T>()` / `SetUsageStore(sp => ...)`;
+`AddEfCorePublicApiUsageStore` works before or after it. `AddPublicApi` includes it, so a service calls one or the
+other.
 
 Tokens must be created and revoked from one service only: the users plugin checks token names and the 20-token limit
 in the process that creates the token. Every service may validate tokens over the shared stores.

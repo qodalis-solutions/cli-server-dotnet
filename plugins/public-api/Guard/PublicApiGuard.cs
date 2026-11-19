@@ -48,6 +48,15 @@ internal sealed class PublicApiGuard
     /// </summary>
     public async Task<(int Status, string Error)?> CheckAsync(HttpContext http, string? permission)
     {
+        var refusal = await CheckCoreAsync(http, permission);
+        // A users guard that ran first (a route group's RequireQcliAuthorization) admitted the caller; a refused
+        // request never carries one.
+        if (refusal != null) QcliAuthorization.Revoke(http);
+        return refusal;
+    }
+
+    private async Task<(int Status, string Error)?> CheckCoreAsync(HttpContext http, string? permission)
+    {
         // Stacked guards (a route group and its endpoint, a controller and its action): the first one admitted and
         // counted the request; the others check only their own permission and never count again.
         // A marker without the admitted caller (something else wrote the key) runs the full check.
@@ -61,8 +70,8 @@ internal sealed class PublicApiGuard
         var auth = http.GetUsersAuth()!;
         var caller = auth.ToQcliCaller();
 
-        // Row 3: this guard's permission, then those of the other public-api guards on the endpoint, so a request a
-        // later guard refuses is not counted.
+        // Row 3: this guard's permission, then those of the other public-api guards and of the users guards on the
+        // endpoint, so a request a later guard refuses is not counted.
         foreach (var required in RequiredPermissions(http, permission))
         {
             if (!auth.Can(required)) return MissingPermission(required);
@@ -162,8 +171,9 @@ internal sealed class PublicApiGuard
     private static (int, string) MissingPermission(string permission) => (403, $"forbidden: missing permission {permission}");
 
     /// <summary>
-    /// <paramref name="own"/>, then the permissions of every public-api guard on the endpoint
-    /// (<see cref="PublicApiEndpointMetadata"/>, <see cref="RequirePublicApiAttribute"/>), in metadata order, once each.
+    /// <paramref name="own"/>, then the permissions of every public-api guard (<see cref="PublicApiEndpointMetadata"/>,
+    /// <see cref="RequirePublicApiAttribute"/>) and users guard (<see cref="IQcliAuthorizeMetadata"/>) on the endpoint,
+    /// in metadata order, once each.
     /// </summary>
     private static IEnumerable<string> RequiredPermissions(HttpContext http, string? own)
     {
@@ -173,12 +183,8 @@ internal sealed class PublicApiGuard
         if (metadata == null) yield break;
         foreach (var item in metadata)
         {
-            var required = item switch
-            {
-                PublicApiEndpointMetadata e => e.Permission,
-                RequirePublicApiAttribute a => a.Permission,
-                _ => null,
-            };
+            // Every guard of both plugins leaves IQcliAuthorizeMetadata on the endpoint.
+            var required = (item as IQcliAuthorizeMetadata)?.Permission;
             if (required != null && seen.Add(required)) yield return required;
         }
     }

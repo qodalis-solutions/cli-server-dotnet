@@ -487,7 +487,8 @@ public class PublicApiQuotaTests
         app => app.Use(async (context, next) =>
         {
             await next();
-            if (!context.Request.Path.StartsWithSegments("/v1")) return; // the public routes only
+            if (!context.Request.Path.StartsWithSegments("/v1") && !context.Request.Path.StartsWithSegments("/v3"))
+                return; // the public routes only
             seen.Enqueue((context.Response.StatusCode, context.GetQcliCaller() != null,
                 context.User.Identity?.IsAuthenticated == true));
         });
@@ -546,6 +547,43 @@ public class PublicApiQuotaTests
         Assert.Equal(429, (int)(await h.GetAsync("/v1/rates", token)).StatusCode);
 
         Assert.Equal([(200, true, true), (429, false, false)], seen.Where(s => s.Status is 200 or 429).ToList());
+    }
+
+    [Fact]
+    public async Task UsersGuardThenPublicApi_RefusalClearsTheUsersGuardsCaller()
+    {
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(int Status, bool Caller, bool User)>();
+        await using var h = await PublicApiTestHost.StartAsync(Quota(1, null), configureApp: RecordCaller(seen), endpoints: e =>
+        {
+            var group = e.MapGroup("/v3").RequireQcliAuthorization("rates:read"); // runs first
+            group.MapGet("/rates", () => "rates").RequirePublicApi();
+        });
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+
+        Assert.Equal(200, (int)(await h.GetAsync("/v3/rates", token)).StatusCode);
+        await AssertBodyAsync(await h.GetAsync("/v3/rates", token), 429, "quota exceeded: 1 requests per day");
+
+        Assert.Equal([(200, true, true), (429, false, false)], seen.ToList());
+        Assert.Equal(1, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task PublicApiThenUsersGuard_UsersPermissionPreCheckedBeforeCounting()
+    {
+        await using var h = await PublicApiTestHost.StartAsync(Quota(5, null), endpoints: e =>
+        {
+            var group = e.MapGroup("/v4").RequirePublicApi(); // runs first
+            group.MapGet("/banks", () => "banks").RequireQcliAuthorization("banks:read");
+        });
+        var (aliceId, ratesOnly) = await h.HostTokenAsync("alice", "rates:read", "banks:read");
+        ratesOnly = await h.NewHostTokenAsync(aliceId, "rates-only", "rates:read");
+        var both = await h.NewHostTokenAsync(aliceId, "both", "rates:read", "banks:read");
+
+        await AssertBodyAsync(await h.GetAsync("/v4/banks", ratesOnly), 403, "forbidden: missing permission banks:read");
+        Assert.Equal(0, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+
+        Assert.Equal(200, (int)(await h.GetAsync("/v4/banks", both)).StatusCode);
+        Assert.Equal(1, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
     }
 
     [Fact]
