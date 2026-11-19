@@ -49,10 +49,10 @@ internal sealed class PublicApiUsageService : IPublicApiUsage, IApiTokenUsagePro
 
     private readonly IPublicApiUsageStore _store;
     private readonly TimeProvider _time;
-    private readonly PublicApiOptions _options;
+    private readonly PublicApiUsageOptions _options;
     private readonly IServiceScopeFactory _scopes;
 
-    public PublicApiUsageService(IPublicApiUsageStore store, TimeProvider time, PublicApiOptions options, IServiceScopeFactory scopes)
+    public PublicApiUsageService(IPublicApiUsageStore store, TimeProvider time, PublicApiUsageOptions options, IServiceScopeFactory scopes)
     {
         _store = store;
         _time = time;

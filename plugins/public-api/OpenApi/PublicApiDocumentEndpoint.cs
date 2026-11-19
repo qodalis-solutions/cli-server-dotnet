@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -71,48 +73,117 @@ internal sealed class PublicApiDocumentEndpoint
     {
         var path = context.Request.Path.Value;
         var method = context.Request.Method;
-        if (path == _documentPath && (HttpMethods.IsGet(method) || HttpMethods.IsHead(method)))
+        var isDocument = path == _documentPath;
+        var isPage = path == _swaggerPath || path == _swaggerPath + "/" || path == _swaggerPath + "/index.html";
+        var isScript = path == _swaggerPath + "/index.js";
+        if (!isDocument && !isPage && !isScript)
         {
-            var json = await RenderAsync(context.Request, context.RequestAborted);
-            var response = context.Response;
-            response.StatusCode = StatusCodes.Status200OK;
-            response.ContentType = "application/json; charset=utf-8";
-            response.Headers.CacheControl = "no-cache";
-            response.Headers.AccessControlAllowOrigin = "*";
-            if (HttpMethods.IsGet(method)) await response.WriteAsync(json, Encoding.UTF8, context.RequestAborted);
+            await next();
             return;
         }
 
-        // Swagger UI answers its own page for /swagger and /swagger/ (no redirect); the page's base tag keeps the
-        // relative asset URLs under /swagger/.
-        if (path == _swaggerPath || path == _swaggerPath + "/")
-            context.Request.Path = _swaggerPath + "/index.html";
-        await next();
+        // The page, its script and the document's servers carry the request's path base; a protocol-relative one
+        // (//host or /\host) would point the browser at another origin.
+        var pathBase = context.Request.PathBase.Value ?? "";
+        if (pathBase.StartsWith("//", StringComparison.Ordinal) || pathBase.StartsWith("/\\", StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync("{\"error\":\"invalid path base\"}", context.RequestAborted);
+            return;
+        }
+
+        if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method))
+        {
+            await next();
+            return;
+        }
+
+        string body;
+        string contentType;
+        if (isDocument)
+        {
+            body = await RenderAsync(context.Request, context.RequestAborted);
+            contentType = "application/json; charset=utf-8";
+            context.Response.Headers.AccessControlAllowOrigin = "*";
+        }
+        else if (isPage)
+        {
+            body = RenderPage(pathBase, await CachedTitleAsync(context.RequestAborted));
+            contentType = "text/html; charset=utf-8";
+        }
+        else
+        {
+            body = RenderScript(pathBase, await CachedTitleAsync(context.RequestAborted));
+            contentType = "application/javascript; charset=utf-8";
+        }
+
+        var response = context.Response;
+        response.StatusCode = StatusCodes.Status200OK;
+        response.ContentType = contentType;
+        response.Headers.CacheControl = "no-cache";
+        if (HttpMethods.IsGet(method)) await response.WriteAsync(body, Encoding.UTF8, context.RequestAborted);
     }
 
-    /// <summary>Swagger UI's options: one document, no persisted authorization, "try it out" on.</summary>
-    public SwaggerUIOptions CreateSwaggerUIOptions()
+    private volatile string? _title;
+
+    /// <summary>The document's <c>info.title</c>, read on the first Swagger UI request (the document's endpoints are
+    /// only known once the app runs) and kept; concurrent first reads compute the same value.</summary>
+    private async Task<string> CachedTitleAsync(CancellationToken ct) => _title ??= await TitleAsync(ct);
+
+    /// <summary>Swagger UI's index page with its placeholders filled and a <c>&lt;base&gt;</c> of
+    /// <c>{PathBase}{BasePath}/swagger/</c>, so the relative asset URLs resolve under the page's own path.</summary>
+    private string RenderPage(string pathBase, string title)
     {
-        var ui = new SwaggerUIOptions { RoutePrefix = _swaggerPath.TrimStart('/') };
-        ui.SwaggerEndpoint(_documentPath, "API");
-        ui.ConfigObject.PersistAuthorization = false;
-        ui.ConfigObject.TryItOutEnabled = true;
-        var baseHref = WebUtility.HtmlEncode(_swaggerPath + "/");
-        ui.IndexStream = () => IndexWithBase(baseHref);
-        return ui;
+        var html = ReadResource("index.html")
+            .Replace("%(DocumentTitle)", WebUtility.HtmlEncode(title), StringComparison.Ordinal)
+            .Replace("%(StylesPath)", "./swagger-ui.css", StringComparison.Ordinal)
+            .Replace("%(HeadContent)", "", StringComparison.Ordinal)
+            .Replace("%(ScriptBundlePath)", "./swagger-ui-bundle.js", StringComparison.Ordinal)
+            .Replace("%(ScriptPresetsPath)", "./swagger-ui-standalone-preset.js", StringComparison.Ordinal);
+        var baseHref = WebUtility.HtmlEncode(pathBase + _swaggerPath + "/");
+        var head = html.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
+        return head < 0 ? html : html.Insert(head + "<head>".Length, $"\n    <base href=\"{baseHref}\" />");
     }
 
-    private static Stream IndexWithBase(string baseHref)
+    /// <summary>Swagger UI's script with one document (<c>{PathBase}{BasePath}/openapi.json</c>), no persisted
+    /// authorization and "try it out" on. The JSON encoder escapes <c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c> and quotes,
+    /// so the values cannot leave the script's object literal.</summary>
+    private string RenderScript(string pathBase, string title)
+    {
+        var config = new JsonObject
+        {
+            ["urls"] = new JsonArray(new JsonObject { ["url"] = pathBase + _documentPath, ["name"] = title }),
+            ["deepLinking"] = false,
+            ["persistAuthorization"] = false,
+            ["displayOperationId"] = false,
+            ["defaultModelsExpandDepth"] = 1,
+            ["defaultModelExpandDepth"] = 1,
+            ["defaultModelRendering"] = "example",
+            ["displayRequestDuration"] = false,
+            ["docExpansion"] = "list",
+            ["showExtensions"] = false,
+            ["showCommonExtensions"] = false,
+            ["supportedSubmitMethods"] = new JsonArray("get", "put", "post", "delete", "options", "head", "patch", "trace"),
+            ["tryItOutEnabled"] = true,
+        };
+        return ReadResource("index.js")
+            .Replace("%(ConfigObject)", config.ToJsonString(), StringComparison.Ordinal)
+            .Replace("%(OAuthConfigObject)", "{}", StringComparison.Ordinal)
+            .Replace("%(Interceptors)", "{}", StringComparison.Ordinal);
+    }
+
+    private static readonly ConcurrentDictionary<string, string> Resources = new();
+
+    private static string ReadResource(string name) => Resources.GetOrAdd(name, static n =>
     {
         using var source = typeof(SwaggerUIOptions).GetTypeInfo().Assembly
-            .GetManifestResourceStream("Swashbuckle.AspNetCore.SwaggerUI.index.html")
-            ?? throw new InvalidOperationException("public-api: Swagger UI's index page was not found");
+            .GetManifestResourceStream("Swashbuckle.AspNetCore.SwaggerUI." + n)
+            ?? throw new InvalidOperationException($"public-api: Swagger UI's {n} was not found");
         using var reader = new StreamReader(source);
-        var html = reader.ReadToEnd();
-        var head = html.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
-        html = head < 0
-            ? html
-            : html.Insert(head + "<head>".Length, $"\n    <base href=\"{baseHref}\" />");
-        return new MemoryStream(Encoding.UTF8.GetBytes(html));
-    }
+        return reader.ReadToEnd();
+    });
+
+    /// <summary>Swagger UI's options, used only for its static assets (the page and its script are served above).</summary>
+    public SwaggerUIOptions CreateSwaggerUIOptions() => new() { RoutePrefix = _swaggerPath.TrimStart('/') };
 }

@@ -4,7 +4,7 @@ using Qodalis.Cli.Plugin.Users.Authorization;
 namespace Qodalis.Cli.Plugin.PublicApi;
 
 /// <summary>Options of the public-api plugin (<c>cli.AddPublicApi(o => ...)</c>).</summary>
-public sealed class PublicApiOptions
+public sealed class PublicApiOptions : PublicApiUsageOptions
 {
     /// <summary>
     /// Where the OpenAPI document (<c>&lt;base&gt;/openapi.json</c>) and Swagger UI (<c>&lt;base&gt;/swagger</c>) are
@@ -24,6 +24,47 @@ public sealed class PublicApiOptions
     /// <summary>Days of per-day counters kept (usage views need 30). Default 31.</summary>
     public int UsageRetentionDays { get; set; } = 31;
 
+    /// <inheritdoc cref="PublicApiUsageOptions.UseQuotaResolver{T}"/>
+    public new PublicApiOptions UseQuotaResolver<T>() where T : class, IPublicApiQuotaResolver
+    {
+        base.UseQuotaResolver<T>();
+        return this;
+    }
+
+    /// <inheritdoc cref="PublicApiUsageOptions.UseQuotaResolver(Func{QcliCaller, IServiceProvider, CancellationToken, ValueTask{PublicApiQuota}})"/>
+    public new PublicApiOptions UseQuotaResolver(Func<QcliCaller, IServiceProvider, CancellationToken, ValueTask<PublicApiQuota>> resolver)
+    {
+        base.UseQuotaResolver(resolver);
+        return this;
+    }
+
+    /// <inheritdoc cref="PublicApiUsageOptions.SetUsageStore{T}"/>
+    public new PublicApiOptions SetUsageStore<T>() where T : class, IPublicApiUsageStore
+    {
+        base.SetUsageStore<T>();
+        return this;
+    }
+
+    /// <inheritdoc cref="PublicApiUsageOptions.SetUsageStore(Func{IServiceProvider, IPublicApiUsageStore})"/>
+    public new PublicApiOptions SetUsageStore(Func<IServiceProvider, IPublicApiUsageStore> factory)
+    {
+        base.SetUsageStore(factory);
+        return this;
+    }
+
+    /// <summary>True for a valid base path: starts with <c>/</c>, no trailing <c>/</c>, not <c>/</c>, no whitespace, <c>?</c> or <c>#</c>.</summary>
+    internal static bool IsValidBasePath(string? path) =>
+        !string.IsNullOrEmpty(path) && path[0] == '/' && path.Length > 1 && path[^1] != '/' &&
+        !path.Contains("//", StringComparison.Ordinal) && !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\');
+}
+
+/// <summary>
+/// The quota resolver and the usage store: what the usage service (<see cref="IPublicApiUsage"/>, the <c>usage</c> of
+/// token views) needs. <c>cli.AddPublicApiUsage(o => ...)</c> takes these alone, for an application that shows usage but
+/// serves no public routes; <see cref="PublicApiOptions"/> adds the guard's and the document's options.
+/// </summary>
+public class PublicApiUsageOptions
+{
     internal Func<QcliCaller, IServiceProvider, CancellationToken, ValueTask<PublicApiQuota>>? QuotaResolver { get; private set; }
     internal Type? QuotaResolverType { get; private set; }
     internal Func<IServiceProvider, IPublicApiUsageStore>? UsageStoreFactory { get; private set; }
@@ -32,7 +73,7 @@ public sealed class PublicApiOptions
     /// Resolves quotas with <typeparamref name="T"/>, registered as a scoped service (unless the host registered it)
     /// and resolved from the request's services for every guarded request.
     /// </summary>
-    public PublicApiOptions UseQuotaResolver<T>() where T : class, IPublicApiQuotaResolver
+    public PublicApiUsageOptions UseQuotaResolver<T>() where T : class, IPublicApiQuotaResolver
     {
         QuotaResolverType = typeof(T);
         QuotaResolver = null;
@@ -40,7 +81,7 @@ public sealed class PublicApiOptions
     }
 
     /// <summary>Resolves quotas with <paramref name="resolver"/>; the service provider is the request's.</summary>
-    public PublicApiOptions UseQuotaResolver(Func<QcliCaller, IServiceProvider, CancellationToken, ValueTask<PublicApiQuota>> resolver)
+    public PublicApiUsageOptions UseQuotaResolver(Func<QcliCaller, IServiceProvider, CancellationToken, ValueTask<PublicApiQuota>> resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         QuotaResolver = resolver;
@@ -49,14 +90,14 @@ public sealed class PublicApiOptions
     }
 
     /// <summary>Uses <typeparamref name="T"/> (constructed via DI, singleton) as the usage store.</summary>
-    public PublicApiOptions SetUsageStore<T>() where T : class, IPublicApiUsageStore
+    public PublicApiUsageOptions SetUsageStore<T>() where T : class, IPublicApiUsageStore
     {
         UsageStoreFactory = sp => ActivatorUtilities.GetServiceOrCreateInstance<T>(sp);
         return this;
     }
 
     /// <summary>Uses the store <paramref name="factory"/> builds (singleton) as the usage store.</summary>
-    public PublicApiOptions SetUsageStore(Func<IServiceProvider, IPublicApiUsageStore> factory)
+    public PublicApiUsageOptions SetUsageStore(Func<IServiceProvider, IPublicApiUsageStore> factory)
     {
         ArgumentNullException.ThrowIfNull(factory);
         UsageStoreFactory = factory;
@@ -72,9 +113,4 @@ public sealed class PublicApiOptions
                    ?? PublicApiQuota.Unlimited;
         return PublicApiQuota.Unlimited;
     }
-
-    /// <summary>True for a valid base path: starts with <c>/</c>, no trailing <c>/</c>, not <c>/</c>, no whitespace, <c>?</c> or <c>#</c>.</summary>
-    internal static bool IsValidBasePath(string? path) =>
-        !string.IsNullOrEmpty(path) && path[0] == '/' && path.Length > 1 && path[^1] != '/' &&
-        !path.Contains("//", StringComparison.Ordinal) && !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\');
 }
