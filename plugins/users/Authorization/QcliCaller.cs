@@ -24,7 +24,7 @@ public sealed record QcliCaller(
 /// <summary>Reads the caller a users-plugin guard admitted.</summary>
 public static class QcliCallerHttpContextExtensions
 {
-    private const string ItemKey = "Qodalis.Cli.Plugin.Users.Caller";
+    internal const string ItemKey = "Qodalis.Cli.Plugin.Users.Caller";
 
     /// <summary>The caller a guard admitted on this request, or null when no guard ran (or it refused).</summary>
     public static QcliCaller? GetQcliCaller(this HttpContext context) =>

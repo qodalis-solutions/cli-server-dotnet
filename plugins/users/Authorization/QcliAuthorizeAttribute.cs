@@ -75,8 +75,28 @@ public static class QcliAuthorization
         context.SetQcliCaller(auth.ToQcliCaller());
         var options = context.RequestServices.GetService<UsersModuleOptions>();
         if (options?.SetHostUser != false && context.User.Identity?.IsAuthenticated != true)
+        {
+            context.Items[ReplacedUserKey] = context.User;
             context.User = CliHostUser.Create(auth.ToCliPrincipal(), auth.User.Email, auth.ApiToken);
+        }
     }
+
+    /// <summary>
+    /// Undoes <see cref="Admit"/>: removes the caller and gives <c>HttpContext.User</c> back the principal it had
+    /// before, when <see cref="Admit"/> replaced it. A guard stacked after a users guard calls it when it refuses the
+    /// request, so a refused request never carries a caller. Does nothing for a request that was not admitted.
+    /// </summary>
+    public static void Revoke(HttpContext context)
+    {
+        context.Items.Remove(QcliCallerHttpContextExtensions.ItemKey);
+        if (context.Items.TryGetValue(ReplacedUserKey, out var previous) && previous is System.Security.Claims.ClaimsPrincipal user)
+        {
+            context.Items.Remove(ReplacedUserKey);
+            context.User = user;
+        }
+    }
+
+    private static readonly object ReplacedUserKey = new();
 }
 
 /// <summary>
