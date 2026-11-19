@@ -101,8 +101,10 @@ public static class CliShellAccess
             if (principal == null)
             {
                 var failure = context.Items.TryGetValue(CliAuthFailure.ItemKey, out var f) ? f as CliAuthFailure : null;
+                // A 403 closes with the plugin's own text (e.g. host tokens, origin not allowed, password change).
                 return failure?.StatusCode == StatusCodes.Status403Forbidden
-                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden, Forbidden)
+                    ? CliShellAccessResult.Deny(mode, CliShellCloseCodes.Forbidden,
+                        string.IsNullOrEmpty(failure.Message) ? Forbidden : failure.Message)
                     : CliShellAccessResult.Deny(mode, CliShellCloseCodes.Unauthorized, LoginRequired);
             }
             if (!principal.Can(CliRoutePolicy.ShellExecute))

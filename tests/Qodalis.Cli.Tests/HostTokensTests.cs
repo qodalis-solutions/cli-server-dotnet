@@ -43,6 +43,27 @@ internal sealed class CountingPermissionCatalog(ICliPermissionCatalog inner) : I
     }
 }
 
+/// <summary>A store that hands back the <c>host</c> audience spelled <paramref name="audience"/> (a custom store's data).</summary>
+internal sealed class RespellingTokenStore(string audience) : IApiTokenStore
+{
+    private readonly InMemoryApiTokenStore _inner = new();
+
+    private ApiToken? Respell(ApiToken? token)
+    {
+        if (token?.Audience == ApiTokenAudience.Host) token.Audience = audience;
+        return token;
+    }
+
+    public Task<ApiToken> CreateTokenAsync(ApiToken token) => _inner.CreateTokenAsync(token);
+    public async Task<ApiToken?> GetTokenByHashAsync(string tokenHash) => Respell(await _inner.GetTokenByHashAsync(tokenHash));
+    public async Task<ApiToken?> GetTokenAsync(string id) => Respell(await _inner.GetTokenAsync(id));
+    public async Task<List<ApiToken>> GetTokensAsync(string? userId = null) =>
+        (await _inner.GetTokensAsync(userId)).Select(t => Respell(t)!).ToList();
+    public Task DeleteTokenAsync(string id) => _inner.DeleteTokenAsync(id);
+    public Task DeleteUserTokensAsync(string userId) => _inner.DeleteUserTokensAsync(userId);
+    public Task UpdateLastUsedAsync(string id, long lastUsedAt) => _inner.UpdateLastUsedAsync(id, lastUsedAt);
+}
+
 /// <summary>
 /// <c>host</c> API tokens: refused on every route the users plugin authenticates (users routes, CLI routes with
 /// <c>ProtectServer</c>, the auth bridge) and accepted only by the host's <c>QcliAuthorize</c> guards.
@@ -203,5 +224,40 @@ public class HostTokensTests : IAsyncLifetime
         Assert.Equal(403, (int)res.StatusCode);
         Assert.Equal(Refused, await res.Content.ReadAsStringAsync());
         Assert.Equal(200, (int)(await h.GetAsync("/host/rates", host)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("HOST")]
+    [InlineData("api")]
+    public async Task UnknownStoredAudience_IsRefusedOnCliRoutes(string audience)
+    {
+        await using var h = await UsersTestHost.StartAsync(o =>
+            {
+                o.ProtectServer = true;
+                o.ApiTokenStore = new RespellingTokenStore(audience);
+            },
+            configureCli: Rates, configureApp: HostRoutes);
+        var root = await h.RootTokenAsync();
+        await h.CreateGroupAsync(root, "alice-group", "rates:read", "commands:execute");
+        var aliceId = (await h.CreateUserAsync(root, "alice", groups: ["alice-group"])).GetProperty("id").GetString()!;
+        var token = (await h.Service<IApiTokenManager>().CreateAsync(aliceId, new ApiTokenCreateOptions
+        {
+            Name = "site", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"],
+        })).Token;
+
+        foreach (var path in new[] { "/api/v1/qcli/commands", "/api/v1/qcli/tokens" })
+        {
+            var res = await h.GetAsync(path, token);
+            Assert.Equal(403, (int)res.StatusCode);
+            Assert.Equal(Refused, await res.Content.ReadAsStringAsync());
+        }
+        Assert.Equal(200, (int)(await h.GetAsync("/host/rates", token)).StatusCode);
+    }
+
+    [Fact]
+    public void EmptyOrNullAudience_ReadsAsCli()
+    {
+        Assert.Equal("cli", new ApiToken { Audience = null! }.Audience);
+        Assert.Equal("cli", new ApiToken { Audience = "" }.Audience);
     }
 }

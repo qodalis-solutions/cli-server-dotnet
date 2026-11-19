@@ -45,7 +45,9 @@ public sealed class CreatedApiToken
 /// API tokens the host application creates, lists and revokes for its users, with the validation, limits, audit
 /// entries and events of the <c>/tokens</c> routes. Only the host creates <c>host</c> tokens: they carry permissions
 /// the host declared with <c>cli.AddPermissions(...)</c> and are accepted only by its <c>[QcliAuthorize]</c> guards.
-/// Errors are <see cref="UsersApiException"/>s with the status and text the HTTP route would answer.
+/// Errors are <see cref="UsersApiException"/>s with the status and text the HTTP route would answer; a null or empty
+/// user id throws <see cref="ArgumentException"/>. The <c>CancellationToken</c> parameters are not observed yet: the
+/// users plugin's stores take none.
 /// </summary>
 public interface IApiTokenManager
 {
@@ -84,6 +86,7 @@ internal sealed class ApiTokenManager : IApiTokenManager
 
     public async Task<CreatedApiToken> CreateAsync(string userId, ApiTokenCreateOptions options, CancellationToken ct = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(userId);
         ArgumentNullException.ThrowIfNull(options);
         if (!_options.ApiTokensEnabled)
             throw new UsersApiException(501, UsersApiFilterAttribute.ExternalAuthMessage);
@@ -101,6 +104,7 @@ internal sealed class ApiTokenManager : IApiTokenManager
 
     public async Task<IReadOnlyList<ApiTokenView>> ListAsync(string userId, CancellationToken ct = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(userId);
         var tokens = await _auth.ListApiTokensAsync(userId);
         if (tokens.Count == 0) return [];
         var name = (await _users.GetUserAsync(userId))?.Name ?? userId;
@@ -109,6 +113,7 @@ internal sealed class ApiTokenManager : IApiTokenManager
 
     public async Task<bool> RevokeAsync(string userId, string tokenId, string? actor = null, CancellationToken ct = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(userId);
         var token = (await _auth.ListApiTokensAsync(userId)).FirstOrDefault(t => t.Id == tokenId);
         if (token == null) return false;
 
@@ -121,6 +126,7 @@ internal sealed class ApiTokenManager : IApiTokenManager
     public async Task<IReadOnlyList<CliPermission>> GetGrantablePermissionsAsync(string userId,
         string audience = ApiTokenAudience.Cli, CancellationToken ct = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(userId);
         var user = await _users.GetUserAsync(userId);
         if (user == null || user.Id != userId)
             throw UsersApiException.NotFound("user not found");
