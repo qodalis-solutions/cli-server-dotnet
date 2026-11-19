@@ -9,6 +9,17 @@ using Qodalis.Cli.Plugin.Users.Stores;
 
 namespace Qodalis.Cli.Plugin.Users.EfCore;
 
+/// <summary>Options of <see cref="EfCoreApiTokenStore"/> (<c>AddEfCoreApiTokenStore(..., o =&gt; ...)</c>).</summary>
+public sealed class EfCoreApiTokenStoreOptions
+{
+    /// <summary>
+    /// Adds columns newer versions need (<c>Audience</c>, 1.0.0-beta.29) to an existing <c>api_tokens</c> table on
+    /// first use. On by default; turn it off when the host's own migrations own the table: the store then refuses
+    /// to start (<see cref="InvalidOperationException"/>) until the migration that adds the column has run.
+    /// </summary>
+    public bool UpgradeSchema { get; set; } = true;
+}
+
 /// <summary>
 /// <see cref="IApiTokenStore"/> backed by EF Core (table <c>api_tokens</c>): API tokens and the tokens of linked
 /// terminals survive restarts and are shared by every instance of the server. Expired tokens are deleted as they are
@@ -26,11 +37,17 @@ public class EfCoreApiTokenStore : IApiTokenStore
     /// </summary>
     /// <param name="dbFactory">The DbContext factory for creating database contexts.</param>
     /// <param name="time">The clock for pruning expired tokens (the system clock when not given).</param>
-    public EfCoreApiTokenStore(IDbContextFactory<ApiTokenStorageDbContext> dbFactory, TimeProvider? time = null)
+    /// <param name="options">Schema options (defaults when not given).</param>
+    public EfCoreApiTokenStore(IDbContextFactory<ApiTokenStorageDbContext> dbFactory, TimeProvider? time = null,
+        EfCoreApiTokenStoreOptions? options = null)
     {
         _dbFactory = dbFactory;
         _time = time ?? TimeProvider.System;
+        Options = options ?? new EfCoreApiTokenStoreOptions();
     }
+
+    /// <summary>The store's options.</summary>
+    public EfCoreApiTokenStoreOptions Options { get; }
 
     /// <inheritdoc />
     public async Task<ApiToken> CreateTokenAsync(ApiToken token)
@@ -112,9 +129,14 @@ public class EfCoreApiTokenStore : IApiTokenStore
             {
                 if (!_initialized)
                 {
-                    await EnsureTableAsync(db, cancellationToken);
+                    await EnsureTableAsync(db, Options.UpgradeSchema, cancellationToken);
                     _initialized = true;
                 }
+            }
+            catch
+            {
+                await db.DisposeAsync();
+                throw;
             }
             finally
             {
@@ -127,9 +149,10 @@ public class EfCoreApiTokenStore : IApiTokenStore
     /// <summary>
     /// Creates the database with the table, or only the table in a database that already exists (the host's own,
     /// whose other tables make <c>EnsureCreated</c> do nothing). A table the host created in its migrations is kept.
-    /// A table created before tokens had an audience (1.0.0-beta.28 and older) gets the <c>Audience</c> column.
+    /// A table created before tokens had an audience (1.0.0-beta.28 and older) gets the <c>Audience</c> column, unless
+    /// <paramref name="upgradeSchema"/> is off: then a missing column stops the store with a clear error.
     /// </summary>
-    private static async Task EnsureTableAsync(ApiTokenStorageDbContext db, CancellationToken cancellationToken)
+    private static async Task EnsureTableAsync(ApiTokenStorageDbContext db, bool upgradeSchema, CancellationToken cancellationToken)
     {
         if (await db.Database.EnsureCreatedAsync(cancellationToken))
             return;
@@ -148,12 +171,18 @@ public class EfCoreApiTokenStore : IApiTokenStore
             }
         }
 
-        await EnsureAudienceColumnAsync(db, cancellationToken);
+        if (upgradeSchema)
+            await EnsureAudienceColumnAsync(db, cancellationToken);
+        else if (!await HasAudienceColumnAsync(db, cancellationToken))
+            throw new InvalidOperationException(
+                "The api_tokens table has no Audience column (added in 1.0.0-beta.29): apply the host migration that " +
+                "adds it, or leave EfCoreApiTokenStoreOptions.UpgradeSchema on so the store adds it.");
     }
 
     /// <summary>
     /// Adds the nullable <c>Audience</c> column to an existing table that lacks it (existing rows keep null, read as
-    /// <c>cli</c>). Identifiers are quoted by the provider, so it works on SQLite, PostgreSQL, SQL Server and MySQL.
+    /// <c>cli</c>). Identifiers are quoted by the provider and the column type is the model's for the provider
+    /// (<c>nvarchar(16)</c> on SQL Server, <c>character varying(16)</c> on PostgreSQL, ...), as migrations create it.
     /// </summary>
     private static async Task EnsureAudienceColumnAsync(ApiTokenStorageDbContext db, CancellationToken cancellationToken)
     {
@@ -163,10 +192,12 @@ public class EfCoreApiTokenStore : IApiTokenStore
         var entityType = db.Model.FindEntityType(typeof(ApiTokenEntity))!;
         var tableName = entityType.GetTableName()!;
         var store = StoreObjectIdentifier.Table(tableName, entityType.GetSchema());
-        var columnName = entityType.FindProperty(nameof(ApiTokenEntity.Audience))!.GetColumnName(store)!;
+        var property = entityType.FindProperty(nameof(ApiTokenEntity.Audience))!;
+        var columnName = property.GetColumnName(store)!;
+        var columnType = property.GetColumnType(store);
         var sql = db.GetService<ISqlGenerationHelper>();
         var alter = $"ALTER TABLE {sql.DelimitIdentifier(tableName, entityType.GetSchema())} " +
-                    $"ADD {sql.DelimitIdentifier(columnName)} VARCHAR(16) NULL";
+                    $"ADD {sql.DelimitIdentifier(columnName)} {columnType} NULL";
         try
         {
             await db.Database.ExecuteSqlRawAsync(alter, cancellationToken);

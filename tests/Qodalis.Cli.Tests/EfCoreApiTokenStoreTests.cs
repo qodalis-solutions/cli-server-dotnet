@@ -164,6 +164,62 @@ public class EfCoreApiTokenStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task WithUpgradeSchemaOff_AnOldTableIsNotAltered_AndTheStoreFailsClearly()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        CreateOldTable(connection);
+        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options;
+        var store = new EfCoreApiTokenStore(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)),
+            _time, new EfCoreApiTokenStoreOptions { UpgradeSchema = false });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => store.GetTokenAsync("old"));
+
+        Assert.Contains("Audience", ex.Message);
+        Assert.Contains("UpgradeSchema", ex.Message);
+        Assert.DoesNotContain("Audience", Columns(connection));
+
+        // Once the host's migration added the column, the same store works.
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "ALTER TABLE api_tokens ADD Audience TEXT NULL";
+            command.ExecuteNonQuery();
+        }
+        Assert.Equal("cli", (await store.GetTokenAsync("old"))!.Audience);
+    }
+
+    [Fact]
+    public void AddEfCoreApiTokenStore_PassesTheOptions()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddControllers().AddCli(cli =>
+        {
+            cli.AddUsers();
+            cli.AddEfCoreApiTokenStore(o => o.UseSqlite(_connection), o => o.UpgradeSchema = false);
+        });
+
+        var store = Assert.IsType<EfCoreApiTokenStore>(services.BuildServiceProvider().GetRequiredService<IApiTokenStore>());
+        Assert.False(store.Options.UpgradeSchema);
+    }
+
+    [Fact]
+    public async Task UpgradeUsesTheModelsColumnType()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        CreateOldTable(connection);
+        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options;
+        var store = new EfCoreApiTokenStore(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)), _time);
+
+        await store.GetTokenAsync("old");
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT type FROM pragma_table_info('api_tokens') WHERE name = 'Audience'";
+        Assert.Equal("TEXT", command.ExecuteScalar());
+    }
+
+    [Fact]
     public void ReplacesTheUsersPluginsInMemoryStore_BeforeOrAfterAddUsers()
     {
         foreach (var storeFirst in new[] { true, false })

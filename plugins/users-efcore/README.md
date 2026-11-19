@@ -24,7 +24,7 @@ builder.Services
     });
 ```
 
-The `api_tokens` table is created on first use, also inside a database that already has other tables. Expired tokens are deleted when tokens are listed (they are refused anyway). A table created by 1.0.0-beta.28 or older gets the nullable `Audience` column on first use (`ALTER TABLE ... ADD`); its rows keep `NULL`, read as `cli`.
+The `api_tokens` table is created on first use, also inside a database that already has other tables. Expired tokens are deleted when tokens are listed (they are refused anyway). A table created by 1.0.0-beta.28 or older gets the nullable `Audience` column on first use (see [Upgrading](#upgrading-from-100-beta28-or-older-the-audience-column)); its rows keep `NULL`, read as `cli`.
 
 ## Hosts with their own sign-in
 
@@ -46,7 +46,31 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 }
 ```
 
-After upgrading from 1.0.0-beta.28 or older, add a migration for the new `Audience` column (`dotnet ef migrations add QcliApiTokenAudience`); the store then finds the column and changes nothing.
+### Upgrading from 1.0.0-beta.28 or older (the `Audience` column)
+
+By default the store adds the nullable `Audience` column to an existing `api_tokens` table the first time it is used (`ALTER TABLE ... ADD`, with the column type the model gives the provider: `nvarchar(16)` on SQL Server, `character varying(16)` on PostgreSQL). If the app starts before the host's own migration runs, the store adds the column first. A plain `AddColumn` migration then fails with "column already exists". A host whose migrations own the table therefore picks one of these:
+
+1. **Turn the automatic upgrade off and add the column in a migration** (recommended; works on every provider, including SQLite):
+
+   ```csharp
+   cli.AddEfCoreApiTokenStore(o => o.UseSqlServer(connectionString), o => o.UpgradeSchema = false);
+   ```
+
+   Then run `dotnet ef migrations add QcliApiTokenAudience`. Safe order: apply the migration (`dotnet ef database update`, or `Database.Migrate()` at startup before requests are served), then let the app serve requests. Until the column exists, the store refuses to work: every token operation throws an `InvalidOperationException` that names the missing `Audience` column and `UpgradeSchema`. Tokens are not read with a guessed audience. Once the migration has run, the same process recovers on the next call.
+
+2. **Keep the automatic upgrade and write the migration idempotently**, so it succeeds whether or not the store added the column first (either order is safe). Replace the generated `AddColumn` with:
+
+   ```csharp
+   // PostgreSQL (and MariaDB): ADD COLUMN IF NOT EXISTS
+   migrationBuilder.Sql("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS \"Audience\" character varying(16) NULL;");
+
+   // SQL Server: guarded by COL_LENGTH
+   migrationBuilder.Sql("IF COL_LENGTH('api_tokens', 'Audience') IS NULL ALTER TABLE [api_tokens] ADD [Audience] nvarchar(16) NULL;");
+   ```
+
+   MySQL has no `ADD COLUMN IF NOT EXISTS`: check `information_schema.COLUMNS` first, or use option 1. SQLite has no conditional `ADD COLUMN`; use option 1.
+
+Existing rows keep `NULL`, which reads as `cli`.
 
 ## License
 

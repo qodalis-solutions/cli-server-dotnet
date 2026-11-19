@@ -19,13 +19,17 @@ public static class EfCoreApiTokenStoreExtensions
     /// </summary>
     /// <param name="builder">The CLI builder instance.</param>
     /// <param name="configure">Callback to configure the <see cref="DbContextOptionsBuilder"/> (e.g., connection string).</param>
+    /// <param name="options">Optional store options, e.g. <c>o =&gt; o.UpgradeSchema = false</c> when the host's migrations own the table.</param>
     /// <returns>The builder for chaining.</returns>
-    public static CliBuilder AddEfCoreApiTokenStore(this CliBuilder builder, Action<DbContextOptionsBuilder> configure)
+    public static CliBuilder AddEfCoreApiTokenStore(this CliBuilder builder, Action<DbContextOptionsBuilder> configure,
+        Action<EfCoreApiTokenStoreOptions>? options = null)
     {
+        var storeOptions = new EfCoreApiTokenStoreOptions();
+        options?.Invoke(storeOptions);
         builder.Services.AddDbContextFactory<ApiTokenStorageDbContext>(configure);
         builder.Services.RemoveAll<IApiTokenStore>();
         builder.Services.AddSingleton<IApiTokenStore>(sp => new EfCoreApiTokenStore(
-            sp.GetRequiredService<IDbContextFactory<ApiTokenStorageDbContext>>(), sp.GetService<TimeProvider>()));
+            sp.GetRequiredService<IDbContextFactory<ApiTokenStorageDbContext>>(), sp.GetService<TimeProvider>(), storeOptions));
         return builder.AddInstalledPlugin(typeof(EfCoreApiTokenStore).Assembly);
     }
 }
