@@ -68,10 +68,30 @@ public static class CliBuilderUsersExtensions
         services.AddSingleton<UsersBootstrapService>();
         services.AddHostedService(sp => sp.GetRequiredService<UsersBootstrapService>());
 
+        builder.AddPermissions(AddCatalogEntries, CliPermissionSurface.Cli);
         builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
         return builder;
     }
+
+    /// <summary>The permissions the plugin's routes check, for the permission pickers (audit:* are core's).</summary>
+    private static void AddCatalogEntries(CliPermissionCatalogBuilder p) => p
+        .Group("Users")
+        .Add(UsersPermissions.UsersRead, "See users and their permissions")
+        .Add(UsersPermissions.UsersCreate, "Create users")
+        .Add(UsersPermissions.UsersUpdate, "Change users, their groups and passwords")
+        .Add(UsersPermissions.UsersDelete, "Delete users")
+        .Group("Groups")
+        .Add(UsersPermissions.GroupsRead, "See groups")
+        .Add(UsersPermissions.GroupsCreate, "Create groups")
+        .Add(UsersPermissions.GroupsUpdate, "Change groups and their permissions")
+        .Add(UsersPermissions.GroupsDelete, "Delete groups")
+        .Group("Sessions")
+        .Add(UsersPermissions.SessionsRead, "See every user's sessions")
+        .Add(UsersPermissions.SessionsRevoke, "End other users' sessions")
+        .Group("Tokens")
+        .Add(UsersPermissions.TokensRead, "See every user's API tokens")
+        .Add(UsersPermissions.TokensRevoke, "Revoke other users' API tokens");
 
     private static void RegisterStore<TService, TDefault>(IServiceCollection services, UsersModuleOptions options, TService? instance)
         where TService : class

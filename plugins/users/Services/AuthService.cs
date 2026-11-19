@@ -104,6 +104,8 @@ public partial class AuthService
     private const long DayMs = 24L * 60 * 60 * 1000;
 
     public const string ApiTokensCannotCreateTokensMessage = "forbidden: API tokens cannot create tokens";
+    public const string HostTokensCreatedByHostMessage = "host tokens can only be created by the host application";
+    public const string InvalidAudienceMessage = "audience must be cli or host";
     public const string ApiTokensCannotChangePasswordsMessage = "forbidden: API tokens cannot change passwords";
 
     [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9._ -]{1,64}$")]
@@ -959,6 +961,7 @@ public partial class AuthService
         CreatedAt = token.CreatedAt,
         ExpiresAt = token.ExpiresAt,
         LastUsedAt = token.LastUsedAt,
+        Audience = token.Audience,
         Permissions = token.Permissions == null ? null : [.. token.Permissions],
     };
 
@@ -972,6 +975,19 @@ public partial class AuthService
     {
         if (caller.ApiToken != null)
             throw UsersApiException.Forbidden(ApiTokensCannotCreateTokensMessage);
+
+        // Only cli tokens over HTTP: host tokens come from IApiTokenManager.
+        switch (request.Audience.ValueKind)
+        {
+            case JsonValueKind.Undefined:
+                break;
+            case JsonValueKind.String when request.Audience.GetString() == ApiTokenAudience.Cli:
+                break;
+            case JsonValueKind.String when request.Audience.GetString() == ApiTokenAudience.Host:
+                throw UsersApiException.BadRequest(HostTokensCreatedByHostMessage);
+            default:
+                throw UsersApiException.BadRequest(InvalidAudienceMessage);
+        }
 
         var name = request.Name;
         if (name == null || !ApiTokenNameRegex().IsMatch(name))

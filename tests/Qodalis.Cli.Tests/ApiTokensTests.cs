@@ -77,6 +77,54 @@ public class ApiTokensTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Create_ReturnsAudienceCli()
+    {
+        var res = await _h.PostAsync("tokens", _root, new { name = "ci", permissions = new[] { "files:read" } });
+        Assert.Equal(201, (int)res.StatusCode);
+        var view = (await UsersTestHost.ReadJsonAsync(res)).GetProperty("apiToken");
+        Assert.Equal("cli", view.GetProperty("audience").GetString());
+        var keys = view.EnumerateObject().Select(p => p.Name).ToList();
+        Assert.Equal(keys.IndexOf("lastUsedAt") + 1, keys.IndexOf("audience"));
+        Assert.Equal(keys.IndexOf("audience") + 1, keys.IndexOf("permissions"));
+
+        var list = await UsersTestHost.ReadJsonAsync(await _h.GetAsync("tokens", _root));
+        Assert.Equal("cli", list[0].GetProperty("audience").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Create_AudienceCli_Accepted(bool withAudience)
+    {
+        object body = withAudience ? new { name = "ci", audience = "cli" } : new { name = "ci" };
+
+        var (_, view) = await CreateTokenAsync(_root, body);
+
+        Assert.Equal("cli", view.GetProperty("audience").GetString());
+    }
+
+    [Fact]
+    public async Task Create_AudienceHost_Returns400()
+    {
+        var res = await _h.PostAsync("tokens", _root, new { name = "site", audience = "host" });
+
+        Assert.Equal("host tokens can only be created by the host application",
+            await UsersTestHost.AssertErrorAsync(res, 400));
+    }
+
+    [Theory]
+    [InlineData("""{"name":"ci","audience":"HOST "}""")]
+    [InlineData("""{"name":"ci","audience":"api"}""")]
+    [InlineData("""{"name":"ci","audience":1}""")]
+    [InlineData("""{"name":"ci","audience":null}""")]
+    public async Task Create_InvalidAudience_Returns400(string body)
+    {
+        var res = await _h.PostAsync("tokens", _root, body);
+
+        Assert.Equal("audience must be cli or host", await UsersTestHost.AssertErrorAsync(res, 400));
+    }
+
+    [Fact]
     public async Task Create_StoresOnlyTheHash()
     {
         var (token, view) = await CreateTokenAsync(_root, new { name = "hashed" });

@@ -50,6 +50,15 @@ public class PermissionCatalogTests
     }
 
     [Fact]
+    public void HostEntries_ComeAfterPluginEntries_WhateverTheCallOrder()
+    {
+        _builder.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"));
+        _builder.AddPermissions(p => p.Group("Things").Add("things:read", "Read things"), CliPermissionSurface.Cli);
+
+        Assert.Equal(["things:read", "rates:read"], Resolve().All.Skip(11).Select(p => p.Name));
+    }
+
+    [Fact]
     public void AddPermissions_WithCliSurface()
     {
         _builder.AddPermissions(p => p.Group("Things").Add("things:read", "Read things"), CliPermissionSurface.Cli);
