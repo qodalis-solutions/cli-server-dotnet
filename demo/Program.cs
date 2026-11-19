@@ -16,6 +16,9 @@ using Qodalis.Cli.Plugin.DataExplorer.Redis;
 using Qodalis.Cli.Plugin.DataExplorer.Elasticsearch;
 using Qodalis.Cli.Plugin.Aws;
 using Qodalis.Cli.Plugin.Users.Extensions;
+using Qodalis.Cli.Plugin.PublicApi;
+using Qodalis.Cli.Plugin.Docs;
+using Qodalis.Cli.Plugin.Portal;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -275,6 +278,24 @@ builder.Services
 
         cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
+
+        // ---------------------------------------------------------------
+        // Public API, guides and the portal site
+        // ---------------------------------------------------------------
+        // GET /v1/demo/time (below) is a public API route: only host tokens holding demo:read, created by the host
+        // application (IApiTokenManager.CreateAsync(userId, new() { Name = "site", Audience = "host",
+        // Permissions = ["demo:read"] })), 1000 requests a day and 60 a minute per account. Its OpenAPI document is
+        // served at /qcli/api/openapi.json with Swagger UI at /qcli/api/swagger; the guides in ./docs at
+        // /qcli/docs/pages; the portal site with both at /qcli/portal.
+        cli.AddPermissions(p => p.Group("Demo").Add("demo:read", "The demo's public API"));
+        cli.AddPublicApi(o => o.UseQuotaResolver((_, _, _) => ValueTask.FromResult(new PublicApiQuota(1000, 60))));
+        cli.AddDocs(o =>
+        {
+            o.Name = "Qodalis CLI demo";
+            o.Variables["support"] = "support@qodalis.com";
+            o.AddFolder("docs");
+        });
+        cli.AddPortal(o => o.Name = "Qodalis CLI demo");
     })
     .AddJsonOptions(options =>
     {
@@ -284,6 +305,8 @@ builder.Services
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+// The public API's own document: only the routes in the "public" group.
+builder.Services.AddOpenApi("public", o => o.ShouldInclude = d => d.GroupName == "public");
 
 var app = builder.Build();
 
@@ -299,8 +322,16 @@ app.UseCors();
 app.UseHttpsRedirection();
 app.UseQodalisUsers();
 app.UseQodalisAdmin();
+app.UseQodalisDocs();
+app.UseQodalisPublicApi();
+app.UseQodalisPortal();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/v1/demo/time", () => new { utc = DateTimeOffset.UtcNow })
+    .RequirePublicApi("demo:read")
+    .WithGroupName("public")
+    .WithTags("Demo")
+    .WithSummary("The server's time (UTC)");
 app.UseCli();
 
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();

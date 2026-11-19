@@ -51,6 +51,8 @@
     <ProjectReference Include="..\..\plugins\public-api-efcore\Qodalis.Cli.Plugin.PublicApi.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\docs\Qodalis.Cli.Plugin.Docs.csproj" />
     <ProjectReference Include="..\..\plugins\portal\Qodalis.Cli.Plugin.Portal.csproj" />
+    <!-- The demo server, for its smoke test (an alias: Qodalis.Cli.Server has a Program too) -->
+    <ProjectReference Include="..\..\demo\Demo.csproj" Aliases="demo" />
     <ProjectReference Include="..\..\plugins\data-explorer-sql\Qodalis.Cli.Plugin.DataExplorer.Sql.csproj" />
     <ProjectReference Include="..\..\plugins\data-explorer-postgres\Qodalis.Cli.Plugin.DataExplorer.Postgres.csproj" />
   </ItemGroup>

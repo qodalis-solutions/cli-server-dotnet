@@ -12,6 +12,9 @@ COPY plugins/weather/Qodalis.Cli.Plugin.Weather.csproj plugins/weather/
 COPY plugins/jobs/Qodalis.Cli.Plugin.Jobs.csproj plugins/jobs/
 COPY plugins/users/Qodalis.Cli.Plugin.Users.csproj plugins/users/
 COPY plugins/admin/Qodalis.Cli.Plugin.Admin.csproj plugins/admin/
+COPY plugins/public-api/Qodalis.Cli.Plugin.PublicApi.csproj plugins/public-api/
+COPY plugins/docs/Qodalis.Cli.Plugin.Docs.csproj plugins/docs/
+COPY plugins/portal/Qodalis.Cli.Plugin.Portal.csproj plugins/portal/
 COPY plugins/data-explorer-sql/Qodalis.Cli.Plugin.DataExplorer.Sql.csproj plugins/data-explorer-sql/
 COPY plugins/data-explorer-mongo/Qodalis.Cli.Plugin.DataExplorer.Mongo.csproj plugins/data-explorer-mongo/
 COPY plugins/data-explorer-postgres/Qodalis.Cli.Plugin.DataExplorer.Postgres.csproj plugins/data-explorer-postgres/
@@ -33,6 +36,7 @@ COPY demo/ demo/
 # Install dashboard SPA for embedding into the admin plugin
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
     && cd plugins/admin && npm install \
+    && (cd ../portal && npm install || echo "portal site not published yet: the portal is not served") \
     && apt-get purge -y nodejs npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 RUN dotnet publish demo/Demo.csproj -c Release -o /app/publish
