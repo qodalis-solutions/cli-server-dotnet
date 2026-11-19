@@ -273,6 +273,9 @@ public class PortalPluginTests
         yield return ["link-label", "invalid portal footer link: "];
         yield return ["path", "invalid portal path: qcli"];
         yield return ["path-trailing", "invalid portal path: /docs/"];
+        foreach (var cli in new[] { "/api", "/ws", "/api/v1", "/API/V1", "/api/v2", "/api/v1/qcli", "/api/v1/qcli/docs",
+                     "/Api/Qcli/portal", "/api/qcli", "/api/cli/x", "/ws/qcli", "/ws/v1/qcli/portal" })
+            yield return ["path:" + cli, "invalid portal path: " + cli];
     }
 
     [Theory]
@@ -297,6 +300,7 @@ public class PortalPluginTests
             "link-label" => o => o.FooterLinks[0] = new PortalLink("", "/terms"),
             "path" => o => o.Path = "qcli",
             "path-trailing" => o => o.Path = "/docs/",
+            _ when kind.StartsWith("path:", StringComparison.Ordinal) => o => o.Path = kind["path:".Length..],
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
@@ -322,6 +326,18 @@ public class PortalPluginTests
             configureServices: s => s.AddSingleton(new CliPortalSection(CliPortalSection.Docs, "More", "/more"))));
 
         Assert.Equal("portal section already registered: docs", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/apis")]
+    [InlineData("/api-docs")]
+    [InlineData("/api/docs")]
+    [InlineData("/docs/api/v1/qcli")]
+    public async Task PathsNextToTheCliRoutes_Accepted(string path)
+    {
+        using var host = await StartAsync(o => o.Path = path);
+
+        Assert.Equal(200, (await SendAsync(host, path + "/portal.json")).Status);
     }
 
     [Fact]

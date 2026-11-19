@@ -48,7 +48,7 @@ app.MapControllers();
 
 | Option | Default | Description |
 |---|---|---|
-| `Path` | `/qcli/portal` | The mount: starts with `/`, no trailing `/`; `/` mounts the site at the root |
+| `Path` | `/qcli/portal` | The mount: starts with `/`, no trailing `/`; `/` mounts the site at the root. A mount holding the CLI's routes or inside them (`/api`, `/ws`, `/api/v1`, `/api/v1/qcli/...`, `/api/qcli/...`, `/api/cli/...`, any case) is refused |
 | `Name` | `Documentation` | The portal's name: 1-80 characters without control characters |
 | `LogoUrl` | `null` | An http(s) URL, a root-relative path or a base64 `data:image/…` URL (up to 200 000 characters) |
 | `Theme` | mode `System`, no colours | `Mode` (`System`, `Dark`, `Light`) and the `Dark` / `Light` colours: the admin dashboard's 21 tokens (`Primary`, `PrimaryHover`, `OnPrimary`, `Accent`, `Background`, `BackgroundAccent`, `Sidebar`, `Surface`, `Popover`, `Control`, `ControlHover`, `Border`, `Overlay`, `Heading`, `Text`, `Muted`, `Subtle`, `Success`, `Warning`, `Error`, `Info`) |

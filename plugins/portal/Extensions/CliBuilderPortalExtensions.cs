@@ -28,6 +28,17 @@ public static partial class CliBuilderPortalExtensions
     [GeneratedRegex("<base\\s+href=\"/\"\\s*/?>")]
     private static partial Regex BaseTag();
 
+    // The CLI's routes: /api/<v>/qcli/..., /api/qcli/..., /api/cli/..., /ws/... (matched with a trailing "/").
+    [GeneratedRegex(@"^/(api|ws)/(v\d+/)?(qcli|cli)(/|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex CliPath();
+
+    // Their parents: /api, /ws, /api/v1, /ws/v1.
+    [GeneratedRegex(@"^/(api|ws)(/v\d+)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex CliParent();
+
+    /// <summary>A mount that holds the CLI's routes or sits inside them.</summary>
+    private static bool HoldsCliRoutes(string path) => CliParent().IsMatch(path) || CliPath().IsMatch(path + "/");
+
     /// <summary>
     /// Adds the portal plugin: the prebuilt portal site (<c>@qodalis/cli-server-portal</c>) at
     /// <see cref="PortalOptions.Path"/>, showing the guides of the docs plugin and the API reference of the public-api
@@ -187,7 +198,8 @@ public static partial class CliBuilderPortalExtensions
         var valid = path == "/" ||
                     (!string.IsNullOrEmpty(path) && path[0] == '/' && path[^1] != '/' &&
                      !path.Contains("//", StringComparison.Ordinal) &&
-                     !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\' or '"' or '<' or '>'));
+                     !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\' or '"' or '<' or '>') &&
+                     !HoldsCliRoutes(path));
         if (!valid) throw new ArgumentException($"invalid portal path: {path}");
         return path!;
     }

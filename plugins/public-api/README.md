@@ -179,6 +179,9 @@ The document is the host's `AddOpenApi(DocumentName)` document. The plugin adds,
 - `servers` (`ServerUrl`, or the request's URL);
 - `x-required-permission` and `x-host-token-only: true` on each operation guarded by `RequirePublicApi` or by a users
   guard (`[QcliAuthorize]`, `.RequireQcliAuthorization(...)`; `x-host-token-only` with `HostTokenOnly`).
+  `x-required-permission` is always one string (the contract's shape, which the portal reads): with stacked guards
+  that name different permissions (a route group's and its endpoint's), it is the most specific one, the endpoint's.
+  Every one of them is still required; document the others in the operation's description if callers need them.
 
 **Calling the API from the portal ("try it").** On the same origin nothing is needed. When the portal or Swagger UI
 runs on another origin than the API, the host's API needs CORS for that origin (with the `Authorization` header

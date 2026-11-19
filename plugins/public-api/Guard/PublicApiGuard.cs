@@ -20,7 +20,8 @@ internal sealed class PublicApiGuard
     internal const string NoAccessMessage = "forbidden: no API access";
     internal const string InternalErrorMessage = "internal server error";
     internal static readonly (int, string) ClientGone = (StatusCodes.Status499ClientClosedRequest, string.Empty);
-    private const string AdmittedKey = "Qodalis.Cli.Plugin.PublicApi.Admitted";
+    /// <summary>The <c>HttpContext.Items</c> key of an admitted request; its value is the admitted <see cref="UsersAuthContext"/>.</summary>
+    internal static readonly object AdmittedKey = new();
     private const int AdmissionStripes = 64;
 
     private readonly PublicApiOptions _options;
@@ -49,16 +50,16 @@ internal sealed class PublicApiGuard
     {
         // Stacked guards (a route group and its endpoint, a controller and its action): the first one admitted and
         // counted the request; the others check only their own permission and never count again.
-        if (http.Items.ContainsKey(AdmittedKey))
-        {
-            var admitted = http.GetUsersAuth()!;
+        // A marker without the admitted caller (something else wrote the key) runs the full check.
+        if (http.Items.TryGetValue(AdmittedKey, out var marker) && marker is UsersAuthContext admitted &&
+            ReferenceEquals(admitted, http.GetUsersAuth()) && http.GetQcliCaller() != null)
             return permission != null && !admitted.Can(permission) ? MissingPermission(permission) : null;
-        }
 
-        // Rows 1-2: authentication and the host-token check (the users guard's texts).
-        if (await QcliAuthorization.AuthorizeAsync(http, null, hostTokenOnly: true) is { } failure) return failure;
+        // Rows 1-2: authentication and the host-token check (the users guard's texts). The caller is admitted
+        // (GetQcliCaller, HttpContext.User) only once every check below passed.
+        if (await QcliAuthorization.CheckAsync(http, null, hostTokenOnly: true) is { } failure) return failure;
         var auth = http.GetUsersAuth()!;
-        var caller = http.GetQcliCaller()!;
+        var caller = auth.ToQcliCaller();
 
         // Row 3: this guard's permission, then those of the other public-api guards on the endpoint, so a request a
         // later guard refuses is not counted.
@@ -152,7 +153,8 @@ internal sealed class PublicApiGuard
             return (429, refusal);
         }
 
-        http.Items[AdmittedKey] = true;
+        QcliAuthorization.Admit(http);
+        http.Items[AdmittedKey] = auth;
         await PruneIfDueAsync(now);
         return null;
     }

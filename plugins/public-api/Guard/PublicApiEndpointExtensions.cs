@@ -6,12 +6,19 @@ using Qodalis.Cli.Plugin.Users.Models;
 
 namespace Qodalis.Cli.Plugin.PublicApi;
 
-/// <summary>Endpoint filter for minimal APIs; see <see cref="PublicApiEndpointExtensions"/>.</summary>
-public sealed class PublicApiEndpointFilter(string? permission) : IEndpointFilter
+/// <summary>
+/// Endpoint filter for minimal APIs, added only by <see cref="PublicApiEndpointExtensions.RequirePublicApi{TBuilder}"/>
+/// (with its <see cref="PublicApiEndpointMetadata"/>), so every guard on an endpoint is visible in its metadata.
+/// </summary>
+public sealed class PublicApiEndpointFilter : IEndpointFilter
 {
+    private readonly string? _permission;
+
+    internal PublicApiEndpointFilter(string? permission) => _permission = permission;
+
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var failure = await PublicApiGuardRunner.CheckAsync(context.HttpContext, permission);
+        var failure = await PublicApiGuardRunner.CheckAsync(context.HttpContext, _permission);
         if (failure is { } f)
             return f.Status == StatusCodes.Status499ClientClosedRequest
                 ? Results.StatusCode(f.Status)
@@ -26,8 +33,8 @@ public static class PublicApiEndpointExtensions
     /// <summary>
     /// Guards the endpoint (or every endpoint of a route group) as a public API route: only <c>host</c> tokens, with
     /// <paramref name="permission"/> when given, within the caller's quota; the caller is available through
-    /// <c>HttpContext.GetQcliCaller()</c>. Adds <see cref="QcliAuthorizeEndpointMetadata"/> (host token only) for the
-    /// public OpenAPI document. Stacked guards (a route group and its endpoint) count the request once and every
+    /// <c>HttpContext.GetQcliCaller()</c> once every check passed. Adds <see cref="PublicApiEndpointMetadata"/> (host token
+    /// only) for the stacked-guard checks and the public OpenAPI document. Stacked guards (a route group and its endpoint) count the request once and every
     /// permission is checked before it is counted.
     /// <code>app.MapGet("/v1/rates", ...).RequirePublicApi("rates:read");</code>
     /// </summary>
