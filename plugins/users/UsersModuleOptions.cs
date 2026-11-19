@@ -176,6 +176,8 @@ public class UsersModuleOptions
     /// (<c>[QcliAuthorize]</c>, <c>.RequireQcliAuthorization(...)</c>, the public-api guard) authenticate
     /// <c>qcli_pat_</c> tokens against the shared stores. <see cref="Services.IApiTokenManager"/> stays available, but
     /// tokens should be created and revoked from one service only (the name and 20-token checks run in-process).
+    /// Requires <c>cli.WithoutCliRoutes()</c>: startup fails with <see cref="InvalidOperationException"/>
+    /// (<c>guard-only needs WithoutCliRoutes()</c>) otherwise, so CLI routes are never served unprotected.
     /// Defaults to <c>false</c>.
     /// </summary>
     public bool GuardOnly { get; set; }

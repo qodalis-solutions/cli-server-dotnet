@@ -11,6 +11,7 @@ namespace Qodalis.Cli.Plugin.PublicApi;
 /// Guards a host MVC controller or action as a public API route: a <c>host</c> token, the permission and the caller's
 /// quota (see <see cref="PublicApiEndpointExtensions.RequirePublicApi{TBuilder}"/>).
 /// <code>[RequirePublicApi("rates:read")]</code>
+/// On a controller and on its action both apply: every permission is checked and the request is counted once.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
 public sealed class RequirePublicApiAttribute : Attribute, IAsyncAuthorizationFilter, IQcliAuthorizeMetadata
@@ -29,6 +30,8 @@ public sealed class RequirePublicApiAttribute : Attribute, IAsyncAuthorizationFi
     {
         var failure = await PublicApiGuardRunner.CheckAsync(context.HttpContext, Permission);
         if (failure is { } f)
-            context.Result = new JsonResult(new ErrorResponse(f.Error)) { StatusCode = f.Status };
+            context.Result = f.Status == StatusCodes.Status499ClientClosedRequest
+                ? new StatusCodeResult(f.Status)
+                : new JsonResult(new ErrorResponse(f.Error)) { StatusCode = f.Status };
     }
 }

@@ -75,16 +75,6 @@ public class UsersAuthMiddleware
             return;
         }
 
-        // Guard-only: no users routes and no protection; the shell, which always needs a users session, stays shut.
-        if (options.GuardOnly)
-        {
-            if (isShellSocket)
-                await FailAsync(context, isShellSocket, 401, "unauthorized");
-            else
-                await _next(context);
-            return;
-        }
-
         if (!isUsersRoute && !isShellSocket && !(options.ProtectServer && rule.IsCliRoute))
         {
             await _next(context);

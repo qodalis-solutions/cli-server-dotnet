@@ -19,13 +19,17 @@ internal static class PublicApiDocumentTransformers
     public static Task AddGuardExtensions(OpenApiOperation operation, OpenApiOperationTransformerContext context,
         CancellationToken ct)
     {
-        var guard = context.Description.ActionDescriptor.EndpointMetadata.OfType<IQcliAuthorizeMetadata>().LastOrDefault();
-        if (guard == null) return Task.CompletedTask;
+        // Stacked guards (a route group and its endpoint): the most specific permission (the last one), host-token-only
+        // when any guard is.
+        var guards = context.Description.ActionDescriptor.EndpointMetadata.OfType<IQcliAuthorizeMetadata>().ToList();
+        if (guards.Count == 0) return Task.CompletedTask;
+        var permission = guards.LastOrDefault(g => g.Permission != null)?.Permission;
+        var hostTokenOnly = guards.Any(g => g.HostTokenOnly);
 
         operation.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-        if (guard.Permission != null && !operation.Extensions.ContainsKey(RequiredPermission))
-            operation.Extensions[RequiredPermission] = new JsonNodeExtension(JsonValue.Create(guard.Permission));
-        if (guard.HostTokenOnly && !operation.Extensions.ContainsKey(HostTokenOnly))
+        if (permission != null && !operation.Extensions.ContainsKey(RequiredPermission))
+            operation.Extensions[RequiredPermission] = new JsonNodeExtension(JsonValue.Create(permission));
+        if (hostTokenOnly && !operation.Extensions.ContainsKey(HostTokenOnly))
             operation.Extensions[HostTokenOnly] = new JsonNodeExtension(JsonValue.Create(true));
         return Task.CompletedTask;
     }

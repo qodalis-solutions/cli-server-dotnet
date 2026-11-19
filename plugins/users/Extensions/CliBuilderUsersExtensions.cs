@@ -48,8 +48,14 @@ public static class CliBuilderUsersExtensions
         RegisterStore<IGroupStore, InMemoryGroupStore>(services, options, options.GroupStore);
         RegisterStore<IApiTokenStore, InMemoryApiTokenStore>(services, options, options.ApiTokenStore);
 
-        // Guard-only: the users routes and the server protection belong to the service that owns the users.
-        if (options.GuardOnly) options.ProtectServer = false;
+        // Guard-only: the users routes and the server protection belong to the service that owns the users. It never
+        // runs next to CLI routes, which it would leave unprotected: startup fails unless WithoutCliRoutes() is called
+        // (checked when the app starts, so the two calls may come in either order).
+        if (options.GuardOnly)
+        {
+            options.ProtectServer = false;
+            services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, GuardOnlyStartupCheck>();
+        }
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;
         // The host application signs users in (admin dashboard: GET /api/v1/qcli/auth/mode)
@@ -98,6 +104,18 @@ public static class CliBuilderUsersExtensions
         .Add(UsersPermissions.TokensRead, "See every user's API tokens")
         .Add(UsersPermissions.TokensRevoke, "Revoke other users' API tokens");
 
+    internal const string GuardOnlyNeedsNoCliRoutesMessage = "guard-only needs WithoutCliRoutes()";
+
+    /// <summary>Fails startup when guard-only mode is combined with CLI routes (they would be served unprotected).</summary>
+    private sealed class GuardOnlyStartupCheck(CliServerOptions serverOptions) : Microsoft.AspNetCore.Hosting.IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+        {
+            if (serverOptions.CliRoutes) throw new InvalidOperationException(GuardOnlyNeedsNoCliRoutesMessage);
+            return next;
+        }
+    }
+
     private static void RegisterStore<TService, TDefault>(IServiceCollection services, UsersModuleOptions options, TService? instance)
         where TService : class
         where TDefault : class, TService
@@ -118,8 +136,8 @@ public static class CliBuilderUsersExtensions
     /// Adds the users auth middleware to the pipeline. Call after UseCors(), before
     /// UseAuthorization() and before UseCli(). Without it, every users endpoint except login —
     /// and, with ProtectServer, every CLI route and socket — answers 401.
-    /// Without CLI routes (<c>WithoutCliRoutes()</c>) there is nothing for it to protect and no middleware is added;
-    /// in guard-only mode with CLI routes it only refuses <c>host</c> tokens on them.
+    /// Without CLI routes (<c>WithoutCliRoutes()</c>, which guard-only mode requires) there is nothing for it to
+    /// protect and no middleware is added.
     /// </summary>
     public static IApplicationBuilder UseQodalisUsers(this IApplicationBuilder app)
     {
