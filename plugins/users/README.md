@@ -351,10 +351,12 @@ builder.Services.AddControllers().AddCli(cli =>
 });
 ```
 
+Guard-only mode requires `cli.WithoutCliRoutes()` (in either order): otherwise startup fails with
+`InvalidOperationException("guard-only needs WithoutCliRoutes()")`, so CLI routes are never served unprotected.
 In guard-only mode the plugin serves no users routes (sign-in, users, groups, sessions, tokens, permissions, link,
 audit), seeds nothing (no `root`, no built-in groups), sweeps nothing and does not protect the server
 (`ProtectServer` is ignored). The guards authenticate `qcli_pat_` tokens against the stores. `UseQodalisUsers()` adds
-no middleware without CLI routes; a guard-only service that keeps the CLI routes still refuses host tokens on them.
+no middleware without CLI routes.
 `IApiTokenManager` stays available, but tokens must be created and revoked from **one service only**: names and the
 20-token limit are checked in the process that creates the token.
 

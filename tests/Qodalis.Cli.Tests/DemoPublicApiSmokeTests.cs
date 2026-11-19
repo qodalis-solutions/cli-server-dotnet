@@ -42,14 +42,14 @@ public class DemoPublicApiSmokeTests
     }
 
     [Fact]
-    public async Task Demo_DevelopmentSwagger_StillServed()
+    public async Task Demo_DevelopmentSwagger_Served()
     {
         await using var factory = new WebApplicationFactory<demo::Program>();
+        var client = factory.CreateClient();
 
-        // Swashbuckle 10 (Microsoft.OpenApi 2, as the public-api plugin) loads. Its v1 document itself fails on the
-        // demo since before this change: two LoginRequest types (users and admin plugins) share a schema id.
-        var res = await factory.CreateClient().GetAsync("/swagger/index.html");
-
+        Assert.Equal(200, (int)(await client.GetAsync("/swagger/index.html")).StatusCode);
+        // Two LoginRequest types (users and admin plugins): the demo names schemas by their full type name.
+        var res = await client.GetAsync("/swagger/v1/swagger.json");
         Assert.Equal(200, (int)res.StatusCode);
     }
 }

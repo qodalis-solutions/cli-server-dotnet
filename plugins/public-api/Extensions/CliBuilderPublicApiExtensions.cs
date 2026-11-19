@@ -80,17 +80,32 @@ public static class CliBuilderPublicApiExtensions
 
         var endpoint = new PublicApiDocumentEndpoint(options, provider, services.GetService<IServer>());
         var ui = endpoint.CreateSwaggerUIOptions();
-        var index = options.BasePath + "/swagger/index.html";
+        var swaggerPrefix = options.BasePath + "/swagger/";
+        var titleGate = new SemaphoreSlim(1, 1);
+        var titled = false;
         app.Use(async (context, next) =>
         {
             await endpoint.InvokeAsync(context, async () =>
             {
-                // The page's title is the document's info.title, read when the page is asked for.
-                if (context.Request.Path.Value == index)
+                // The page's title is the document's info.title, read once, before the first Swagger UI request is
+                // served (the document's endpoints are only known once the app runs); the options never change after.
+                if (!Volatile.Read(ref titled) && context.Request.Path.Value?.StartsWith(swaggerPrefix, StringComparison.Ordinal) == true)
                 {
-                    var title = await endpoint.TitleAsync(context.RequestAborted);
-                    ui.DocumentTitle = title;
-                    ui.ConfigObject.Urls = [new UrlDescriptor { Url = endpoint.DocumentPath, Name = title }];
+                    await titleGate.WaitAsync(context.RequestAborted);
+                    try
+                    {
+                        if (!titled)
+                        {
+                            var title = await endpoint.TitleAsync(context.RequestAborted);
+                            ui.DocumentTitle = title;
+                            ui.ConfigObject.Urls = [new UrlDescriptor { Url = endpoint.DocumentPath, Name = title }];
+                            Volatile.Write(ref titled, true);
+                        }
+                    }
+                    finally
+                    {
+                        titleGate.Release();
+                    }
                 }
                 await next();
             });

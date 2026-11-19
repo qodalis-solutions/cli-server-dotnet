@@ -83,6 +83,14 @@ public static class CliBuilderAdminExtensions
     /// </summary>
     public static IApplicationBuilder UseQodalisAdmin(this IApplicationBuilder app)
     {
+        // Without CLI routes the dashboard's API is gone: serve nothing rather than a dashboard that cannot work.
+        if (app.ApplicationServices.GetService<Qodalis.Cli.Security.CliServerOptions>()?.CliRoutes == false)
+        {
+            app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger("Qodalis.Cli.Plugin.Admin")
+                .LogWarning("[qcli] the CLI routes are turned off (WithoutCliRoutes); the admin dashboard is not served");
+            return app;
+        }
+
         var jwtService = app.ApplicationServices.GetRequiredService<JwtService>();
         app.UseMiddleware<AdminAuthMiddleware>(jwtService);
 

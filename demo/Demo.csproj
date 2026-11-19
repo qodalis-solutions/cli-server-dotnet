@@ -10,7 +10,7 @@
     <ItemGroup>
         <!-- 10.x: Microsoft.OpenApi 2, as Microsoft.AspNetCore.OpenApi (public-api plugin) -->
         <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.*" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
     </ItemGroup>
 
     <ItemGroup>

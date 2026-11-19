@@ -84,6 +84,9 @@ host, so a portal mounted at `/` never shadows the host's routes (`/v1/rates`, `
 
 `docs` and `api` are `null` when that plugin is not added; with neither the site shows "Nothing published yet".
 
+A request path base (`UsePathBase`, a proxy's prefix) is put in front of the `<base href>` and the `portal.json` URLs.
+A path base starting with `//` or `/\` (it would point them at another host) answers 400 `{"error":"invalid path base"}`.
+
 ## The site
 
 The package embeds the site at build time, preferring the sibling repo's `cli-server-dashboard/portal/dist`, then the

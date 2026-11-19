@@ -255,6 +255,11 @@ cli.AddAdmin(o =>
 Anything left unset keeps the Qodalis default. The terminal's copyright line, docs link and `version` stay Qodalis
 CLI's. The values are served with the color scheme at `/qcli/admin/theme.json` and validated at startup.
 
+## Without CLI routes
+
+On a service built with `cli.WithoutCliRoutes()` the dashboard's API does not exist, so `UseQodalisAdmin()` serves
+nothing and logs `[qcli] the CLI routes are turned off (WithoutCliRoutes); the admin dashboard is not served`.
+
 ## License
 
 MIT
