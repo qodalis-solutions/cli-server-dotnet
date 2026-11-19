@@ -21,6 +21,7 @@ namespace Qodalis.Cli.Plugin.Users.Middleware;
 /// (a present Origin must then be allowed or same-origin).</item>
 /// <item>CSRF: state-changing requests without a bearer token must not carry a disallowed
 /// <c>Origin</c>; in adapter mode they must carry an allowed one. The request's own origin is always allowed.</item>
+/// <item><c>host</c> API tokens are refused (403) on every route authenticated here; only the host's guards accept them.</item>
 /// <item>Sessions with <c>mustChangePassword</c> may only read/end the current session and change their own password.</item>
 /// </list>
 /// </summary>
@@ -147,6 +148,13 @@ public class UsersAuthMiddleware
         if (auth == null)
         {
             await FailAsync(context, isShellSocket, 401, "unauthorized");
+            return;
+        }
+
+        // Host tokens belong to the host's own guarded routes ([QcliAuthorize]), never to the CLI's.
+        if (auth.IsHostToken)
+        {
+            await FailAsync(context, isShellSocket, 403, AuthService.HostTokensCannotUseCliRoutesMessage);
             return;
         }
 

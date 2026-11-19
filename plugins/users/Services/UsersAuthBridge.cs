@@ -48,6 +48,8 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
         var existing = context.GetUsersAuth();
         if (existing != null)
         {
+            if (existing.IsHostToken)
+                throw new CliAuthException(403, AuthService.HostTokensCannotUseCliRoutesMessage);
             if (existing.User.MustChangePassword)
                 throw new CliAuthException(403, AuthService.PasswordChangeRequiredMessage);
             return existing.ToCliPrincipal();
@@ -57,6 +59,8 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
         {
             var ctx = await auth.AuthenticateRequestAsync(context, adapter);
             if (ctx == null) return null;
+            if (ctx.IsHostToken)
+                throw new CliAuthException(403, AuthService.HostTokensCannotUseCliRoutesMessage);
             if (ctx.User.MustChangePassword)
                 throw new CliAuthException(403, AuthService.PasswordChangeRequiredMessage);
             return ctx.ToCliPrincipal();
@@ -81,7 +85,7 @@ public sealed class UsersAuthBridge(AuthService auth, IpRateLimiter limiter, IEx
         if (principal.TokenId != null)
         {
             var token = await auth.RevalidateApiTokenAsync(principal.TokenId, principal.UserId);
-            return token == null || token.User.MustChangePassword ? null : token.ToCliPrincipal();
+            return token == null || token.IsHostToken || token.User.MustChangePassword ? null : token.ToCliPrincipal();
         }
         if (principal.SessionId == null) return null;
         if (principal.SessionId.StartsWith("external-", StringComparison.Ordinal))
