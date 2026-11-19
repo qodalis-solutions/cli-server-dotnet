@@ -26,4 +26,7 @@ public class ApiTokenEntity
 
     /// <summary>The token's scope as a JSON array; null for the user's own permissions.</summary>
     public string? Permissions { get; set; }
+
+    /// <summary><c>cli</c> or <c>host</c>; null (rows written before audiences existed) reads as <c>cli</c>.</summary>
+    public string? Audience { get; set; }
 }
