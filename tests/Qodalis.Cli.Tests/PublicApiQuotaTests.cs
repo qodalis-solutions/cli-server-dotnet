@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Plugin.PublicApi;
@@ -19,6 +21,42 @@ public sealed class ScopedResolver(ScopedQuotaSource source) : IPublicApiQuotaRe
 {
     public ValueTask<PublicApiQuota> GetQuotaAsync(QcliCaller caller, CancellationToken ct) =>
         ValueTask.FromResult(new PublicApiQuota(source.PerDay, null));
+}
+
+/// <summary>Wraps the in-memory store and throws on the calls a test names (after the inner call for increments).</summary>
+public sealed class FlakyUsageStore : IPublicApiUsageStore
+{
+    public InMemoryPublicApiUsageStore Inner { get; } = new();
+    public bool ThrowOnMinuteIncrement { get; set; }
+    public bool ThrowOnAccountCount { get; set; }
+
+    public Task<long> IncrementAsync(string tokenId, string userId, string window, CancellationToken ct)
+    {
+        if (ThrowOnMinuteIncrement && !PublicApiWindows.IsDay(window)) throw new InvalidOperationException("store down");
+        return Inner.IncrementAsync(tokenId, userId, window, ct);
+    }
+
+    public Task DecrementAsync(string tokenId, string window, CancellationToken ct) => Inner.DecrementAsync(tokenId, window, ct);
+
+    public Task<long> GetAccountCountAsync(string userId, string window, CancellationToken ct) =>
+        ThrowOnAccountCount ? throw new InvalidOperationException("store down") : Inner.GetAccountCountAsync(userId, window, ct);
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>>> GetTokenDaysAsync(
+        IReadOnlyCollection<string> tokenIds, string fromDay, string toDay, CancellationToken ct) =>
+        Inner.GetTokenDaysAsync(tokenIds, fromDay, toDay, ct);
+
+    public Task PruneAsync(string beforeDay, string beforeMinute, CancellationToken ct) => Inner.PruneAsync(beforeDay, beforeMinute, ct);
+}
+
+/// <summary>A controller and its action both guarded: the request is counted once.</summary>
+[Microsoft.AspNetCore.Mvc.ApiController]
+[Microsoft.AspNetCore.Mvc.Route("v1/mvc-stacked")]
+[RequirePublicApi]
+public class StackedPublicController : Microsoft.AspNetCore.Mvc.ControllerBase
+{
+    [Microsoft.AspNetCore.Mvc.HttpGet]
+    [RequirePublicApi("rates:read")]
+    public Microsoft.AspNetCore.Mvc.IActionResult Get() => Ok(new { ok = true });
 }
 
 /// <summary>C5: the public-api guard (host tokens, permission, per-account quotas, headers) and the usage it records.</summary>
@@ -375,6 +413,73 @@ public class PublicApiQuotaTests
         Assert.Equal(200, (int)ok.StatusCode);
         Assert.Equal("0", Header(ok, "X-RateLimit-Remaining"));
         await AssertBodyAsync(await h.GetAsync("/v1/mvc-rates", token), 429, "quota exceeded: 1 requests per day");
+    }
+
+    [Fact]
+    public async Task StackedGuards_GroupAndEndpoint_CountOnce()
+    {
+        await using var h = await PublicApiTestHost.StartAsync(Quota(2, null), endpoints: e =>
+        {
+            var group = e.MapGroup("/v2").RequirePublicApi();
+            group.MapGet("/rates", () => "rates").RequirePublicApi("rates:read");
+        });
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+
+        var first = await h.GetAsync("/v2/rates", token);
+        Assert.Equal(200, (int)first.StatusCode);
+        Assert.Equal("1", Header(first, "X-RateLimit-Remaining"));
+        Assert.Equal(200, (int)(await h.GetAsync("/v2/rates", token)).StatusCode);
+        await AssertBodyAsync(await h.GetAsync("/v2/rates", token), 429, "quota exceeded: 2 requests per day");
+
+        Assert.Equal(2, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StackedGuards_ControllerAndAction_CountOnce()
+    {
+        await using var h = await PublicApiTestHost.StartAsync(Quota(2, null),
+            configureMvc: mvc => mvc.AddApplicationPart(typeof(StackedPublicController).Assembly));
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+
+        Assert.Equal(200, (int)(await h.GetAsync("/v1/mvc-stacked", token)).StatusCode);
+        Assert.Equal(200, (int)(await h.GetAsync("/v1/mvc-stacked", token)).StatusCode);
+        await AssertBodyAsync(await h.GetAsync("/v1/mvc-stacked", token), 429, "quota exceeded: 2 requests per day");
+
+        Assert.Equal(2, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StackedGuards_StricterPermissionEnforced_NotCounted()
+    {
+        await using var h = await PublicApiTestHost.StartAsync(Quota(2, null),
+            configureMvc: mvc => mvc.AddApplicationPart(typeof(StackedPublicController).Assembly),
+            endpoints: e => e.MapGroup("/v2").RequirePublicApi().MapGet("/rates", () => "rates").RequirePublicApi("rates:read"));
+        var (aliceId, banksOnly) = await h.HostTokenAsync("alice", "banks:read");
+
+        await AssertBodyAsync(await h.GetAsync("/v2/rates", banksOnly), 403, "forbidden: missing permission rates:read");
+        await AssertBodyAsync(await h.GetAsync("/v1/mvc-stacked", banksOnly), 403, "forbidden: missing permission rates:read");
+
+        Assert.Equal(0, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task StoreFailsAfterAnIncrement_Returns500_NothingStaysCounted(bool minuteIncrement, bool accountCount)
+    {
+        var store = new FlakyUsageStore { ThrowOnMinuteIncrement = minuteIncrement, ThrowOnAccountCount = accountCount };
+        await using var h = await PublicApiTestHost.StartAsync(o =>
+        {
+            Quota(3, 10)(o);
+            o.SetUsageStore(_ => store);
+        });
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+
+        await AssertBodyAsync(await h.GetAsync("/v1/rates", token), 500, "internal server error");
+
+        Assert.Equal(0, await store.Inner.GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+        Assert.Equal(0, await store.Inner.GetAccountCountAsync(aliceId,
+            PublicApiWindows.Minute(PublicApiTestHost.LateEvening), CancellationToken.None));
     }
 
     [Fact]

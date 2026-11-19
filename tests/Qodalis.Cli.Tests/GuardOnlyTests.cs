@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.Users;
 using Qodalis.Cli.Plugin.Users.Authorization;
 using Qodalis.Cli.Plugin.Users.Extensions;
@@ -53,7 +54,7 @@ public class GuardOnlyTests : IAsyncLifetime
 
     /// <summary>The guard-only service: no CLI routes, users plugin in guard-only mode, one guarded host route.</summary>
     private static async Task<IHost> StartGuardOnlyAsync(IUserStore users, IGroupStore groups, IApiTokenStore tokens,
-        bool useCli = false, bool cliRoutes = false)
+        bool useCli = false, bool cliRoutes = false, Action<CliBuilder>? extraCli = null)
     {
         var builder = new HostBuilder().ConfigureWebHost(web =>
         {
@@ -62,6 +63,7 @@ public class GuardOnlyTests : IAsyncLifetime
             {
                 if (!cliRoutes) cli.WithoutCliRoutes();
                 Rates(cli);
+                extraCli?.Invoke(cli);
                 cli.AddUsers(o =>
                 {
                     o.UseGuardOnly();
@@ -161,17 +163,89 @@ public class GuardOnlyTests : IAsyncLifetime
         Assert.Equal("UseCli() is not available: the CLI routes are turned off (WithoutCliRoutes)", ex.Message);
     }
 
-    [Fact]
-    public async Task GuardOnlyWithCliRoutes_StillRefusesHostTokensThere()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GuardOnlyWithCliRoutes_FailsAtStartup(bool withoutCliRoutesAfterUsers)
     {
-        using var guard = await StartGuardOnlyAsync(_users, _groups, _tokens, useCli: true, cliRoutes: true);
+        // CLI routes on: never served unprotected. Also when WithoutCliRoutes() would come after AddUsers().
+        var builder = new HostBuilder().ConfigureWebHost(web =>
+        {
+            web.UseTestServer();
+            web.ConfigureServices(services => services.AddControllers().AddCli(cli =>
+            {
+                cli.AddUsers(o => o.UseGuardOnly());
+                if (withoutCliRoutesAfterUsers) cli.WithoutCliRoutes();
+            }));
+            web.Configure(app =>
+            {
+                app.UseRouting();
+                app.UseQodalisUsers();
+                app.UseEndpoints(e => e.MapControllers());
+            });
+        });
 
-        var res = await SendAsync(guard, HttpMethod.Get, "/api/v1/qcli/commands", _hostToken);
+        if (withoutCliRoutesAfterUsers)
+        {
+            using var host = await builder.StartAsync();
+            Assert.False(host.Services.GetRequiredService<CliServerOptions>().CliRoutes);
+            await host.StopAsync();
+            return;
+        }
 
-        Assert.Equal(403, (int)res.StatusCode);
-        Assert.Equal("""{"error":"forbidden: host tokens cannot use CLI routes"}""", await res.Content.ReadAsStringAsync());
-        Assert.Equal(404, (int)(await SendAsync(guard, HttpMethod.Get, "/api/v1/qcli/tokens")).StatusCode);
-        Assert.Equal(200, (int)(await SendAsync(guard, HttpMethod.Get, "/host/rates", _hostToken)).StatusCode);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => builder.StartAsync());
+        Assert.Equal("guard-only needs WithoutCliRoutes()", ex.Message);
+    }
+
+    [Fact]
+    public async Task GuardOnlyWithCliRoutes_FailsAtStartup_WithoutUseQodalisUsers()
+    {
+        var builder = new HostBuilder().ConfigureWebHost(web =>
+        {
+            web.UseTestServer();
+            web.ConfigureServices(services => services.AddControllers().AddCli(cli => cli.AddUsers(o => o.UseGuardOnly())));
+            web.Configure(app =>
+            {
+                app.UseRouting();
+                app.UseEndpoints(e => e.MapControllers());
+                app.UseCli();
+            });
+        });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => builder.StartAsync());
+        Assert.Equal("guard-only needs WithoutCliRoutes()", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/qcli/execute")]
+    [InlineData("POST", "/api/v1/qcli/execute/stream")]
+    [InlineData("POST", "/api/qcli/mcp")]
+    [InlineData("GET", "/api/qcli/data-explorer/sources")]
+    [InlineData("GET", "/api/qcli/fs/ls")]
+    [InlineData("GET", "/api/v1/qcli/jobs")]
+    [InlineData("POST", "/api/v1/qcli/sessions")]
+    [InlineData("POST", "/api/v1/qcli/auth/login")]
+    [InlineData("GET", "/api/v1/qcli/auth/mode")]
+    [InlineData("POST", "/api/v1/qcli/link")]
+    [InlineData("GET", "/api/v1/qcli/users")]
+    [InlineData("GET", "/api/v1/qcli/groups")]
+    [InlineData("GET", "/ws/v1/qcli/shell")]
+    [InlineData("GET", "/ws/v1/qcli/logs")]
+    [InlineData("GET", "/ws/qcli/events")]
+    public async Task GuardOnlyWithoutCliRoutes_EverythingElseIs404(string method, string path)
+    {
+        using var guard = await StartGuardOnlyAsync(_users, _groups, _tokens, extraCli: cli =>
+        {
+            cli.AddMcp();
+            cli.EnableShell(o => o.AllowAnonymous = true);
+            cli.AddFileSystem(o => o.UseInMemory());
+        });
+
+        Assert.Equal(404, (int)(await SendAsync(guard, new HttpMethod(method), path)).StatusCode);
+        Assert.Equal(404, (int)(await SendAsync(guard, new HttpMethod(method), path, _hostToken)).StatusCode);
+        Assert.Equal(404, (int)(await guard.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost/ws/v1/qcli/events"), CancellationToken.None)
+            .ContinueWith(t => t.IsFaulted && t.Exception!.InnerException!.Message.Contains("404") ? 404 : 0)));
         await guard.StopAsync();
     }
 

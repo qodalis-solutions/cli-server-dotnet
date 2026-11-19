@@ -19,6 +19,8 @@ internal sealed class PublicApiGuard
 {
     internal const string NoAccessMessage = "forbidden: no API access";
     internal const string InternalErrorMessage = "internal server error";
+    internal static readonly (int, string) ClientGone = (StatusCodes.Status499ClientClosedRequest, string.Empty);
+    private const string AdmittedKey = "Qodalis.Cli.Plugin.PublicApi.Admitted";
     private const int AdmissionStripes = 64;
 
     private readonly PublicApiOptions _options;
@@ -38,16 +40,32 @@ internal sealed class PublicApiGuard
         _logger = logger;
     }
 
-    /// <summary>Null when the request is admitted (headers set, request counted); otherwise the refusal.</summary>
+    /// <summary>
+    /// Null when the request is admitted (headers set, request counted); otherwise the refusal. Status
+    /// <see cref="StatusCodes.Status499ClientClosedRequest"/> means the client went away: the caller ends the request
+    /// without a body.
+    /// </summary>
     public async Task<(int Status, string Error)?> CheckAsync(HttpContext http, string? permission)
     {
+        // Stacked guards (a route group and its endpoint, a controller and its action): the first one admitted and
+        // counted the request; the others check only their own permission and never count again.
+        if (http.Items.ContainsKey(AdmittedKey))
+        {
+            var admitted = http.GetUsersAuth()!;
+            return permission != null && !admitted.Can(permission) ? MissingPermission(permission) : null;
+        }
+
         // Rows 1-2: authentication and the host-token check (the users guard's texts).
         if (await QcliAuthorization.AuthorizeAsync(http, null, hostTokenOnly: true) is { } failure) return failure;
         var auth = http.GetUsersAuth()!;
         var caller = http.GetQcliCaller()!;
 
-        // Row 3.
-        if (permission != null && !auth.Can(permission)) return (403, $"forbidden: missing permission {permission}");
+        // Row 3: this guard's permission, then those of the other public-api guards on the endpoint, so a request a
+        // later guard refuses is not counted.
+        foreach (var required in RequiredPermissions(http, permission))
+        {
+            if (!auth.Can(required)) return MissingPermission(required);
+        }
 
         // Row 4: the host's resolver; its error text never reaches the client.
         PublicApiQuota quota;
@@ -55,7 +73,11 @@ internal sealed class PublicApiGuard
         {
             quota = await _options.ResolveQuotaAsync(caller, http.RequestServices, http.RequestAborted);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        {
+            return ClientGone;
+        }
+        catch (Exception ex)
         {
             _logger.LogError(ex, "The public API quota resolver failed for user {UserId}", caller.UserId);
             return (500, InternalErrorMessage);
@@ -71,31 +93,45 @@ internal sealed class PublicApiGuard
         var day = PublicApiWindows.Day(now);
         var minute = PublicApiWindows.Minute(now);
         var tokenId = caller.TokenId!;
-        var ct = http.RequestAborted;
         var stripe = _admission[(int)((uint)StringComparer.Ordinal.GetHashCode(caller.UserId) % AdmissionStripes)];
-        long dayCount, minuteCount;
-        (int, string)? refusal = null;
-        await stripe.WaitAsync(ct);
+        long dayCount = 0, minuteCount = 0;
+        string? refusal = null;
+        var dayRefused = false;
         try
         {
-            // Not cancelled half-way: a count taken is always checked and, when refused, taken back.
+            await stripe.WaitAsync(http.RequestAborted);
+        }
+        catch (OperationCanceledException)
+        {
+            return ClientGone;
+        }
+        var counted = new List<string>(2);
+        try
+        {
+            // Not cancelled half-way: a count taken is always checked and, when refused or failed, taken back.
             await _store.IncrementAsync(tokenId, caller.UserId, day, CancellationToken.None);
+            counted.Add(day);
             await _store.IncrementAsync(tokenId, caller.UserId, minute, CancellationToken.None);
-            dayCount = perDay != null || perMinute != null ? await _store.GetAccountCountAsync(caller.UserId, day, CancellationToken.None) : 0;
-            minuteCount = perMinute != null ? await _store.GetAccountCountAsync(caller.UserId, minute, CancellationToken.None) : 0;
+            counted.Add(minute);
+            if (perDay != null || perMinute != null)
+                dayCount = await _store.GetAccountCountAsync(caller.UserId, day, CancellationToken.None);
+            if (perMinute != null)
+                minuteCount = await _store.GetAccountCountAsync(caller.UserId, minute, CancellationToken.None);
             if (perDay != null && dayCount > perDay)
-                refusal = (429, $"quota exceeded: {perDay} requests per day");
-            else if (perMinute != null && minuteCount > perMinute)
-                refusal = (429, $"too many requests: {perMinute} per minute");
-            if (refusal != null)
             {
-                await _store.DecrementAsync(tokenId, day, CancellationToken.None);
-                await _store.DecrementAsync(tokenId, minute, CancellationToken.None);
+                refusal = $"quota exceeded: {perDay} requests per day";
+                dayRefused = true;
             }
+            else if (perMinute != null && minuteCount > perMinute)
+            {
+                refusal = $"too many requests: {perMinute} per minute";
+            }
+            if (refusal != null) await UncountAsync(tokenId, counted, caller.UserId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "The public API usage store failed for user {UserId}", caller.UserId);
+            await UncountAsync(tokenId, counted, caller.UserId);
             return (500, InternalErrorMessage);
         }
         finally
@@ -110,15 +146,56 @@ internal sealed class PublicApiGuard
         else if (perMinute != null)
             SetHeaders(http, perMinute.Value, refusal != null ? 0 : perMinute.Value - minuteCount, toNextMinute);
 
-        if (refusal is { } r)
+        if (refusal != null)
         {
-            var dayRefused = r.Item2.StartsWith("quota exceeded", StringComparison.Ordinal);
             http.Response.Headers.RetryAfter = (dayRefused ? toMidnight : toNextMinute).ToString(CultureInfo.InvariantCulture);
-            return r;
+            return (429, refusal);
         }
 
+        http.Items[AdmittedKey] = true;
         await PruneIfDueAsync(now);
         return null;
+    }
+
+    private static (int, string) MissingPermission(string permission) => (403, $"forbidden: missing permission {permission}");
+
+    /// <summary>
+    /// <paramref name="own"/>, then the permissions of every public-api guard on the endpoint
+    /// (<see cref="PublicApiEndpointMetadata"/>, <see cref="RequirePublicApiAttribute"/>), in metadata order, once each.
+    /// </summary>
+    private static IEnumerable<string> RequiredPermissions(HttpContext http, string? own)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (own != null && seen.Add(own)) yield return own;
+        var metadata = http.GetEndpoint()?.Metadata;
+        if (metadata == null) yield break;
+        foreach (var item in metadata)
+        {
+            var required = item switch
+            {
+                PublicApiEndpointMetadata e => e.Permission,
+                RequirePublicApiAttribute a => a.Permission,
+                _ => null,
+            };
+            if (required != null && seen.Add(required)) yield return required;
+        }
+    }
+
+    /// <summary>Takes back the counts this request took (a refusal or a store failure); best effort.</summary>
+    private async Task UncountAsync(string tokenId, List<string> windows, string userId)
+    {
+        foreach (var window in windows)
+        {
+            try
+            {
+                await _store.DecrementAsync(tokenId, window, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Taking back a public API count failed for user {UserId}", userId);
+            }
+        }
+        windows.Clear();
     }
 
     /// <summary>Whole seconds from <paramref name="now"/> to <paramref name="next"/>, rounded up, at least 1.</summary>
