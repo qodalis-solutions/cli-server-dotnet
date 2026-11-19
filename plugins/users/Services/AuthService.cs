@@ -995,6 +995,7 @@ public partial class AuthService
                 throw UsersApiException.BadRequest(InvalidAudienceMessage);
         }
 
+        // Checked here as well as in CreateApiTokenForAsync so a bad name still wins over a bad expiresInDays.
         var name = request.Name;
         if (name == null || !ApiTokenNameRegex().IsMatch(name))
             throw UsersApiException.BadRequest(ApiTokenNameMessage);
@@ -1034,6 +1035,7 @@ public partial class AuthService
     internal async Task<(string Token, ApiToken ApiToken)> CreateApiTokenForAsync(User owner, IReadOnlyList<string> grantable,
         ApiTokenCreateOptions options, string actorName, string? actorId, ICliPermissionCatalog? catalog = null)
     {
+        // Also checked by CreateApiTokenAsync before it parses the body (keeps the HTTP error order).
         var name = options.Name;
         if (name == null || !ApiTokenNameRegex().IsMatch(name))
             throw UsersApiException.BadRequest(ApiTokenNameMessage);

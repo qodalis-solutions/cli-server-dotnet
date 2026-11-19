@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Plugin.Users.Models;
+using Qodalis.Cli.Plugin.Users.Services;
+using Qodalis.Cli.Plugin.Users.Stores;
 using Qodalis.Cli.Tests.Helpers;
 using static Qodalis.Cli.Tests.Helpers.UsersTestHost;
 
@@ -239,6 +241,39 @@ public class ExternalAuthAdapterTests : IAsyncLifetime
         var shell = await ShellTestClient.CloseOfAsync(h.Host, "/ws/v1/qcli/shell?cmd=echo%20pwned",
             AdapterUser("http://evil.test"));
         Assert.Equal(4403, shell.Code);
+        Assert.False(shell.GotReady);
+        Assert.DoesNotContain("pwned", shell.Stdout);
+    }
+
+    [Fact]
+    public async Task AdapterShellUpgrade_WithAHostTokenBearer_ClosesWith4403()
+    {
+        await using var h = await UsersTestHost.StartAsync(options =>
+            {
+                options.UseExternalAuth(_ => null);
+                options.AllowApiTokens();
+            },
+            configureCli: cli =>
+            {
+                cli.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"));
+                cli.EnableShell(o =>
+                {
+                    o.Shell = "/bin/sh";
+                    o.IdleTimeout = null;
+                });
+            });
+        await h.Service<IGroupStore>().CreateGroupAsync(new Group { Name = "shell-group", Permissions = ["rates:read", "shell:execute"] });
+        var ann = await h.Service<IUserStore>().CreateUserAsync(new CreateUserDto { Name = "ann", Email = "ann@x.com", Groups = ["shell-group"] });
+        var host = (await h.Service<IApiTokenManager>().CreateAsync(ann.Id, new ApiTokenCreateOptions
+        {
+            Name = "site", Audience = ApiTokenAudience.Host, Permissions = ["rates:read"],
+        })).Token;
+
+        var shell = await ShellTestClient.CloseOfAsync(h.Host, "/ws/v1/qcli/shell?cmd=echo%20pwned",
+            r => r.Headers.Authorization = $"Bearer {host}");
+
+        Assert.Equal(4403, shell.Code);
+        Assert.Equal("forbidden: host tokens cannot use CLI routes", shell.Reason);
         Assert.False(shell.GotReady);
         Assert.DoesNotContain("pwned", shell.Stdout);
     }

@@ -308,4 +308,18 @@ public class ApiTokenManagerTests : IAsyncLifetime
             Name = "wild", Audience = "host", Permissions = ["rates:*"],
         }));
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task MissingUserId_Throws(string? userId)
+    {
+        var host = await HostTokenAsync();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => _tokens.CreateAsync(userId!, new ApiTokenCreateOptions { Name = "x" }));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => _tokens.ListAsync(userId!));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => _tokens.RevokeAsync(userId!, host.ApiToken.Id));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => _tokens.GetGrantablePermissionsAsync(userId!));
+        Assert.NotNull(await _h.Service<IApiTokenStore>().GetTokenAsync(host.ApiToken.Id));
+    }
 }

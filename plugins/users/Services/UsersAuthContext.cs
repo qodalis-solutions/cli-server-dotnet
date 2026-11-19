@@ -28,8 +28,12 @@ public sealed class UsersAuthContext
     /// <summary>The API token that authenticated the request (no session), when applicable.</summary>
     public ApiToken? ApiToken { get; init; }
 
-    /// <summary>Authenticated by a <c>host</c> API token: accepted only by the host's guards, never by CLI routes.</summary>
-    public bool IsHostToken => ApiToken?.Audience == ApiTokenAudience.Host;
+    /// <summary>
+    /// Authenticated by an API token that is not a <c>cli</c> token: accepted only by the host's guards, never by CLI
+    /// routes. Fails closed: any stored audience other than exactly <c>cli</c> (<c>host</c>, <c>HOST</c>, unknown
+    /// values) counts; a missing one reads as <c>cli</c>.
+    /// </summary>
+    public bool IsHostToken => ApiToken != null && ApiToken.Audience != ApiTokenAudience.Cli;
 
     /// <summary>Id of the API token that authenticated the request, when applicable.</summary>
     public string? ApiTokenId => ApiToken?.Id;
