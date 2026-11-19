@@ -231,6 +231,36 @@ public class HostRouteCallerTests
     }
 
     [Fact]
+    public async Task RefusedGuards_LeaveNoCaller()
+    {
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(string Path, int Status, bool Caller, bool User)>();
+        var h = await UsersTestHost.StartAsync(
+            configureCli: cli => cli.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates")),
+            configureApp: app =>
+            {
+                app.Use(async (context, next) =>
+                {
+                    await next();
+                    seen.Enqueue((context.Request.Path.Value!, context.Response.StatusCode, context.GetQcliCaller() != null,
+                        context.User.Identity?.IsAuthenticated == true));
+                });
+                HostRoutes(app);
+            },
+            configureMvc: mvc => mvc.AddApplicationPart(typeof(HostOnlyController).Assembly));
+        await using var _h = h;
+        var root = await h.RootTokenAsync();
+        await h.CreateGroupAsync(root, "bob-group", "commands:execute");
+        await h.CreateUserAsync(root, "bob", groups: ["bob-group"]);
+        var bob = (await h.LoginAsync("bob", "pass1234")).Token;
+
+        Assert.Equal(403, (int)(await h.GetAsync("/host/only", bob)).StatusCode);      // audience
+        Assert.Equal(403, (int)(await h.GetAsync("/host/mvc-only", bob)).StatusCode);  // audience (MVC)
+        Assert.Equal(403, (int)(await h.GetAsync("/host/caller", bob)).StatusCode);    // permission
+
+        Assert.All(seen.Where(s => s.Path.StartsWith("/host/")), s => Assert.False(s.Caller || s.User, s.ToString()));
+    }
+
+    [Fact]
     public async Task NoHostTokenOnly_Unchanged()
     {
         await using var s = await StartAsync();

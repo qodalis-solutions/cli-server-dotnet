@@ -25,6 +25,19 @@ public static class QcliAuthorization
     public static async Task<(int Status, string Error)?> AuthorizeAsync(HttpContext context, string? permission,
         bool hostTokenOnly = false)
     {
+        var failure = await CheckAsync(context, permission, hostTokenOnly);
+        if (failure == null) Admit(context);
+        return failure;
+    }
+
+    /// <summary>
+    /// The checks of <see cref="AuthorizeAsync"/> without admitting the caller: a guard with checks of its own (the
+    /// public-api plugin's quota) calls <see cref="Admit"/> once they all passed, so a refused request never carries a
+    /// caller. On success <c>GetUsersAuth()</c> holds the authenticated request.
+    /// </summary>
+    public static async Task<(int Status, string Error)?> CheckAsync(HttpContext context, string? permission,
+        bool hostTokenOnly = false)
+    {
         var auth = context.GetUsersAuth();
         if (auth == null)
         {
@@ -47,12 +60,22 @@ public static class QcliAuthorization
         // The audience is checked before the permission: a cli token never learns which permissions a route needs.
         if (hostTokenOnly && !auth.IsHostToken) return (403, AuthService.HostTokenRequiredMessage);
         if (permission != null && !auth.Can(permission)) return (403, $"permission denied: {permission}");
+        return null;
+    }
 
+    /// <summary>
+    /// Admits the request <see cref="CheckAsync"/> passed: sets <see cref="QcliCallerHttpContextExtensions.GetQcliCaller"/>
+    /// and, with <see cref="UsersModuleOptions.SetHostUser"/>, <c>HttpContext.User</c> (unless the host's own
+    /// authentication already set an authenticated user). Does nothing for a request that was not authenticated.
+    /// </summary>
+    public static void Admit(HttpContext context)
+    {
+        var auth = context.GetUsersAuth();
+        if (auth == null) return;
         context.SetQcliCaller(auth.ToQcliCaller());
         var options = context.RequestServices.GetService<UsersModuleOptions>();
         if (options?.SetHostUser != false && context.User.Identity?.IsAuthenticated != true)
             context.User = CliHostUser.Create(auth.ToCliPrincipal(), auth.User.Email, auth.ApiToken);
-        return null;
     }
 }
 

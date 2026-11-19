@@ -91,7 +91,14 @@ public static class CliBuilderPublicApiExtensions
                 // served (the document's endpoints are only known once the app runs); the options never change after.
                 if (!Volatile.Read(ref titled) && context.Request.Path.Value?.StartsWith(swaggerPrefix, StringComparison.Ordinal) == true)
                 {
-                    await titleGate.WaitAsync(context.RequestAborted);
+                    try
+                    {
+                        await titleGate.WaitAsync(context.RequestAborted);
+                    }
+                    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+                    {
+                        return; // the client went away while another request read the title: end quietly
+                    }
                     try
                     {
                         if (!titled)
@@ -101,6 +108,10 @@ public static class CliBuilderPublicApiExtensions
                             ui.ConfigObject.Urls = [new UrlDescriptor { Url = endpoint.DocumentPath, Name = title }];
                             Volatile.Write(ref titled, true);
                         }
+                    }
+                    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+                    {
+                        return;
                     }
                     finally
                     {

@@ -482,6 +482,95 @@ public class PublicApiQuotaTests
             PublicApiWindows.Minute(PublicApiTestHost.LateEvening), CancellationToken.None));
     }
 
+    /// <summary>Records, after each request, whether a caller was left on it (GetQcliCaller, HttpContext.User).</summary>
+    private static Action<IApplicationBuilder> RecordCaller(System.Collections.Concurrent.ConcurrentQueue<(int Status, bool Caller, bool User)> seen) =>
+        app => app.Use(async (context, next) =>
+        {
+            await next();
+            if (!context.Request.Path.StartsWithSegments("/v1")) return; // the public routes only
+            seen.Enqueue((context.Response.StatusCode, context.GetQcliCaller() != null,
+                context.User.Identity?.IsAuthenticated == true));
+        });
+
+    [Fact]
+    public async Task RefusedRequests_LeaveNoCaller()
+    {
+        var broken = false;
+        long? perDay = 1;
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(int Status, bool Caller, bool User)>();
+        await using var h = await PublicApiTestHost.StartAsync(
+            o => o.UseQuotaResolver((_, _, _) => broken
+                ? throw new InvalidOperationException("db down")
+                : ValueTask.FromResult(new PublicApiQuota(perDay, null))),
+            configureApp: RecordCaller(seen));
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+        var banksOnly = await h.NewHostTokenAsync(aliceId, "banks", "rates:read");
+        var session = (await h.LoginAsync("alice", "pass1234")).Token;
+
+        Assert.Equal(200, (int)(await h.GetAsync("/v1/rates", token)).StatusCode);   // admitted: caller set
+        Assert.Equal(429, (int)(await h.GetAsync("/v1/rates", token)).StatusCode);   // quota
+        Assert.Equal(403, (int)(await h.GetAsync("/v1/rates", session)).StatusCode); // audience
+        broken = true;
+        Assert.Equal(500, (int)(await h.GetAsync("/v1/rates", banksOnly)).StatusCode); // resolver
+        broken = false;
+        perDay = 0;
+        Assert.Equal(403, (int)(await h.GetAsync("/v1/rates", banksOnly)).StatusCode); // no access
+
+        var results = seen.Where(s => s.Status != 0).ToList();
+        Assert.Equal((200, true, true), results.First(r => r.Status == 200));
+        Assert.All(results.Where(r => r.Status != 200), r => Assert.False(r.Caller || r.User, r.ToString()));
+    }
+
+    [Fact]
+    public async Task RefusedByPermission_LeavesNoCaller()
+    {
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(int Status, bool Caller, bool User)>();
+        await using var h = await PublicApiTestHost.StartAsync(configureApp: RecordCaller(seen));
+        var (_, banksOnly) = await h.HostTokenAsync("bob", "banks:read");
+
+        Assert.Equal(403, (int)(await h.GetAsync("/v1/rates", banksOnly)).StatusCode);
+
+        var refused = Assert.Single(seen, s => s.Status == 403);
+        Assert.False(refused.Caller);
+        Assert.False(refused.User);
+    }
+
+    [Fact]
+    public async Task MinuteRefusal_LeavesNoCaller_OnlyThe200sCarryOne()
+    {
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(int Status, bool Caller, bool User)>();
+        await using var h = await PublicApiTestHost.StartAsync(Quota(null, 1), configureApp: RecordCaller(seen));
+        var (_, token) = await h.HostTokenAsync("alice");
+
+        Assert.Equal(200, (int)(await h.GetAsync("/v1/rates", token)).StatusCode);
+        Assert.Equal(429, (int)(await h.GetAsync("/v1/rates", token)).StatusCode);
+
+        Assert.Equal([(200, true, true), (429, false, false)], seen.Where(s => s.Status is 200 or 429).ToList());
+    }
+
+    [Fact]
+    public async Task AdmittedMarkerWithoutCaller_RunsTheFullCheck()
+    {
+        await using var h = await PublicApiTestHost.StartAsync(Quota(5, null), configureApp: app => app.Use((context, next) =>
+        {
+            context.Items[PublicApiGuard.AdmittedKey] = new object(); // a marker without an admitted caller
+            return next();
+        }));
+        var (aliceId, token) = await h.HostTokenAsync("alice");
+
+        await AssertBodyAsync(await h.GetAsync("/v1/rates"), 401, "unauthorized");
+        var ok = await h.GetAsync("/v1/rates", token);
+        Assert.Equal(200, (int)ok.StatusCode);
+        Assert.Equal("4", Header(ok, "X-RateLimit-Remaining"));
+        Assert.Equal(1, await h.Service<IPublicApiUsageStore>().GetAccountCountAsync(aliceId, Day, CancellationToken.None));
+    }
+
+    [Fact]
+    public void EndpointFilter_HasNoPublicConstructor()
+    {
+        Assert.Empty(typeof(PublicApiEndpointFilter).GetConstructors());
+    }
+
     [Fact]
     public async Task OldUsage_IsPruned()
     {
