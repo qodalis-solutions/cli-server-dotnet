@@ -54,6 +54,7 @@ public static class CliBuilderUsersExtensions
         builder.ServerOptions.ExternalAuthentication = options.UsesExternalAuth;
 
         services.AddSingleton<AuthService>();
+        services.AddSingleton<IApiTokenManager, ApiTokenManager>();
         services.AddSingleton<UsersService>();
         services.AddSingleton<IpRateLimiter>();
         services.AddSingleton<LinkService>();
