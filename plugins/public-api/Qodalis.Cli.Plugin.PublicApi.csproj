@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Qodalis.Cli.Plugin.PublicApi</RootNamespace>
+    <Version>1.0.0-beta.29</Version>
+    <Description>Public API plugin for Qodalis CLI Server: host routes guarded by host tokens with per-account quotas, usage per token, the public OpenAPI document and Swagger UI</Description>
+    <Authors>Nicolae Lupei</Authors>
+    <Company>Qodalis Solutions</Company>
+    <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
+    <PackageTags>cli;qodalis;api;openapi;swagger;quota;rate-limit;plugin</PackageTags>
+    <PackageOutputPath>nupkg\</PackageOutputPath>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
+    <ProjectReference Include="..\users\Qodalis.Cli.Plugin.Users.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.3.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🔑" />
+  </ItemGroup>
+</Project>
