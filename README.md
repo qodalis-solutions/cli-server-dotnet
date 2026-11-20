@@ -272,7 +272,7 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `AddPermissions(Action<CliPermissionCatalogBuilder>, surface = "host")` | Adds entries to the permission catalog users pick from (see [Permission catalog](#permission-catalog)) |
 | `Services` | The `IServiceCollection`, for plugin registrations |
 | `ServerOptions.MaxTableRows` | Rows an unpaged table may return before it is cut (default 200, `0` = no limit); see [Paging](#paging) |
-| `WithoutCliRoutes()` | Leaves out every CLI route and socket (`/api/qcli/*`, `/api/v1/qcli/*`, `/api/v2/qcli/*`, `/api/cli/*`, `/ws/*`): no controllers of core or plugins, `UseCli()` throws. For a service that only uses the guards and services, e.g. with the users plugin's `UseGuardOnly()`; the permission catalog, events and services stay |
+| `WithoutCliRoutes()` | Leaves out every CLI route and socket (`/api/qcli/*`, `/api/v1/qcli/*`, `/api/v2/qcli/*`, `/api/cli/*`, `/ws/*`): no controllers of core or plugins (also those MVC discovers on its own: a Web SDK host lists every referenced `Qodalis.Cli*` assembly as an application part, and `AddCli` removes their controllers; the host's own controllers stay), `UseCli()` throws. For a service that only uses the guards and services, e.g. with the users plugin's `UseGuardOnly()`; the permission catalog, events and services stay |
 
 ### Permission catalog
 
