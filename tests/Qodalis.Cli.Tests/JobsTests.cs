@@ -948,7 +948,8 @@ public class JobSchedulerIdsAndStartTests : IDisposable
         _scheduler.Register(overdue, new CliJobOptions { Name = "overdue", Interval = TimeSpan.FromHours(1) });
 
         await _scheduler.StartAsync(CancellationToken.None);
-        await Task.Delay(300);
+        await ShellSecurityTests.WaitUntilAsync(() => overdue.CallCount >= 1);
+        await Task.Delay(200);
 
         Assert.Equal(lastRun.AddHours(1), _scheduler.Jobs["hourly"].NextRunAt!.Value, TimeSpan.FromSeconds(1));
         Assert.Equal(1, overdue.CallCount);
@@ -968,7 +969,9 @@ public class JobSchedulerIdsAndStartTests : IDisposable
         _scheduler.Register(paused, new CliJobOptions { Name = "paused", RunOnStart = true });
 
         await _scheduler.StartAsync(CancellationToken.None);
-        await Task.Delay(400);
+        // Wait for the runs (a busy CI runner can take longer than a fixed delay), then a while for any extra one
+        await ShellSecurityTests.WaitUntilAsync(() => onDemand.CallCount >= 1 && hourly.CallCount >= 1);
+        await Task.Delay(300);
 
         Assert.Equal(1, onDemand.CallCount);
         // Overdue and run on start: still one run
@@ -996,7 +999,14 @@ public class JobSchedulerIdsAndStartTests : IDisposable
 
         await _scheduler.TriggerAsync("quiet");
         await _scheduler.TriggerAsync("broken");
-        await Task.Delay(300);
+        // Both runs finished: the failure is recorded and the quiet job has its last run
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while ((await _storage.GetExecutionsAsync("broken")).Total == 0 || _scheduler.Jobs["quiet"].LastRunAt == null)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "runs not finished in time");
+            await Task.Delay(25);
+        }
+        await Task.Delay(100);
 
         Assert.Equal(0, (await _storage.GetExecutionsAsync("quiet")).Total);
         Assert.NotNull(_scheduler.Jobs["quiet"].LastRunAt);
@@ -1038,9 +1048,10 @@ public class JobServicesTests
         await ((CliJobScheduler)scheduler).StartAsync(CancellationToken.None);
 
         await scheduler.TriggerAsync("scoped");
-        await Task.Delay(200);
+        await ShellSecurityTests.WaitUntilAsync(() => job.Seen.Count >= 2);
+        await Task.Delay(100);
         await scheduler.TriggerAsync("scoped");
-        await Task.Delay(200);
+        await ShellSecurityTests.WaitUntilAsync(() => job.Seen.Count >= 4);
 
         // One instance within a run, a new one per run
         Assert.Equal(4, job.Seen.Count);
