@@ -3,8 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.29
 
+- The admin plugin embeds dashboard 1.0.0-beta.26: pick a new token's permissions from the server's list, host tokens marked, and a Requests today column when the server counts API usage. The portal plugin embeds `@qodalis/cli-server-portal` 1.0.0-beta.26.
 - **Permission catalog.** The server keeps the permissions users can pick when granting them: `{ name, description, group, surface }`. Core registers the 11 route-policy permissions (`commands:execute`, `shell:execute`, `files:*`, `data:query`, `jobs:*`, `logs:read`, `admin:access`, `audit:*`) and the users plugin its 12 (`users:*`, `groups:*`, `sessions:*`, `tokens:*`). Hosts add their own with `cli.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"))` (surface `host`); plugins pass `CliPermissionSurface.Cli`. `ICliPermissionCatalog` lists `cli` entries (core, then plugins) before `host` entries, whatever the call order. An invalid entry fails startup with `invalid permission entry: <name>`, a name registered twice (case-insensitive, also a plugin's name registered by the host, in either order) with `permission already registered: <name>`. The catalog is for choosing only: groups and `cli` tokens still accept any permission.
 - **Users: `GET /api/v1/qcli/permissions`.** The catalog entries the caller holds (a scoped token: its scope); `?all=true` with `users:read` returns every entry (403 `permission denied: users:read` without it, 400 `all must be true or false` for other values).
 - **Users: token `audience`.** Every API token is `cli` (default; existing tokens and stored rows without the field read as `cli`) or `host`. Token views carry `audience` (after `lastUsedAt`). `POST /tokens` accepts `audience: "cli"`; `"host"` answers 400 `host tokens can only be created by the host application`, other values 400 `audience must be cli or host`. Names and the 20-token limit count both audiences.
