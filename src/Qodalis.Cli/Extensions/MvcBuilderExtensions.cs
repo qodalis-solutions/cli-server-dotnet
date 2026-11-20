@@ -33,8 +33,13 @@ public static class MvcBuilderExtensions
         var cliBuilder = new CliBuilder(builder.Services);
         configure?.Invoke(cliBuilder);
 
-        // Without CLI routes neither core's controllers nor any plugin's are added.
-        if (cliBuilder.ServerOptions.CliRoutes)
+        // Without CLI routes neither core's controllers nor any plugin's are added, and those MVC discovers on its own
+        // (a Web SDK host lists every referenced MVC assembly as an application part) are removed.
+        if (!cliBuilder.ServerOptions.CliRoutes)
+        {
+            builder.PartManager.FeatureProviders.Add(new CliControllerFilter(cliBuilder.AdditionalAssemblyParts));
+        }
+        else
         {
             builder.PartManager.ApplicationParts
                 .Add(new AssemblyPart(typeof(CliController).Assembly));
