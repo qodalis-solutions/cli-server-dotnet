@@ -55,6 +55,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Docs", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Portal", "..\plugins\portal\Qodalis.Cli.Plugin.Portal.csproj", "{CBEE9921-2770-4817-BF97-2BCD52056DEB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Migrations", "..\plugins\migrations\Qodalis.Cli.Plugin.Migrations.csproj", "{ABFEFAFB-7248-4073-914C-3538FF91F2B7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Migrations.EfCore", "..\plugins\migrations-efcore\Qodalis.Cli.Plugin.Migrations.EfCore.csproj", "{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -377,6 +381,30 @@ Global
 		{CBEE9921-2770-4817-BF97-2BCD52056DEB}.Release|x64.Build.0 = Release|Any CPU
 		{CBEE9921-2770-4817-BF97-2BCD52056DEB}.Release|x86.ActiveCfg = Release|Any CPU
 		{CBEE9921-2770-4817-BF97-2BCD52056DEB}.Release|x86.Build.0 = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|x64.Build.0 = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Debug|x86.Build.0 = Debug|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|x64.ActiveCfg = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|x64.Build.0 = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|x86.ActiveCfg = Release|Any CPU
+		{ABFEFAFB-7248-4073-914C-3538FF91F2B7}.Release|x86.Build.0 = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|x64.Build.0 = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Debug|x86.Build.0 = Debug|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x64.ActiveCfg = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x64.Build.0 = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x86.ActiveCfg = Release|Any CPU
+		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

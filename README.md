@@ -522,6 +522,8 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.DataExplorer.Elasticsearch`](plugins/data-explorer-elasticsearch) | Elasticsearch | `cli.AddDataExplorerElasticsearch(...)` |
 | [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs (cron or interval, retries, overlap policy, `MaxConcurrentRuns`) | `cli.AddJob<T>(...)` |
 | [`Qodalis.Cli.Plugin.Jobs.EfCore`](plugins/jobs-efcore) | EF Core job history storage | `cli.AddEfCoreJobStorage(...)` |
+| [`Qodalis.Cli.Plugin.Migrations`](plugins/migrations) | Database migrations (PostgreSQL, MySQL, SQL Server, SQLite): applied under a lock, tracked, run from the dashboard, terminal, MCP and API | `cli.AddMigrations(...)` |
+| [`Qodalis.Cli.Plugin.Migrations.EfCore`](plugins/migrations-efcore) | A DbContext's EF Core migrations in the migrations plugin; the EF Core stores' schemas as sources | `m.AddEfCore<AppDbContext>("main")` |
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |
 | [`Qodalis.Cli.Plugin.Audit.EfCore`](plugins/audit-efcore) | EF Core audit log storage | `cli.AddEfCoreAuditStore(...)` |
