@@ -3,6 +3,8 @@ using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Qodalis.Cli.Plugin.Databases.EfCore;
@@ -37,30 +39,57 @@ public static class QcliEfStoreSchema
         try
         {
             if (await db.Database.EnsureCreatedAsync(cancellationToken)) return;
-            if (!await AnyTableMissingAsync(db, cancellationToken)) return;
-            await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
+            var missing = await MissingTablesAsync(db, cancellationToken);
+            if (missing.Count > 0) await CreateTablesAsync(db, missing, cancellationToken);
         }
         catch (DbException)
         {
             // Another instance of the server may have created them meanwhile
-            if (await AnyTableMissingAsync(db, cancellationToken)) throw;
+            if ((await MissingTablesAsync(db, cancellationToken)).Count > 0) throw;
         }
     }
 
-    private static async Task<bool> AnyTableMissingAsync(DbContext db, CancellationToken ct)
+    /// <summary>The model's tables the database lacks.</summary>
+    private static async Task<IReadOnlyList<(string Table, string? Schema)>> MissingTablesAsync(DbContext db, CancellationToken ct)
     {
         var tables = db.Model.GetEntityTypes().Select(e => (Table: e.GetTableName(), Schema: e.GetSchema())).Where(t => t.Table != null).Distinct().ToList();
-        var missing = false;
+        var missing = new List<(string, string?)>();
         await WithSessionAsync(db, ct, async session =>
         {
             foreach (var (table, schema) in tables)
             {
-                if (await CliSqlSchema.TableExistsAsync(session, table!, schema)) continue;
-                missing = true;
-                break;
+                if (!await CliSqlSchema.TableExistsAsync(session, table!, schema)) missing.Add((table!, schema));
             }
         });
         return missing;
+    }
+
+    /// <summary>
+    /// Creates only <paramref name="missing"/> (with their indexes and keys): the model's create operations, as EF's
+    /// <c>CreateTablesAsync</c> would generate them, without the tables that exist (a host may have created some, or
+    /// the legacy rename adopted only part of a store).
+    /// </summary>
+    private static async Task CreateTablesAsync(DbContext db, IReadOnlyList<(string Table, string? Schema)> missing, CancellationToken ct)
+    {
+        bool IsMissing(string? table, string? schema) =>
+            table != null && missing.Any(m => m.Table == table && (m.Schema ?? "") == (schema ?? db.Model.GetDefaultSchema() ?? ""));
+        var model = db.GetService<IDesignTimeModel>().Model.GetRelationalModel();
+        var operations = db.GetService<IMigrationsModelDiffer>().GetDifferences(null, model).Where(op => op switch
+        {
+            CreateTableOperation t => IsMissing(t.Name, t.Schema),
+            CreateIndexOperation i => IsMissing(i.Table, i.Schema),
+            AddForeignKeyOperation f => IsMissing(f.Table, f.Schema),
+            AddPrimaryKeyOperation k => IsMissing(k.Table, k.Schema),
+            AddUniqueConstraintOperation u => IsMissing(u.Table, u.Schema),
+            AddCheckConstraintOperation c => IsMissing(c.Table, c.Schema),
+            AlterTableOperation a => IsMissing(a.Name, a.Schema),
+            AlterColumnOperation a => IsMissing(a.Table, a.Schema),
+            AddColumnOperation a => IsMissing(a.Table, a.Schema),
+            EnsureSchemaOperation => true,
+            _ => false,
+        }).ToList();
+        var commands = db.GetService<IMigrationsSqlGenerator>().Generate(operations, db.Model);
+        await db.GetService<IMigrationCommandExecutor>().ExecuteNonQueryAsync(commands, db.GetService<IRelationalConnection>(), ct);
     }
 
     private static async Task<bool> RelationalExistsAsync(DbContext db, CancellationToken ct) =>
