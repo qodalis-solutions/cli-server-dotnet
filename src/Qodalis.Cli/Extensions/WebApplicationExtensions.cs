@@ -79,7 +79,7 @@ public static class WebApplicationExtensions
             var principal = context.GetCliPrincipal();
             if (options.RequireAuthentication)
             {
-                var rule = CliRoutePolicy.Resolve(context.Request.Method, path);
+                var rule = CliRoutePolicy.Resolve(context.Request.Method, path, options.RoutePermissions);
                 if (principal == null)
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;

@@ -62,7 +62,7 @@ public class UsersAuthMiddleware
         var serverOptions = context.RequestServices.GetService<CliServerOptions>() ?? new CliServerOptions();
 
         var isUsersRoute = IsUsersRoute(path);
-        var rule = CliRoutePolicy.Resolve(method, path);
+        var rule = CliRoutePolicy.Resolve(method, path, serverOptions.RoutePermissions);
         // C1: with the users plugin the shell always needs a users session, even without ProtectServer.
         var isShellSocket = rule.IsWebSocket && rule.Permission == CliRoutePolicy.ShellExecute;
         // Host tokens never reach a non-public CLI route (users routes included), protected server or not; anonymous

@@ -31,7 +31,7 @@ public sealed class CliAuthenticationGuardFilter : IAsyncActionFilter, IOrderedF
         var options = http.RequestServices.GetService<CliServerOptions>();
         if (options?.RequireAuthentication == true)
         {
-            var rule = CliRoutePolicy.Resolve(http.Request.Method, http.Request.Path.Value);
+            var rule = CliRoutePolicy.Resolve(http.Request.Method, http.Request.Path.Value, options.RoutePermissions);
             if (rule.IsCliRoute && !rule.IsPublic)
             {
                 var principal = http.GetCliPrincipal();
