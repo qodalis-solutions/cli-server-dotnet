@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Extensions;
@@ -104,6 +105,14 @@ public static class CliMigrationsExtensions
         builder.AddProcessor<CliMigrationsCommandProcessor>();
         builder.Services.AddMcpToolProvider<MigrationsMcpToolProvider>();
         builder.Services.AddHostedService<MigrationsStartupService>();
+
+        // The dashboard's Migrations page, when the package carries its build
+        var page = MigrationsDashboardPage.Files();
+        if (page != null && builder.ServerOptions.CliRoutes)
+        {
+            builder.AddDashboardExtension(MigrationsDashboardPage.Extension(page));
+            builder.Services.AddTransient<IStartupFilter>(_ => new MigrationsDashboardPage.StartupFilter(page));
+        }
     }
 }
 

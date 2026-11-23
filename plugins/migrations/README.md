@@ -71,6 +71,14 @@ permission catalog). Terminal: `migrations`, `migrations status <db>`, `migratio
 `migrations down <db> --to <id> [--dry-run]`. With `cli.AddMcp()`: `migrations_status`, `migrations_runs`,
 `migrations_sql`, `migrations_up`, `migrations_down`.
 
+## Dashboard page
+
+The admin dashboard shows a Migrations page (group Data, `migrations:read`): the databases, each one's migrations by
+status, the runs, and, with `migrations:run`, Apply pending / Migrate to here / Roll back to here with the SQL each run
+executes. It is `@qodalis/cli-dashboard-module-migrations`, embedded in the package at build (from the sibling
+`cli-server-dashboard` repo, else `node_modules`), served at `/qcli/migrations` and registered as a dashboard
+extension by `AddMigrations`; nothing else to call.
+
 ## Helpers for store authors
 
 `CliSqlSchema`: `TableExistsAsync`, `ColumnExistsAsync`, `RenameTableAsync`, `RenameColumnAsync` and
