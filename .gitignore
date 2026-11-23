@@ -33,3 +33,6 @@ Thumbs.db
 # Logs
 *.log
 node_modules/
+
+# Dashboard pages copied at build (build/Qcli.DashboardModules.targets), the admin dashboard, the portal
+wwwroot/

@@ -23,11 +23,15 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      # The databases plugin embeds the dashboard's Databases page from the npm package
-      - name: Fetch the Databases page
+      # The packages embed the dashboard's pages they serve (build/Qcli.DashboardModules.targets) from npm
+      - name: Fetch the dashboard pages
         run: |
-          npm install --no-save --no-package-lock --ignore-scripts --prefix plugins/databases @qodalis/cli-dashboard-module-databases
-          test -f plugins/databases/node_modules/@qodalis/cli-dashboard-module-databases/dist/extension.js
+          npm install --no-save --no-package-lock --ignore-scripts --prefix . \
+            @qodalis/cli-dashboard-module-databases @qodalis/cli-dashboard-module-jobs @qodalis/cli-dashboard-module-audit \
+            @qodalis/cli-dashboard-module-filesystem @qodalis/cli-dashboard-module-data-explorer @qodalis/cli-dashboard-module-tokens
+          for m in databases jobs audit filesystem data-explorer tokens; do
+            test -f node_modules/@qodalis/cli-dashboard-module-$m/dist/extension.js
+          done
 
       - name: Restore dependencies
         run: dotnet restore src/Qodalis.Cli.sln

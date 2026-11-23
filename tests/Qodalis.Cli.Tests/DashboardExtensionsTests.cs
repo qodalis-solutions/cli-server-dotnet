@@ -191,7 +191,8 @@ public class DashboardExtensionsTests
     [Fact]
     public async Task NeedsASignInOnAProtectedServer()
     {
-        using var host = await StartAsync(true, cli => cli.AddDashboardExtension(Marketplace()));
+        // The users plugin's API tokens page is left out, whether or not this build embeds it
+        using var host = await StartAsync(true, cli => cli.AddDashboardExtension(Marketplace()).ConfigureDashboardModule("tokens", null));
         var client = host.GetTestClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/qcli/dashboard/extensions")).StatusCode);
 

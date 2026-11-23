@@ -296,6 +296,10 @@ as the one running run. `StopAsync`, `CancelAsync` and `UpdateAsync` default to 
 `CliJobInfo.Actions` so clients hide what a job does not offer. Throw `KeyNotFoundException` for an unknown job
 (404) and `InvalidOperationException` when the job's state refuses the action (409).
 
+## Dashboard page
+
+The admin dashboard's Jobs page (`@qodalis/cli-dashboard-module-jobs`, `jobs:read`) comes with this package, with its cards on the dashboard's Overview (active jobs, runs of the last 24 hours, failing jobs), the command palette's entries (jump to a job) and its job search. It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/jobs` outside the API; `cli.ConfigureDashboardModule("jobs", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
+
 ## License
 
 MIT

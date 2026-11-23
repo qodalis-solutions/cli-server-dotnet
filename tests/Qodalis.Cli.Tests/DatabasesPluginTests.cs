@@ -35,13 +35,14 @@ public sealed class DatabasesPluginTests : IAsyncLifetime
         File.Delete(_file);
     }
 
-    private async Task<UsersTestHost> StartAsync(bool protect = false, IReadOnlyList<CliMigration>? list = null, bool onStartup = false)
+    private async Task<UsersTestHost> StartAsync(bool protect = false, IReadOnlyList<CliMigration>? list = null, bool onStartup = false,
+        Action<CliBuilder>? configure = null)
     {
-        _h = await UsersTestHost.StartAsync(o => o.ProtectServer = protect, configureCli: cli => cli
+        _h = await UsersTestHost.StartAsync(o => o.ProtectServer = protect, configureCli: cli => (configure ?? (_ => { }))(cli
             .AddMcp()
             .AddDatabases(d => d
                 .AddDatabase("main", db => db.UseConnection(_ => new SqliteConnection($"Data Source={_file}")).ApplyMigrationsOnStartup(onStartup))
-                .AddMigrations("main", "app", list ?? Notes)));
+                .AddMigrations("main", "app", list ?? Notes))));
         return _h;
     }
 
@@ -223,18 +224,25 @@ public sealed class DatabasesPluginTests : IAsyncLifetime
     [Fact]
     public async Task ServesTheDashboardsDatabasesPage_ToAnyone_AndRegistersIt()
     {
-        var h = await StartAsync(protect: true);
+        // A build of the page (the package embeds the real one when it was built with it)
+        var page = Path.Combine(Path.GetTempPath(), $"qcli-databases-page-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(page);
+        File.WriteAllText(Path.Combine(page, "extension.js"), "export default {};");
+        using var files = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(page);
+        var h = await StartAsync(protect: true, configure: cli => cli.ConfigureDashboardModule("databases", files));
         var extension = Assert.Single(h.Host.Services.GetRequiredService<Qodalis.Cli.Models.CliDashboardExtensions>().All, e => e.Id == "databases");
         Assert.Equal("Databases", extension.Title);
         Assert.Equal("data", extension.Group);
         Assert.Equal(DatabasesPermissions.Read, extension.Permission);
         Assert.Equal("Baze de date", extension.Titles!["ro"]);
         Assert.Matches(@"^/qcli/databases/extension\.js\?v=[0-9a-f]{12}$", extension.Entry);
+        Assert.Equal(["overview"], extension.Widgets);
 
         var js = await h.Client.GetAsync("/qcli/databases/extension.js");
         Assert.Equal(HttpStatusCode.OK, js.StatusCode);
         Assert.Equal("no-cache", js.Headers.CacheControl?.ToString());
         Assert.Equal(HttpStatusCode.Unauthorized, (await h.GetAsync(Api)).StatusCode);
+        Directory.Delete(page, true);
     }
 
     [Fact]

@@ -16,7 +16,6 @@
     <PackageIcon>logo.png</PackageIcon>
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
@@ -31,33 +30,14 @@
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.*" />
   </ItemGroup>
-  <!-- The dashboard's Databases page (@qodalis/cli-dashboard-module-databases), embedded and served at /qcli/databases:
-       the sibling repo's build, else the npm package when installed -->
-  <PropertyGroup>
-    <DatabasesPageSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'cli-server-dashboard', 'modules', 'databases', 'dist'))</DatabasesPageSourceDir>
-    <DatabasesPageNpmDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'node_modules', '@qodalis', 'cli-dashboard-module-databases', 'dist'))</DatabasesPageNpmDir>
-    <DatabasesPageStagingDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot', 'databases'))</DatabasesPageStagingDir>
-  </PropertyGroup>
-  <Target Name="CopyDatabasesPage" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <DatabasesPageResolvedDir Condition="Exists('$(DatabasesPageSourceDir)extension.js')">$(DatabasesPageSourceDir)</DatabasesPageResolvedDir>
-      <DatabasesPageResolvedDir Condition="'$(DatabasesPageResolvedDir)' == '' AND Exists('$(DatabasesPageNpmDir)extension.js')">$(DatabasesPageNpmDir)</DatabasesPageResolvedDir>
-    </PropertyGroup>
-    <ItemGroup Condition="'$(DatabasesPageResolvedDir)' != ''">
-      <DatabasesPageFiles Include="$(DatabasesPageResolvedDir)**/*" />
-    </ItemGroup>
-    <Copy SourceFiles="@(DatabasesPageFiles)" DestinationFolder="$(DatabasesPageStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(DatabasesPageResolvedDir)' != ''" />
-    <Message Importance="high" Text="Databases page not found: the dashboard will not show it." Condition="'$(DatabasesPageResolvedDir)' == '' AND !Exists('$(DatabasesPageStagingDir)extension.js')" />
-  </Target>
-  <Target Name="IncludeDatabasesPage" BeforeTargets="PrepareForBuild;GenerateEmbeddedFilesManifest" DependsOnTargets="CopyDatabasesPage">
-    <ItemGroup Condition="Exists('$(DatabasesPageStagingDir)')">
-      <EmbeddedResource Include="wwwroot/databases/**/*.*" />
-    </ItemGroup>
-  </Target>
   <ItemGroup>
     <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
     <AssemblyMetadata Include="QodalisCliIcon" Value="🗄️" />
   </ItemGroup>
+  <!-- The dashboard's pages this package serves (build/Qcli.DashboardModules.targets) -->
+  <ItemGroup>
+    <QcliDashboardModule Include="databases" />
+  </ItemGroup>
+  <Import Project="..\..\build\Qcli.DashboardModules.targets" />
 </Project>

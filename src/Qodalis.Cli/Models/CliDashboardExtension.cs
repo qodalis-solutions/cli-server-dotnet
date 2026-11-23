@@ -62,6 +62,26 @@ public partial class CliDashboardExtension
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Version { get; init; }
 
+    /// <summary>
+    /// Slots the module fills besides its page (see <see cref="WidgetSlots"/>): <c>overview</c> shows its cards on
+    /// the dashboard's Overview, <c>palette</c> adds entries to its command palette (e.g. jump to a job). Left out of
+    /// the JSON when empty.
+    /// </summary>
+    [JsonPropertyName("widgets")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Widgets { get; init; }
+
+    /// <summary>
+    /// A path below the page ending where search text goes (<c>/?q=</c>): the dashboard's command palette offers
+    /// "Search &lt;title&gt; for …" and opens <c>/x/&lt;id&gt;&lt;search&gt;&lt;text&gt;</c>.
+    /// </summary>
+    [JsonPropertyName("search")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Search { get; init; }
+
+    /// <summary>The slots a module can fill (<see cref="Widgets"/>).</summary>
+    public static readonly IReadOnlyList<string> WidgetSlots = ["overview", "palette"];
+
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}$")]
     private static partial Regex IdPattern();
 
@@ -111,6 +131,10 @@ public partial class CliDashboardExtension
         if (Styles is not null && (Styles.Count > 5 || !Styles.All(IsUrl)))
             throw Invalid($"{Id}: styles must be at most 5 root-relative paths or http(s) URLs");
         if (Version is not null && (Version.Length == 0 || Version.Length > 50)) throw Invalid($"{Id}: version must be 1-50 characters");
+        if (Widgets is not null && Widgets.Any(w => !WidgetSlots.Contains(w)))
+            throw Invalid($"{Id}: widgets must be among {string.Join(", ", WidgetSlots)}");
+        if (Search is not null && (!Search.StartsWith('/') || Search.Length > 200 || WhitespaceOrControl().IsMatch(Search)))
+            throw Invalid($"{Id}: search must be a path below the page starting with /");
         return new CliDashboardExtension
         {
             Id = Id,
@@ -123,6 +147,8 @@ public partial class CliDashboardExtension
             Entry = Entry,
             Styles = Styles?.ToList(),
             Version = Version,
+            Widgets = Widgets is { Count: > 0 } ? Widgets.Distinct().ToList() : null,
+            Search = Search,
         };
     }
 }

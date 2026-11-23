@@ -68,6 +68,10 @@ the rest). Keep the log in a database with [Qodalis.Cli.Plugin.Audit.EfCore](../
 (`cli.AddEfCoreAuditStore(...)`), or implement `IAuditStore` and register it with `cli.SetAuditStore<T>()`.
 `IAuditStore.PruneAsync(before)` deletes old entries; run it on a schedule for a store that keeps everything.
 
+## Dashboard page
+
+The admin dashboard's Audit page (`@qodalis/cli-dashboard-module-audit`, `audit:read`) comes with this package, with the command palette's audit search. It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/audit` outside the API; `cli.ConfigureDashboardModule("audit", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
+
 ## License
 
 MIT

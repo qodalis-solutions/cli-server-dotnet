@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Audit.Controllers;
 
 namespace Qodalis.Cli.Plugin.Audit.Extensions;
@@ -28,6 +29,8 @@ public static class CliBuilderAuditExtensions
             builder.Services.AddSingleton<AuditPluginMarker>();
             builder.AddInstalledPlugin(typeof(CliAuditController).Assembly);
             builder.AddApplicationPart(typeof(CliAuditController).Assembly);
+            // The dashboard's Audit page, when the package carries its build
+            builder.AddDashboardModule(CliDashboardModules.Audit, typeof(CliAuditController).Assembly);
             builder.Services.TryAddSingleton<IAuditStore, InMemoryAuditStore>();
         }
 

@@ -1,0 +1,46 @@
+<Project>
+  <!--
+    Dashboard modules a project embeds (pages of the admin dashboard, @qodalis/cli-dashboard-module-<id>):
+      <ItemGroup><QcliDashboardModule Include="jobs" /></ItemGroup>
+      <Import Project="..\..\build\Qcli.DashboardModules.targets" />
+    Each build is copied into wwwroot/<id> (git-ignored) from the sibling repo's modules/<id>/dist (development), else
+    the npm package installed at the repository root (CI: npm install - -prefix . @qodalis/cli-dashboard-module-<id>),
+    and embedded; CliBuilder.AddDashboardModule(module, assembly) serves it. Without a build the page is left out.
+  -->
+  <PropertyGroup>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <QcliDashboardRepoDir Condition="'$(QcliDashboardRepoDir)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'cli-server-dashboard'))</QcliDashboardRepoDir>
+    <QcliDashboardNpmDir Condition="'$(QcliDashboardNpmDir)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'node_modules', '@qodalis'))</QcliDashboardNpmDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.*" />
+  </ItemGroup>
+
+  <!-- Once per module (target batching on the item) -->
+  <Target Name="QcliCopyDashboardModules" BeforeTargets="PrepareForBuild" Outputs="%(QcliDashboardModule.Identity)" Condition="'@(QcliDashboardModule)' != ''">
+    <PropertyGroup>
+      <_QcliModule>%(QcliDashboardModule.Identity)</_QcliModule>
+      <_QcliModuleDev>$(QcliDashboardRepoDir)modules/$(_QcliModule)/dist/</_QcliModuleDev>
+      <_QcliModuleNpm>$(QcliDashboardNpmDir)cli-dashboard-module-$(_QcliModule)/dist/</_QcliModuleNpm>
+      <_QcliModuleStage>$(MSBuildProjectDirectory)/wwwroot/$(_QcliModule)/</_QcliModuleStage>
+      <_QcliModuleSource></_QcliModuleSource>
+      <_QcliModuleSource Condition="Exists('$(_QcliModuleDev)extension.js')">$(_QcliModuleDev)</_QcliModuleSource>
+      <_QcliModuleSource Condition="'$(_QcliModuleSource)' == '' AND Exists('$(_QcliModuleNpm)extension.js')">$(_QcliModuleNpm)</_QcliModuleSource>
+    </PropertyGroup>
+    <ItemGroup>
+      <_QcliModuleFiles Remove="@(_QcliModuleFiles)" />
+      <_QcliModuleFiles Include="$(_QcliModuleSource)**/*" Condition="'$(_QcliModuleSource)' != ''" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_QcliModuleFiles)" DestinationFolder="$(_QcliModuleStage)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(_QcliModuleSource)' != ''" />
+    <Message Importance="high" Text="Dashboard module $(_QcliModule) not found: the dashboard will not show its page." Condition="'$(_QcliModuleSource)' == '' AND !Exists('$(_QcliModuleStage)extension.js')" />
+  </Target>
+
+  <Target Name="QcliEmbedDashboardModules" BeforeTargets="PrepareForBuild;GenerateEmbeddedFilesManifest" DependsOnTargets="QcliCopyDashboardModules" Outputs="%(QcliDashboardModule.Identity)" Condition="'@(QcliDashboardModule)' != ''">
+    <PropertyGroup>
+      <_QcliModule>%(QcliDashboardModule.Identity)</_QcliModule>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)/wwwroot/$(_QcliModule)/extension.js')">
+      <EmbeddedResource Include="wwwroot/$(_QcliModule)/**/*.*" />
+    </ItemGroup>
+  </Target>
+</Project>
