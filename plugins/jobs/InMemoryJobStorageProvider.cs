@@ -4,7 +4,8 @@ namespace Qodalis.Cli.Plugin.Jobs;
 
 /// <summary>
 /// Thread-safe in-memory implementation of <see cref="ICliJobStorageProvider"/>.
-/// Suitable for development and testing; data is lost on application restart.
+/// Suitable for development and testing; data is lost on application restart. Lists return the executions with
+/// their logs (they are in memory already; see <see cref="JobExecutionQuery.IncludeLogs"/>).
 /// </summary>
 public class InMemoryJobStorageProvider : ICliJobStorageProvider
 {
@@ -61,6 +62,18 @@ public class InMemoryJobStorageProvider : ICliJobStorageProvider
             var items = matches.OrderByDescending(e => e.StartedAt).ToList();
             IReadOnlyList<JobExecution> page = items.Skip(query.Offset).Take(query.Limit).ToList();
             return Task.FromResult((page, items.Count));
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<JobExecutionSummary>> SummarizeExecutionsAsync(DateTime since,
+        IReadOnlyCollection<string>? jobIds = null, CancellationToken cancellationToken = default)
+    {
+        var from = JobExecutionQuery.AsUtc(since);
+        lock (_lock)
+        {
+            return Task.FromResult(JobExecutionSummary.Of(_executions
+                .Where(e => JobExecutionQuery.AsUtc(e.StartedAt) >= from && (jobIds == null || jobIds.Contains(e.JobId)))));
         }
     }
 

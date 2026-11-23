@@ -29,8 +29,20 @@ public class JobExecution
     /// <summary>Gets or sets the error message if the execution failed.</summary>
     public string? Error { get; set; }
 
-    /// <summary>Gets or sets the log entries recorded during execution.</summary>
+    /// <summary>
+    /// Gets or sets the log entries recorded during execution. A store may leave them out of lists (see
+    /// <see cref="JobExecutionQuery.IncludeLogs"/>); read one run with <c>GetExecutionAsync</c> for its logs.
+    /// </summary>
     public List<JobLogEntry> Logs { get; set; } = [];
+
+    /// <summary>
+    /// How many log entries the execution has when a list left <see cref="Logs"/> out; <c>null</c> when
+    /// <see cref="Logs"/> is complete. <see cref="LogEntryCount"/> reads either.
+    /// </summary>
+    public int? LogCount { get; set; }
+
+    /// <summary>The number of log entries: <see cref="LogCount"/> when the logs were left out, else <see cref="Logs"/>' count.</summary>
+    public int LogEntryCount => LogCount ?? Logs.Count;
 
     /// <summary>Gets or sets the retry attempt number (0 for the initial attempt).</summary>
     public int RetryAttempt { get; set; } = 0;

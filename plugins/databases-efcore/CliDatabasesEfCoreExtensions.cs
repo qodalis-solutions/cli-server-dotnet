@@ -28,16 +28,16 @@ public static class CliDatabasesEfCoreExtensions
     /// <summary>
     /// Adds a CLI EF Core store's schema (<see cref="QcliEfStoreSchema.Source{TContext}"/>, source <paramref name="sourceName"/>) to
     /// <paramref name="database"/>, registered on the store's connection when not added yet. Used by the stores'
-    /// <c>Add…Schema</c> methods.
+    /// <c>Add…Schema</c> methods; <paramref name="upgrades"/> are the store's later migrations.
     /// </summary>
     public static CliDatabasesBuilder AddEfCoreStore<TContext>(this CliDatabasesBuilder builder, string database, string sourceName, string description,
-        Action<CliMigrationDatabaseOptions>? configure = null) where TContext : DbContext
+        Action<CliMigrationDatabaseOptions>? configure = null, params CliMigration[] upgrades) where TContext : DbContext
     {
         builder.AddDatabase(database, db =>
         {
             db.Connection ??= CliEfCoreContexts.NewConnection<TContext>;
             configure?.Invoke(db);
         });
-        return builder.AddSource(database, QcliEfStoreSchema.Source<TContext>(sourceName, description));
+        return builder.AddSource(database, QcliEfStoreSchema.Source<TContext>(sourceName, description, upgrades));
     }
 }

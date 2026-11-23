@@ -21,6 +21,12 @@ public class JobExecutionQuery
     public int Offset { get; set; }
 
     /// <summary>
+    /// Load each execution's log entries. Lists leave them out by default (a database store then sets
+    /// <see cref="JobExecution.LogCount"/> instead); a single run read with <c>GetExecutionAsync</c> always has them.
+    /// </summary>
+    public bool IncludeLogs { get; set; }
+
+    /// <summary>
     /// Lists the executions of several jobs from a per-job listing: reads the first <c>Offset + Limit</c> of each job
     /// and merges them newest first. The default for stores and managers without a query of their own.
     /// </summary>

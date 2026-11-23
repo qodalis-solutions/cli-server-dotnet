@@ -70,6 +70,27 @@ public static class CliSqlSchema
         return rows.Count > 0;
     }
 
+    /// <summary>True when <paramref name="table"/> has an index named <paramref name="index"/>.</summary>
+    public static async Task<bool> IndexExistsAsync(CliSqlSession db, string table, string index, string? schema = null)
+    {
+        Checked(table);
+        Checked(index);
+        var rows = db.Dialect switch
+        {
+            CliSqlDialects.Postgres => await db.QueryAsync(
+                "SELECT 1 AS x FROM pg_indexes WHERE tablename = ? AND indexname = ? AND schemaname = COALESCE(?, current_schema())",
+                table, index, schema),
+            CliSqlDialects.MySql => await db.QueryAsync(
+                "SELECT 1 AS x FROM information_schema.statistics WHERE table_name = ? AND index_name = ? AND table_schema = DATABASE()",
+                table, index),
+            CliSqlDialects.SqlServer => await db.QueryAsync(
+                "SELECT 1 AS x FROM sys.indexes WHERE name = ? AND object_id = OBJECT_ID(?)",
+                index, schema != null ? $"{Checked(schema)}.{table}" : table),
+            _ => await db.QueryAsync("SELECT 1 AS x FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ?", table, index),
+        };
+        return rows.Count > 0;
+    }
+
     /// <summary>Renames a table (in its schema).</summary>
     public static Task RenameTableAsync(CliSqlSession db, string from, string to, string? schema = null)
     {

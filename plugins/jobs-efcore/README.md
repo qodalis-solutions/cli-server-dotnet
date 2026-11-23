@@ -51,6 +51,24 @@ application's own):
 
 Executions keep their `properties` (the job's own values) as JSON.
 
+Executions are indexed on `StartedAt`, `(JobId, StartedAt)` and `(Status, StartedAt)`, which history lists and
+summaries filter and sort on (cli-server-dotnet#96). Tables created by an earlier version get these indexes on the
+store's first start (each one checked by name, so later starts create nothing), or through migration `2` of the
+`qcli-jobs` schema source with the databases plugin. A host that maps the tables in its own model (below) gets them
+in its next `dotnet ef migrations add`; apply that migration before the store is first used (as startup migrations
+do), since the store would otherwise create the indexes first and the migration's `CreateIndex` would fail.
+
+Lists (`GetExecutionsAsync`, `QueryExecutionsAsync`) do not load the log entries: each run carries `LogCount`
+instead. `GetExecutionAsync` (one run, the API's run detail) loads them, and `JobExecutionQuery.IncludeLogs = true`
+loads them for a list. `SummarizeExecutionsAsync(since, jobIds)` counts the runs per job and status with one
+`GROUP BY`, with the start of the newest one, without loading the runs:
+
+```csharp
+var summary = await storage.SummarizeExecutionsAsync(DateTime.UtcNow.AddHours(-24));
+var lastSuccess = summary.Where(s => s.Status == JobExecutionStatus.Completed)
+    .ToDictionary(s => s.JobId, s => s.LastStartedAt);
+```
+
 ## Table names (1.0.0-beta.30)
 
 The tables are `QcliJobExecutions`, `QcliJobLogEntries` and `QcliJobStates` (cli-server-dotnet#99: `Qcli` + PascalCase, the same on the three servers). On the first start

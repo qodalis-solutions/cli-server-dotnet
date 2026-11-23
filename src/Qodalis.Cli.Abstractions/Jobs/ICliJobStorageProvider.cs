@@ -14,7 +14,8 @@ public interface ICliJobStorageProvider
     Task SaveExecutionAsync(JobExecution execution, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves a paginated list of executions for a specific job.
+    /// Retrieves a paginated list of executions for a specific job. A store may leave the logs out (setting
+    /// <see cref="JobExecution.LogCount"/>); <see cref="GetExecutionAsync"/> returns a run with its logs.
     /// </summary>
     /// <param name="jobId">The job identifier.</param>
     /// <param name="limit">Maximum number of records to return.</param>
@@ -40,6 +41,33 @@ public interface ICliJobStorageProvider
             var (items, total) = await GetExecutionsAsync(jobId, limit, 0, status, cancellationToken);
             return (items, total);
         });
+    }
+
+    /// <summary>
+    /// Per job and status, how many runs started at or after <paramref name="since"/> and when the newest one started
+    /// ("last success per job", "runs in the last 24 hours") without loading the runs. Only the jobs of
+    /// <paramref name="jobIds"/>, or every job when null. The default pages through <see cref="QueryExecutionsAsync"/>
+    /// (without logs) and groups in memory; database stores override it with a <c>GROUP BY</c>.
+    /// </summary>
+    async Task<IReadOnlyList<JobExecutionSummary>> SummarizeExecutionsAsync(DateTime since,
+        IReadOnlyCollection<string>? jobIds = null, CancellationToken cancellationToken = default)
+    {
+        const int pageSize = 500;
+        var runs = new List<JobExecution>();
+        for (var offset = 0; ; offset += pageSize)
+        {
+            var (items, total) = await QueryExecutionsAsync(new JobExecutionQuery
+            {
+                JobIds = jobIds,
+                Since = JobExecutionQuery.AsUtc(since),
+                Limit = pageSize,
+                Offset = offset,
+            }, cancellationToken);
+            runs.AddRange(items);
+            if (items.Count < pageSize || offset + items.Count >= total) break;
+        }
+
+        return JobExecutionSummary.Of(runs);
     }
 
     /// <summary>
@@ -92,7 +120,7 @@ public interface ICliJobStorageProvider
         Task.FromResult(false);
 
     /// <summary>
-    /// Retrieves a single execution by its unique identifier.
+    /// Retrieves a single execution by its unique identifier, with its logs.
     /// </summary>
     /// <param name="executionId">The execution identifier.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>

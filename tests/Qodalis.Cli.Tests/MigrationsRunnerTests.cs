@@ -375,6 +375,38 @@ public sealed class MigrationsRunnerTests : IDisposable
 
     [Theory]
     [MemberData(nameof(Dialects))]
+    public async Task IndexExists_FindsAnIndexOfTheTable_ByName(string dialect)
+    {
+        var (connect, prefix) = Database(dialect);
+        var p = prefix.ToLowerInvariant();
+        try
+        {
+            var runner = Runner(connect, p, new CliCodeMigrationSource("app",
+            [
+                new CliMigration { Id = "1", Name = "things", Up = $"CREATE TABLE {p}things (id INT PRIMARY KEY, started VARCHAR(30))" },
+                new CliMigration
+                {
+                    Id = "2", Name = "index",
+                    Up = CliMigrationStep.FromCode(async db =>
+                    {
+                        Assert.False(await CliSqlSchema.IndexExistsAsync(db, $"{p}things", $"ix_{p}_started"));
+                        await db.ExecuteAsync($"CREATE INDEX ix_{p}_started ON {p}things (started)");
+                        Assert.True(await CliSqlSchema.IndexExistsAsync(db, $"{p}things", $"ix_{p}_started"));
+                        Assert.False(await CliSqlSchema.IndexExistsAsync(db, $"{p}things", $"ix_{p}_other"));
+                    }),
+                },
+            ]));
+            var run = await runner.UpAsync();
+            Assert.True(run.Status == "succeeded", run.Error);
+        }
+        finally
+        {
+            await DropAsync(connect, [.. Tables(prefix), $"{p}things"]);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Dialects))]
     public async Task SqlFolder_ReadsUpAndDownFiles(string dialect)
     {
         var (connect, p) = Database(dialect);

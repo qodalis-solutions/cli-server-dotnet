@@ -273,8 +273,15 @@ jobs; the default merges per-job listings), `DeleteExecutionAsync` (for `Discard
 `PruneAsync(before)` (delete old executions; the default keeps everything), and
 `PruneAsync(jobId, retention, now)`, which the [history retention](#history-retention) calls per job (the default
 reads the job's runs and deletes the expired ones with `DeleteExecutionAsync`; override it with a set-based delete),
-and `GetExecutionJobIdsAsync` (the job ids that have runs, so removed jobs are pruned too; the default lists none). `GET /jobs/stats` reads every run of its range through
+and `GetExecutionJobIdsAsync` (the job ids that have runs, so removed jobs are pruned too; the default lists none), and
+`SummarizeExecutionsAsync(since, jobIds)` (per job and status, the number of runs and the start of the newest one;
+the default pages through `QueryExecutionsAsync` and groups in memory). `GET /jobs/stats` reads every run of its range through
 `QueryExecutionsAsync`, a page at a time, so it works with any store or job manager.
+
+Lists may leave the log entries out: `JobExecutionQuery.IncludeLogs` (default `false`) asks for them, and a store
+that leaves them out sets `JobExecution.LogCount` (the API's `logCount` reads `LogEntryCount`, either one).
+`GetExecutionAsync` returns one run with its logs; the run detail endpoint, `server jobs logs` and the dashboard read
+logs through it. The in-memory store keeps the logs in its lists.
 
 ## Jobs that run elsewhere
 

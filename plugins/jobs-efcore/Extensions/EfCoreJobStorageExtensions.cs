@@ -44,12 +44,14 @@ public static class EfCoreJobStorageExtensions
 
     /// <summary>
     /// The job storage tables as source <c>qcli-jobs</c> of <paramref name="database"/> in the databases plugin
-    /// (registered on the store's connection when the database is not added yet). Call
+    /// (registered on the store's connection when the database is not added yet): migration <c>1</c> creates the
+    /// tables, <c>2</c> adds the <c>StartedAt</c> indexes to tables of 1.0.0-beta.29 and older. Call
     /// <see cref="AddEfCoreJobStorage"/> too.
     /// </summary>
     public static CliDatabasesBuilder AddJobStorageSchema(this CliDatabasesBuilder builder, string database,
         Action<CliMigrationDatabaseOptions>? configure = null) =>
-        builder.AddEfCoreStore<JobStorageDbContext>(database, "qcli-jobs", "job runs, logs and states tables", configure);
+        builder.AddEfCoreStore<JobStorageDbContext>(database, "qcli-jobs", "job runs, logs and states tables", configure,
+            QcliEfStoreSchema.IndexUpgrade<JobStorageDbContext>("2", "StartedAt indexes on the job runs"));
 
     private static void RemoveService(IServiceCollection services, Type serviceType)
     {

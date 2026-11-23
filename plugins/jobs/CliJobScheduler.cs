@@ -282,8 +282,14 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                 {
                     // Finished runs leave the filter, so every page starts at 0; a run the store did not update is
                     // seen again and ends the loop.
-                    var (items, _) = await _storage.GetExecutionsAsync(
-                        id, pageSize, 0, nameof(JobExecutionStatus.Running), cancellationToken);
+                    // With logs: the last entry tells when the run stopped
+                    var (items, _) = await _storage.QueryExecutionsAsync(new JobExecutionQuery
+                    {
+                        JobIds = [id],
+                        Status = nameof(JobExecutionStatus.Running),
+                        Limit = pageSize,
+                        IncludeLogs = true,
+                    }, cancellationToken);
                     var interrupted = items.Where(e => e.Status == JobExecutionStatus.Running && seen.Add(e.Id)).ToList();
                     foreach (var execution in interrupted)
                     {
