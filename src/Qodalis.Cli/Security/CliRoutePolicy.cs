@@ -47,7 +47,7 @@ public static class CliRoutePolicy
     private static readonly string[] AdminPrefixes =
     [
         "/api/v1/qcli/status", "/api/v1/qcli/plugins", "/api/v1/qcli/config", "/api/v1/qcli/logs",
-        "/api/v1/qcli/ws/clients", "/api/v1/qcli/auth/me",
+        "/api/v1/qcli/ws/clients", "/api/v1/qcli/auth/me", "/api/v1/qcli/dashboard",
     ];
 
     private static readonly string[] FsReadActions = ["ls", "cat", "stat", "download"];
