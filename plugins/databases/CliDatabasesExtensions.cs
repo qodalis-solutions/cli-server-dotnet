@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Extensions;
@@ -107,12 +106,7 @@ public static class CliDatabasesExtensions
         builder.Services.AddHostedService<MigrationsStartupService>();
 
         // The dashboard's Databases page, when the package carries its build
-        var page = DatabasesDashboardPage.Files();
-        if (page != null && builder.ServerOptions.CliRoutes)
-        {
-            builder.AddDashboardExtension(DatabasesDashboardPage.Extension(page));
-            builder.Services.AddTransient<IStartupFilter>(_ => new DatabasesDashboardPage.StartupFilter(page));
-        }
+        builder.AddDashboardModule(DatabasesDashboardPage.Module, typeof(DatabasesDashboardPage).Assembly);
     }
 }
 

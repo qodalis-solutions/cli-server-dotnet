@@ -612,6 +612,32 @@ page is listed whatever the caller's permissions; the dashboard hides what the u
 own API enforces access. Invalid entries fail startup (`invalid dashboard extension: <reason>`,
 `dashboard extension already registered: <id>`).
 
+Two optional fields: `Widgets` (`["overview"]`: the module's cards on the dashboard's Overview; `["palette"]`: entries
+in its command palette) and `Search` (`"/?q="`: the palette offers "Search <title> for …" and opens the page with the
+text).
+
+### Dashboard modules
+
+The dashboard's plugin pages are modules (`@qodalis/cli-dashboard-module-<id>`, built in cli-server-dashboard's
+`modules/`), each embedded in the package that owns its API and registered with `AddDashboardModule`:
+
+| Page | Package | Registered by | Served at |
+|---|---|---|---|
+| Jobs (Overview cards, palette) | `Qodalis.Cli.Plugin.Jobs` | `AddJob` / `ConfigureJobs` | `/qcli/modules/jobs` |
+| Audit | `Qodalis.Cli.Plugin.Audit` | `AddAudit` (also through `AddUsers`) | `/qcli/modules/audit` |
+| API tokens | `Qodalis.Cli.Plugin.Users` | `AddUsers` | `/qcli/modules/tokens` |
+| Filesystem | `Qodalis.Cli` | `AddFileSystem` | `/qcli/modules/filesystem` |
+| Data explorer | `Qodalis.Cli` | `AddDataExplorerProvider` | `/qcli/modules/data-explorer` |
+| Databases (Overview cards) | `Qodalis.Cli.Plugin.Databases` | `AddDatabases` | `/qcli/databases` |
+
+The files are served outside the API (no token; the page's API enforces access) with `Cache-Control: no-cache`, and
+the extension's URLs carry their hash, so a new build loads at once. A package built without the module simply has
+no page. `cli.ConfigureDashboardModule(id, fileProvider)` serves another build, and `null` leaves the page out.
+
+A plugin of your own does the same: `cli.AddDashboardModule(new CliDashboardModule { Id, Title, … }, typeof(MyPlugin).Assembly)`
+with the build under `wwwroot/<id>` (`<QcliDashboardModule Include="<id>" />` and `build/Qcli.DashboardModules.targets`
+copy and embed it here), or `AddDashboardModule(module, fileProvider)`.
+
 ## Docker
 
 ```bash

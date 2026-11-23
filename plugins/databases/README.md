@@ -100,8 +100,9 @@ The admin dashboard shows a Databases page (group Data, `databases:read`): the d
 one its stats (size, connections, load over time, largest tables), its migrations by status and the runs, and, with
 `databases:migrate`, Apply pending / Migrate to here / Roll back to here with the SQL each run executes. It is
 `@qodalis/cli-dashboard-module-databases`, embedded in the package at build (from the sibling `cli-server-dashboard`
-repo, else `node_modules`), served at `/qcli/databases` and registered as a dashboard extension by `AddDatabases`;
-nothing else to call.
+repo, else the npm package), served at `/qcli/databases` and registered as a dashboard extension by `AddDatabases`,
+with its cards on the dashboard's Overview (`Widgets = ["overview"]`); nothing else to call.
+`cli.ConfigureDashboardModule("databases", files)` serves another build, `null` leaves the page out.
 
 ## Helpers for store authors
 

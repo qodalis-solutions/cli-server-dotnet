@@ -14,7 +14,7 @@ namespace Qodalis.Cli.Extensions;
 /// <summary>
 /// Fluent builder for configuring CLI services, including command processors, modules, filesystem, and data explorer providers.
 /// </summary>
-public class CliBuilder
+public partial class CliBuilder
 {
     private readonly List<ICliModule> _modules = [];
     private readonly List<CliInstalledPlugin> _installedPlugins = [];
@@ -326,6 +326,8 @@ public class CliBuilder
         Services.AddSingleton<FileSystemPathValidator>();
         AddInstalledPlugin(typeof(FileSystemOptions).Assembly);
         AddInstalledPlugin(FileStorageProvider.GetType().Assembly);
+        // The dashboard's Filesystem page, when this package carries its build
+        AddDashboardModule(CliDashboardModules.FileSystem, typeof(CliBuilder).Assembly);
         return this;
     }
 
@@ -340,6 +342,8 @@ public class CliBuilder
     {
         HasDataExplorer = true;
         AddInstalledPlugin(typeof(T).Assembly);
+        // The dashboard's Data explorer page (once), when this package carries its build
+        AddDashboardModule(CliDashboardModules.DataExplorer, typeof(CliBuilder).Assembly);
 
         var options = new DataExplorerProviderOptions
         {
@@ -369,6 +373,7 @@ public class CliBuilder
     {
         HasDataExplorer = true;
         AddInstalledPlugin(provider.GetType().Assembly);
+        AddDashboardModule(CliDashboardModules.DataExplorer, typeof(CliBuilder).Assembly);
 
         var options = new DataExplorerProviderOptions
         {

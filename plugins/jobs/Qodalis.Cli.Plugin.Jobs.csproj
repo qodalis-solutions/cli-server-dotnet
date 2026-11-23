@@ -34,4 +34,9 @@
     <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
     <AssemblyMetadata Include="QodalisCliIcon" Value="⏱️" />
   </ItemGroup>
+  <!-- The dashboard's pages this package serves (build/Qcli.DashboardModules.targets) -->
+  <ItemGroup>
+    <QcliDashboardModule Include="jobs" />
+  </ItemGroup>
+  <Import Project="..\..\build\Qcli.DashboardModules.targets" />
 </Project>

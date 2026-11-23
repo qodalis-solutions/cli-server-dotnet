@@ -553,6 +553,10 @@ engine.registerModule(usersModule.configure({ server: 'dotnet' }));
 
 The client then logs in through `POST /sessions`, attaches the bearer token to every request to that server, and gains the `sessions` and `session-kick` commands.
 
+## Dashboard page
+
+The admin dashboard's API tokens page (`@qodalis/cli-dashboard-module-tokens`; every user sees their own tokens) comes with this package (not in guard-only mode). It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/tokens` outside the API; `cli.ConfigureDashboardModule("tokens", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
+
 ## License
 
 MIT

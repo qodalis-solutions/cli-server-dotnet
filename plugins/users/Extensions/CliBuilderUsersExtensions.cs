@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Audit.Extensions;
 using Qodalis.Cli.Plugin.Users.Controllers;
 using Qodalis.Cli.Plugin.Users.Middleware;
@@ -55,6 +56,11 @@ public static class CliBuilderUsersExtensions
         {
             options.ProtectServer = false;
             services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, GuardOnlyStartupCheck>();
+        }
+        else
+        {
+            // The dashboard's API tokens page, when the package carries its build
+            builder.AddDashboardModule(CliDashboardModules.Tokens, typeof(UsersModuleOptions).Assembly);
         }
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;

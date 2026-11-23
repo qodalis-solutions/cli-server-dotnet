@@ -7,6 +7,7 @@ using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Mcp;
+using Qodalis.Cli.Models;
 using Qodalis.Cli.Services;
 
 namespace Qodalis.Cli.Plugin.Jobs;
@@ -126,6 +127,9 @@ public static class CliBuilderJobExtensions
 
         // Register the jobs plugin controller assembly
         builder.AddApplicationPart(typeof(CliJobsController).Assembly);
+
+        // The dashboard's Jobs page and Overview cards, when the package carries its build
+        builder.AddDashboardModule(CliDashboardModules.Jobs, typeof(CliJobsController).Assembly);
 
         // Default in-memory storage (can be overridden by SetJobStorageProvider); kept out when a provider
         // such as AddEfCoreJobStorage was registered before the first job
