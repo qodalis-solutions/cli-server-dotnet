@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using System.Text.Json.Serialization;
 
@@ -166,8 +167,9 @@ internal static class CliDatabaseStatsCollector
                     status = await MySqlStatusAsync(db);
                     stats.Server = await MySqlServerAsync(db, status);
                 });
+                await MySqlFreshTableStatsAsync(db);
                 await Group("size", async () => stats.Size = await MySqlSizeAsync(db));
-                await Group("connections", async () => stats.Connections = await MySqlConnectionsAsync(db, status ??= await MySqlStatusAsync(db)));
+                await Group("connections", async () => stats.Connections = await MySqlConnectionsAsync(db));
                 await Group("counters", async () =>
                 {
                     status ??= await MySqlStatusAsync(db);
@@ -279,7 +281,7 @@ internal static class CliDatabaseStatsCollector
     private static async Task<Dictionary<string, long>> MySqlStatusAsync(CliSqlSession db)
     {
         var rows = await db.QueryAsync(
-            "SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime', 'Threads_connected', 'Threads_running', 'Questions', " +
+            "SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime', 'Questions', " +
             "'Com_commit', 'Com_rollback', 'Innodb_rows_read', 'Innodb_rows_inserted', 'Innodb_rows_updated', 'Innodb_rows_deleted', " +
             "'Innodb_buffer_pool_read_requests', 'Innodb_buffer_pool_reads')");
         var status = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
@@ -313,12 +315,32 @@ internal static class CliDatabaseStatsCollector
         return new() { Bytes = data + index, DataBytes = data, IndexBytes = index };
     }
 
-    private static async Task<CliDatabaseConnections> MySqlConnectionsAsync(CliSqlSession db, Dictionary<string, long> status) => new()
+    /// <summary>This database's connections (every one with the PROCESS privilege, else the user's own).</summary>
+    private static async Task<CliDatabaseConnections> MySqlConnectionsAsync(CliSqlSession db)
     {
-        Open = status.TryGetValue("Threads_connected", out var open) ? open : null,
-        Active = status.TryGetValue("Threads_running", out var running) ? running : null,
-        Max = Long(await ScalarAsync(db, "SELECT @@max_connections")),
-    };
+        var row = (await db.QueryAsync(
+            "SELECT COUNT(*) AS open_count, COALESCE(SUM(command NOT IN ('Sleep', 'Daemon')), 0) AS active_count " +
+            "FROM information_schema.processlist WHERE db = DATABASE()"))[0];
+        return new()
+        {
+            Open = Long(row["open_count"]),
+            Active = Long(row["active_count"]),
+            Max = Long(await ScalarAsync(db, "SELECT @@max_connections")),
+        };
+    }
+
+    /// <summary>information_schema.tables caches InnoDB sizes (a day by default on MySQL 8): read them fresh. MariaDB has no such cache.</summary>
+    private static async Task MySqlFreshTableStatsAsync(CliSqlSession db)
+    {
+        try
+        {
+            await db.ExecuteAsync("SET SESSION information_schema_stats_expiry = 0");
+        }
+        catch (DbException)
+        {
+            // MariaDB, older MySQL
+        }
+    }
 
     private static (CliDatabaseCounters, double?) MySqlCounters(Dictionary<string, long> s)
     {
