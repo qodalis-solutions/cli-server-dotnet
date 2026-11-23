@@ -18,6 +18,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />
     <PackageReference Include="Moq" Version="4.20.70" />
+    <PackageReference Include="MySqlConnector" Version="2.4.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -49,6 +51,8 @@
     <ProjectReference Include="..\..\plugins\users\Qodalis.Cli.Plugin.Users.csproj" />
     <ProjectReference Include="..\..\plugins\public-api\Qodalis.Cli.Plugin.PublicApi.csproj" />
     <ProjectReference Include="..\..\plugins\public-api-efcore\Qodalis.Cli.Plugin.PublicApi.EfCore.csproj" />
+    <ProjectReference Include="..\..\plugins\migrations\Qodalis.Cli.Plugin.Migrations.csproj" />
+    <ProjectReference Include="..\..\plugins\migrations-efcore\Qodalis.Cli.Plugin.Migrations.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\docs\Qodalis.Cli.Plugin.Docs.csproj" />
     <ProjectReference Include="..\..\plugins\portal\Qodalis.Cli.Plugin.Portal.csproj" />
     <!-- The demo server, for its smoke test (an alias: Qodalis.Cli.Server has a Program too) -->
