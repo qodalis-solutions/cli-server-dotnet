@@ -7,8 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.FileSystem.Sqlite;
-using Qodalis.Cli.Plugin.Migrations;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Tests.Helpers;
 
 namespace Qodalis.Cli.Tests;
@@ -45,10 +45,10 @@ public class CreateTagsMigration : Migration
 }
 
 /// <summary>
-/// <c>Qodalis.Cli.Plugin.Migrations.EfCore</c>: a DbContext's EF Core migrations in the plugin, the EF Core stores'
+/// <c>Qodalis.Cli.Plugin.Databases.EfCore</c>: a DbContext's EF Core migrations in the plugin, the EF Core stores'
 /// schemas as sources (renaming the previous release's tables), and filesystem-sqlite's versioned schema.
 /// </summary>
-public sealed class MigrationsEfCoreTests : IAsyncLifetime
+public sealed class DatabasesEfCoreTests : IAsyncLifetime
 {
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"qcli-migrations-ef-{Guid.NewGuid():N}.db");
     private UsersTestHost? _h;
@@ -82,7 +82,7 @@ public sealed class MigrationsEfCoreTests : IAsyncLifetime
         return command.ExecuteScalar();
     }
 
-    private async Task<CliMigrations> StartAsync(Action<CliMigrationsBuilder> configure, Action<Qodalis.Cli.Extensions.CliBuilder>? cli = null)
+    private async Task<CliDatabases> StartAsync(Action<CliDatabasesBuilder> configure, Action<Qodalis.Cli.Extensions.CliBuilder>? cli = null)
     {
         _h = await UsersTestHost.StartAsync(
             configureServices: services => services.AddDbContextFactory<MigrationNotesDbContext>(o => o
@@ -91,9 +91,9 @@ public sealed class MigrationsEfCoreTests : IAsyncLifetime
             configureCli: c =>
             {
                 cli?.Invoke(c);
-                c.AddMigrations(configure);
+                c.AddDatabases(configure);
             });
-        return _h.Host.Services.GetRequiredService<CliMigrations>();
+        return _h.Host.Services.GetRequiredService<CliDatabases>();
     }
 
     [Fact]

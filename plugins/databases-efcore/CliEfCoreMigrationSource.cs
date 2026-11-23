@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Qodalis.Cli.Plugin.Migrations.EfCore;
+namespace Qodalis.Cli.Plugin.Databases.EfCore;
 
 /// <summary>
 /// A <typeparamref name="TContext"/>'s EF Core migrations as a migration source: status from

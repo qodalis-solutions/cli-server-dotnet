@@ -40,10 +40,10 @@ The store's options (`AddEfCorePublicApiUsageStore(..., o => ...)`) set the name
 A host that maps the table in its own model (`modelBuilder.ApplyPublicApiUsageModel()`) gets the new name there too: its next
 `dotnet ef migrations add` generates the `RenameTable`, or it keeps the old name with `ApplyPublicApiUsageModel("qcli_api_usage")` and `LegacyTableNames = true`.
 
-With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+With the [databases plugin](../databases-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
 
 ```csharp
-cli.AddMigrations(m => m.AddPublicApiUsageSchema("cli", db => db.ApplyMigrationsOnStartup()));
+cli.AddDatabases(d => d.AddPublicApiUsageSchema("cli", db => db.ApplyMigrationsOnStartup()));
 ```
 
 ## Host migrations

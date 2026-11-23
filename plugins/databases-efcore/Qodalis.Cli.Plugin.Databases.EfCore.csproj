@@ -3,14 +3,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>Qodalis.Cli.Plugin.Migrations.EfCore</RootNamespace>
+    <RootNamespace>Qodalis.Cli.Plugin.Databases.EfCore</RootNamespace>
     <Version>1.0.0-beta.29</Version>
-    <Description>EF Core for the Qodalis CLI migrations plugin: a DbContext's migrations shown, applied and rolled back from the dashboard, the terminal and MCP, and the schema helpers of the CLI's EF Core stores</Description>
+    <Description>EF Core for the Qodalis CLI databases plugin: a DbContext's migrations shown, applied and rolled back from the dashboard, the terminal and MCP, and the schema helpers of the CLI's EF Core stores</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
     <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
-    <PackageTags>cli;qodalis;migrations;efcore;plugin</PackageTags>
+    <PackageTags>cli;qodalis;databases;migrations;efcore;plugin</PackageTags>
     <PackageOutputPath>nupkg\</PackageOutputPath>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageIcon>logo.png</PackageIcon>
@@ -22,7 +22,7 @@
     <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../migrations/Qodalis.Cli.Plugin.Migrations.csproj" />
+    <ProjectReference Include="../databases/Qodalis.Cli.Plugin.Databases.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
   </ItemGroup>

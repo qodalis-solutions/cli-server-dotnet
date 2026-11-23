@@ -1,7 +1,7 @@
 namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
 using Microsoft.EntityFrameworkCore;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 
 /// <summary>
 /// Entity Framework Core database context for the file storage provider.

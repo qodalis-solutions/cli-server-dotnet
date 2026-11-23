@@ -3,13 +3,14 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Mcp;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
-/// MCP tools of the migrations plugin: <c>migrations_status</c>, <c>migrations_runs</c>, <c>migrations_sql</c>
-/// (<c>migrations:read</c>), <c>migrations_up</c> and <c>migrations_down</c> (<c>migrations:run</c>).
+/// MCP tools of the databases plugin: <c>databases_list</c>, <c>databases_stats</c>, <c>migrations_status</c>,
+/// <c>migrations_runs</c>, <c>migrations_sql</c> (<c>databases:read</c>), <c>migrations_up</c> and
+/// <c>migrations_down</c> (<c>databases:migrate</c>).
 /// </summary>
-public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpToolProvider
+public sealed class DatabasesMcpToolProvider(IServiceProvider services) : IMcpToolProvider
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -18,21 +19,43 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public string? Feature => "migrations";
+    public string? Feature => "databases";
 
-    private CliMigrations Migrations => services.GetRequiredService<CliMigrations>();
+    private CliDatabases Databases => services.GetRequiredService<CliDatabases>();
 
     public Task<IReadOnlyList<McpToolDefinition>> GetToolsAsync(McpToolContext context, CancellationToken cancellationToken)
     {
-        JsonNode Database() => McpSchema.Property("string", "Database name (see migrations_status without one)");
+        JsonNode Database() => McpSchema.Property("string", "Database name (see databases_list)");
         IReadOnlyList<McpToolDefinition> tools =
         [
+            new()
+            {
+                Name = "databases_list",
+                Description = "The server's databases: dialect, size, applied, pending and problem migrations, last run",
+                InputSchema = McpSchema.Object(new JsonObject()),
+                RequiredPermissions = [DatabasesPermissions.Read],
+                Annotations = McpToolAnnotations.ReadOnly,
+                CallAsync = Guarded(async (_, _, ct) => await ListAsync(ct)),
+            },
+            new()
+            {
+                Name = "databases_stats",
+                Description = "A database's size (data, indexes, log), connections (active, open, max), load counters since the server started (queries, transactions, rows read and written), cache hit ratio and largest tables",
+                InputSchema = McpSchema.Object(new JsonObject { ["database"] = Database() }, "database"),
+                RequiredPermissions = [DatabasesPermissions.Read],
+                Annotations = McpToolAnnotations.ReadOnly,
+                CallAsync = Guarded(async (args, _, ct) =>
+                {
+                    var stats = await Databases.StatsAsync(McpSchema.GetString(args, "database")!, ct);
+                    return McpToolResult.Ok(CliDatabaseFormat.Stats(stats), (JsonObject)JsonSerializer.SerializeToNode(stats, Json)!);
+                }),
+            },
             new()
             {
                 Name = "migrations_status",
                 Description = "Without a database: every database with its applied, pending and problem counts. With one: its migrations and their status (applied, pending, changed, missing, failed)",
                 InputSchema = McpSchema.Object(new JsonObject { ["database"] = Database() }),
-                RequiredPermissions = [MigrationsPermissions.Read],
+                RequiredPermissions = [DatabasesPermissions.Read],
                 Annotations = McpToolAnnotations.ReadOnly,
                 CallAsync = Guarded(StatusAsync),
             },
@@ -45,12 +68,12 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
                     ["database"] = Database(),
                     ["limit"] = McpSchema.Property("integer", "Maximum runs (1-100)", 20),
                 }, "database"),
-                RequiredPermissions = [MigrationsPermissions.Read],
+                RequiredPermissions = [DatabasesPermissions.Read],
                 Annotations = McpToolAnnotations.ReadOnly,
                 CallAsync = Guarded(async (args, _, ct) =>
                 {
                     var limit = Math.Clamp(args["limit"]?.GetValue<int>() ?? 20, 1, 100);
-                    var page = await Migrations.Require(McpSchema.GetString(args, "database")!).RunsAsync(limit, 0, ct);
+                    var page = await Databases.Require(McpSchema.GetString(args, "database")!).RunsAsync(limit, 0, ct);
                     var node = new JsonObject
                     {
                         ["items"] = JsonSerializer.SerializeToNode(page.Items, Json), ["total"] = page.Total,
@@ -68,12 +91,12 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
                     ["direction"] = McpSchema.Property("string", "up (default) or down"),
                     ["to"] = McpSchema.Property("string", "As for migrations_up / migrations_down"),
                 }, "database"),
-                RequiredPermissions = [MigrationsPermissions.Read],
+                RequiredPermissions = [DatabasesPermissions.Read],
                 Annotations = McpToolAnnotations.ReadOnly,
                 CallAsync = Guarded(async (args, _, ct) =>
                 {
                     var down = McpSchema.GetString(args, "direction") == "down";
-                    var sql = await Migrations.Require(McpSchema.GetString(args, "database")!)
+                    var sql = await Databases.Require(McpSchema.GetString(args, "database")!)
                         .ScriptAsync(down ? "down" : "up", Optional(McpSchema.GetString(args, "to")), ct);
                     return McpToolResult.Ok(sql.Length > 0 ? sql : down ? "Nothing to roll back" : "Nothing pending", new JsonObject { ["sql"] = sql });
                 }),
@@ -88,7 +111,7 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
                     ["to"] = McpSchema.Property("string", "Stop after this migration (id or source:id); omit for all pending"),
                     ["force"] = McpSchema.Property("boolean", "Run although a migration is changed or missing"),
                 }, "database"),
-                RequiredPermissions = [MigrationsPermissions.Run],
+                RequiredPermissions = [DatabasesPermissions.Migrate],
                 CallAsync = Guarded((args, ctx, ct) => RunAsync("up", args, ctx, ct)),
             },
             new()
@@ -101,7 +124,7 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
                     ["to"] = McpSchema.Property("string", "Roll back to this migration, keeping it (id or source:id), or base for everything"),
                     ["force"] = McpSchema.Property("boolean", "Run although a migration is changed or missing"),
                 }, "database", "to"),
-                RequiredPermissions = [MigrationsPermissions.Run],
+                RequiredPermissions = [DatabasesPermissions.Migrate],
                 Annotations = McpToolAnnotations.Destructive,
                 CallAsync = Guarded((args, ctx, ct) => RunAsync("down", args, ctx, ct)),
             },
@@ -127,16 +150,8 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
     private async Task<McpToolResult> StatusAsync(JsonObject args, McpToolContext context, CancellationToken ct)
     {
         var name = Optional(McpSchema.GetString(args, "database"));
-        if (name == null)
-        {
-            var databases = await Migrations.OverviewAsync(ct);
-            var text = string.Join('\n', databases.Select(d => d.Error != null
-                ? $"{d.Name} ({d.Dialect}): error: {d.Error}"
-                : $"{d.Name} ({d.Dialect}): {d.Applied} applied, {d.Pending} pending{(d.Problems > 0 ? $", {d.Problems} problem(s)" : "")}"));
-            return McpToolResult.Ok(text.Length > 0 ? text : "No databases",
-                new JsonObject { ["databases"] = JsonSerializer.SerializeToNode(databases, Json) });
-        }
-        var db = Migrations.Require(name);
+        if (name == null) return await ListAsync(ct);
+        var db = Databases.Require(name);
         var states = await db.StatusAsync(ct);
         var lines = string.Join('\n', states.Select(s => $"{s.Status,-8} {s.Source}:{s.Id} {s.Name}"));
         return McpToolResult.Ok(lines.Length > 0 ? lines : "No migrations", new JsonObject
@@ -148,11 +163,21 @@ public sealed class MigrationsMcpToolProvider(IServiceProvider services) : IMcpT
         });
     }
 
+    private async Task<McpToolResult> ListAsync(CancellationToken ct)
+    {
+        var databases = await Databases.OverviewAsync(ct);
+        var text = string.Join('\n', databases.Select(d => d.Error != null
+            ? $"{d.Name} ({d.Dialect}): error: {d.Error}"
+            : $"{d.Name} ({d.Dialect}{(d.SizeBytes is { } size ? $", {CliDatabaseFormat.Bytes(size)}" : "")}): {d.Applied} applied, {d.Pending} pending{(d.Problems > 0 ? $", {d.Problems} problem(s)" : "")}"));
+        return McpToolResult.Ok(text.Length > 0 ? text : "No databases",
+            new JsonObject { ["databases"] = JsonSerializer.SerializeToNode(databases, Json) });
+    }
+
     private async Task<McpToolResult> RunAsync(string direction, JsonObject args, McpToolContext context, CancellationToken ct)
     {
         var to = Optional(McpSchema.GetString(args, "to"));
         if (direction == "down" && to == null) return McpToolResult.Error("to is required to roll back (an id, or base for everything)");
-        var run = await Migrations.RunAsync(McpSchema.GetString(args, "database")!, direction, new CliMigrationRunOptions
+        var run = await Databases.RunAsync(McpSchema.GetString(args, "database")!, direction, new CliMigrationRunOptions
         {
             To = to,
             Force = args["force"]?.GetValue<bool>() == true,

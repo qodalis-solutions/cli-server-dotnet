@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Helpers;
 
-namespace Qodalis.Cli.Plugin.Migrations.EfCore;
+namespace Qodalis.Cli.Plugin.Databases.EfCore;
 
 /// <summary>
 /// The table names a CLI store's DbContext maps its entities to (<c>QcliAuditEntries</c>, ...), carried in its

@@ -4,20 +4,28 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.FileProviders;
 using Qodalis.Cli.Models;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
-/// The admin dashboard's Migrations page (<c>@qodalis/cli-dashboard-module-migrations</c>), embedded in the package
+/// The admin dashboard's Databases page (<c>@qodalis/cli-dashboard-module-databases</c>), embedded in the package
 /// and served at <see cref="Prefix"/>, outside the API, so the dashboard's <c>import()</c> needs no token.
 /// </summary>
-internal static class MigrationsDashboardPage
+internal static class DatabasesDashboardPage
 {
-    public const string Prefix = "/qcli/migrations";
+    public const string Prefix = "/qcli/databases";
 
     private static readonly Dictionary<string, string> Titles = new()
     {
-        ["es"] = "Migraciones", ["fr"] = "Migrations", ["de"] = "Migrationen", ["pt"] = "Migrações", ["it"] = "Migrazioni",
-        ["ja"] = "マイグレーション", ["ko"] = "마이그레이션", ["zh"] = "迁移", ["ru"] = "Миграции", ["ro"] = "Migrări",
+        ["es"] = "Bases de datos",
+        ["fr"] = "Bases de données",
+        ["de"] = "Datenbanken",
+        ["pt"] = "Bancos de dados",
+        ["it"] = "Database",
+        ["ja"] = "データベース",
+        ["ko"] = "데이터베이스",
+        ["zh"] = "数据库",
+        ["ru"] = "Базы данных",
+        ["ro"] = "Baze de date",
     };
 
     /// <summary>The embedded build, or null when the package was built without it.</summary>
@@ -25,7 +33,7 @@ internal static class MigrationsDashboardPage
     {
         try
         {
-            var files = new ManifestEmbeddedFileProvider(typeof(MigrationsDashboardPage).Assembly, "wwwroot/migrations");
+            var files = new ManifestEmbeddedFileProvider(typeof(DatabasesDashboardPage).Assembly, "wwwroot/databases");
             return files.GetFileInfo("extension.js").Exists ? files : null;
         }
         catch (InvalidOperationException)
@@ -49,13 +57,13 @@ internal static class MigrationsDashboardPage
         var css = Version("extension.css");
         return new CliDashboardExtension
         {
-            Id = "migrations",
-            Title = "Migrations",
+            Id = "databases",
+            Title = "Databases",
             Titles = Titles,
             Icon = "🗄️",
             Group = "data",
             Order = 20,
-            Permission = MigrationsPermissions.Read,
+            Permission = DatabasesPermissions.Read,
             Entry = $"{Prefix}/extension.js?v={Version("extension.js")}",
             Styles = css == null ? null : [$"{Prefix}/extension.css?v={css}"],
         };

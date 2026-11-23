@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 
 namespace Qodalis.Cli.Plugin.Users.EfCore;
 

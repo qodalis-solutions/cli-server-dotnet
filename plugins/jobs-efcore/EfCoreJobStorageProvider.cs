@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Jobs;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 

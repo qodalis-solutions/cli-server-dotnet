@@ -1,10 +1,10 @@
-# Qodalis.Cli.Plugin.Migrations.EfCore
+# Qodalis.Cli.Plugin.Databases.EfCore
 
-EF Core for the [migrations plugin](../migrations): a `DbContext`'s migrations shown, applied and rolled back from the
+EF Core for the [databases plugin](../databases): a `DbContext`'s migrations shown, applied and rolled back from the
 admin dashboard, the terminal and MCP, and the schemas of the CLI's EF Core stores as migration sources.
 
 ```bash
-dotnet add package Qodalis.Cli.Plugin.Migrations.EfCore
+dotnet add package Qodalis.Cli.Plugin.Databases.EfCore
 ```
 
 ## A DbContext's migrations
@@ -12,7 +12,7 @@ dotnet add package Qodalis.Cli.Plugin.Migrations.EfCore
 ```csharp
 builder.Services.AddDbContextFactory<AppDbContext>(o => o.UseNpgsql(connectionString));
 builder.Services.AddControllers().AddCli(cli => cli
-    .AddMigrations(m => m.AddEfCore<AppDbContext>("main", db => db.ApplyMigrationsOnStartup())));
+    .AddDatabases(d => d.AddEfCore<AppDbContext>("main", db => db.ApplyMigrationsOnStartup())));
 ```
 
 This replaces `await db.Database.MigrateAsync()` at startup: pending migrations apply before the server takes
@@ -31,13 +31,13 @@ apply once. The context comes from `IDbContextFactory<TContext>`, or from a scop
 
 The stores (users-efcore, jobs-efcore, audit-efcore, public-api-efcore, filesystem-efcore) name their tables `Qcli` +
 PascalCase (`QcliAuditEntries`, ...; cli-server-dotnet#99) and rename the previous release's tables on first use,
-keeping their rows. With the migrations plugin, each store's schema can also be a source of a database, so the
+keeping their rows. With the databases plugin, each store's schema can also be a source of a database, so the
 dashboard shows it and startup applies it:
 
 ```csharp
 cli.AddEfCoreAuditStore(o => o.UseNpgsql(cs));
 cli.AddEfCoreJobStorage(o => o.UseNpgsql(cs));
-cli.AddMigrations(m => m
+cli.AddDatabases(d => d
     .AddAuditStoreSchema("cli", db => db.ApplyMigrationsOnStartup())
     .AddJobStorageSchema("cli"));
 ```

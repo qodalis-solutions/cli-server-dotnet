@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Qodalis.Cli.Abstractions.Helpers;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>Where a migration stands in a database: <c>applied</c>, <c>pending</c>, <c>changed</c>, <c>missing</c> or <c>failed</c>.</summary>
 public static class CliMigrationStatus
@@ -17,7 +17,7 @@ public static class CliMigrationStatus
     public const string Failed = "failed";
 }
 
-/// <summary>A migration with its status (<c>GET /api/v1/qcli/migrations/{db}</c>).</summary>
+/// <summary>A migration with its status (<c>GET /api/v1/qcli/databases/{db}/migrations</c>).</summary>
 public sealed class CliMigrationState
 {
     public required string Source { get; init; }
@@ -122,7 +122,7 @@ public sealed class CliMigrationDatabaseOptions : QcliTableNameOptions
         return this;
     }
 
-    /// <summary>Adds a source (for a runner used without <see cref="CliMigrationsBuilder"/>, e.g. a store migrating its own schema).</summary>
+    /// <summary>Adds a source (for a runner used without <see cref="CliDatabasesBuilder"/>, e.g. a store migrating its own schema).</summary>
     public CliMigrationDatabaseOptions WithSource(ICliMigrationSource source)
     {
         Sources.Add(_ => source);
@@ -254,23 +254,37 @@ public sealed class CliMigrationRunner
                 var isFailed = failed != null && failed.Source == l.Source.Name && failed.Id == l.Migration.Id;
                 return new CliMigrationState
                 {
-                    Source = l.Source.Name, Id = l.Migration.Id, Name = l.Migration.Name, HasDown = l.Migration.Down != null,
+                    Source = l.Source.Name,
+                    Id = l.Migration.Id,
+                    Name = l.Migration.Name,
+                    HasDown = l.Migration.Down != null,
                     Status = isFailed ? CliMigrationStatus.Failed : CliMigrationStatus.Pending,
                 };
             }
             return new CliMigrationState
             {
-                Source = l.Source.Name, Id = l.Migration.Id, Name = l.Migration.Name, HasDown = l.Migration.Down != null,
+                Source = l.Source.Name,
+                Id = l.Migration.Id,
+                Name = l.Migration.Name,
+                HasDown = l.Migration.Down != null,
                 Status = row.Checksum != null && l.Checksum != null && row.Checksum != l.Checksum ? CliMigrationStatus.Changed : CliMigrationStatus.Applied,
-                AppliedAt = row.AppliedAt, DurationMs = row.DurationMs, AppliedBy = row.AppliedBy,
+                AppliedAt = row.AppliedAt,
+                DurationMs = row.DurationMs,
+                AppliedBy = row.AppliedBy,
             };
         }).ToList();
         // Applied, but gone from its source (a source this runner still has)
         var sources = SourceNames.ToHashSet();
         states.AddRange(rows.Where(r => sources.Contains(r.Source) && !known.Contains(r.Key)).Select(r => new CliMigrationState
         {
-            Source = r.Source, Id = r.Id, Name = r.Name, Status = CliMigrationStatus.Missing,
-            AppliedAt = r.AppliedAt, DurationMs = r.DurationMs, AppliedBy = r.AppliedBy, HasDown = false,
+            Source = r.Source,
+            Id = r.Id,
+            Name = r.Name,
+            Status = CliMigrationStatus.Missing,
+            AppliedAt = r.AppliedAt,
+            DurationMs = r.DurationMs,
+            AppliedBy = r.AppliedBy,
+            HasDown = false,
         }));
         return states;
     }
@@ -278,6 +292,13 @@ public sealed class CliMigrationRunner
     /// <summary>Every migration with its status.</summary>
     public Task<List<CliMigrationState>> StatusAsync(CancellationToken ct = default) =>
         SessionAsync(async db => StatesOf(await LoadAsync(db), await HistoryAsync(db), await LastFailureAsync(db)), ct);
+
+    /// <summary>Size, connections, load counters and the largest tables; a metric that cannot be read is listed as unavailable.</summary>
+    public Task<CliDatabaseStats> StatsAsync(CancellationToken ct = default) =>
+        SessionAsync(db => CliDatabaseStatsCollector.CollectAsync(Name, db), ct);
+
+    /// <summary>The database's size in bytes.</summary>
+    public Task<long?> SizeAsync(CancellationToken ct = default) => SessionAsync(CliDatabaseStatsCollector.SizeAsync, ct);
 
     /// <summary>The latest runs, newest first.</summary>
     public Task<CliMigrationRunsPage> RunsAsync(int limit = 20, int offset = 0, CancellationToken ct = default) =>

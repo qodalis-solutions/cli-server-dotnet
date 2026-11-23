@@ -1,6 +1,6 @@
 using Qodalis.Cli.Abstractions.Helpers;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
 /// Schema helpers that work on every dialect: quoting, table and column checks, renames, and the adoption of a
@@ -160,22 +160,22 @@ public static class CliSqlSchema
         switch (db.Dialect)
         {
             case CliSqlDialects.Postgres:
-            {
-                var rows = await db.QueryAsync($"SELECT {(wait ? "pg_advisory_lock" : "pg_try_advisory_lock")}(hashtext(?))::text AS ok", key);
-                return wait || rows[0]["ok"] as string == "true";
-            }
+                {
+                    var rows = await db.QueryAsync($"SELECT {(wait ? "pg_advisory_lock" : "pg_try_advisory_lock")}(hashtext(?))::text AS ok", key);
+                    return wait || rows[0]["ok"] as string == "true";
+                }
             case CliSqlDialects.MySql:
-            {
-                var rows = await db.QueryAsync("SELECT GET_LOCK(?, ?) AS ok", key, wait ? -1 : 0);
-                return Convert.ToInt64(rows[0]["ok"] ?? 0L) == 1;
-            }
+                {
+                    var rows = await db.QueryAsync("SELECT GET_LOCK(?, ?) AS ok", key, wait ? -1 : 0);
+                    return Convert.ToInt64(rows[0]["ok"] ?? 0L) == 1;
+                }
             case CliSqlDialects.SqlServer:
-            {
-                var rows = await db.QueryAsync(
-                    "DECLARE @r int; EXEC @r = sp_getapplock @Resource = ?, @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = ?; SELECT @r AS ok",
-                    key, wait ? -1 : 0);
-                return Convert.ToInt64(rows[0]["ok"] ?? -1L) >= 0;
-            }
+                {
+                    var rows = await db.QueryAsync(
+                        "DECLARE @r int; EXEC @r = sp_getapplock @Resource = ?, @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = ?; SELECT @r AS ok",
+                        key, wait ? -1 : 0);
+                    return Convert.ToInt64(rows[0]["ok"] ?? -1L) >= 0;
+                }
             default:
                 return true;
         }

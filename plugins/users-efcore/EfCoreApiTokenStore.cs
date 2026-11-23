@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Helpers;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Plugin.Users.Models;
 using Qodalis.Cli.Plugin.Users.Stores;
 
