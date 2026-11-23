@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Audit;
+using Qodalis.Cli.Abstractions.Helpers;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 
 namespace Qodalis.Cli.Plugin.Audit.EfCore;
 
@@ -15,6 +17,7 @@ namespace Qodalis.Cli.Plugin.Audit.EfCore;
 public class EfCoreAuditStore : IAuditStore
 {
     private readonly IDbContextFactory<AuditStorageDbContext> _dbFactory;
+    private readonly IReadOnlyDictionary<string, string> _renames;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private volatile bool _initialized;
 
@@ -22,9 +25,11 @@ public class EfCoreAuditStore : IAuditStore
     /// Initializes a new instance of the <see cref="EfCoreAuditStore"/> class.
     /// </summary>
     /// <param name="dbFactory">The DbContext factory for creating database contexts.</param>
-    public EfCoreAuditStore(IDbContextFactory<AuditStorageDbContext> dbFactory)
+    /// <param name="renames">The previous release's table to rename on first use (registered by <c>AddEfCoreAuditStore</c>).</param>
+    public EfCoreAuditStore(IDbContextFactory<AuditStorageDbContext> dbFactory, QcliEfStoreRenames<AuditStorageDbContext>? renames = null)
     {
         _dbFactory = dbFactory;
+        _renames = renames?.Renames ?? new Dictionary<string, string>();
     }
 
     /// <inheritdoc />
@@ -139,42 +144,12 @@ public class EfCoreAuditStore : IAuditStore
     }
 
     /// <summary>
-    /// Creates the database with the table, or only the table in a database that already exists (the host's own,
+    /// Renames the table of 1.0.0-beta.29 and older (<c>audit_entries</c>) to its new name, keeping the entries, then
+    /// creates the database with the table, or only the table in a database that already exists (the host's own,
     /// whose other tables make <c>EnsureCreated</c> do nothing). A table the host created in its migrations is kept.
     /// </summary>
-    private static async Task EnsureTableAsync(AuditStorageDbContext db, CancellationToken cancellationToken)
-    {
-        if (await db.Database.EnsureCreatedAsync(cancellationToken))
-            return;
-
-        if (!await ExistsAsync(db, cancellationToken))
-        {
-            try
-            {
-                await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
-            }
-            catch (DbException)
-            {
-                // Another instance of the server may have created them meanwhile
-                if (!await ExistsAsync(db, cancellationToken))
-                    throw;
-            }
-        }
-    }
-
-    /// <summary>Whether the store's tables are there; a query on a missing table fails with the provider's error.</summary>
-    private static async Task<bool> ExistsAsync(AuditStorageDbContext db, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _ = await db.Entries.AnyAsync(cancellationToken);
-            return true;
-        }
-        catch (DbException)
-        {
-            return false;
-        }
-    }
+    private Task EnsureTableAsync(AuditStorageDbContext db, CancellationToken cancellationToken) =>
+        QcliEfStoreSchema.EnsureAsync(db, _renames, cancellationToken);
 
     private static AuditEntry ToEntry(AuditEntryEntity entity) => new()
     {

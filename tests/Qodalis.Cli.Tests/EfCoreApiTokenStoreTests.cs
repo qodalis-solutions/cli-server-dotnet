@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Extensions;
@@ -86,6 +87,14 @@ public class EfCoreApiTokenStoreTests : IDisposable
         Assert.Equal(["c"], (await _store.GetTokensAsync()).Select(t => t.Id));
     }
 
+    /// <summary>The renames <c>AddEfCoreApiTokenStore</c> registers by default.</summary>
+    private static readonly QcliEfStoreRenames<ApiTokenStorageDbContext> Renames = new(new Dictionary<string, string> { ["api_tokens"] = "QcliApiTokens" });
+
+    /// <summary>A store on <paramref name="connection"/> as <c>AddEfCoreApiTokenStore</c> makes it (renaming <c>api_tokens</c>).</summary>
+    private EfCoreApiTokenStore UpgradingStore(SqliteConnection connection) =>
+        new(new SqliteContextFactory<ApiTokenStorageDbContext>(
+            new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options, o => new ApiTokenStorageDbContext(o)), _time, null, Renames);
+
     /// <summary>The <c>api_tokens</c> table as 1.0.0-beta.28 created it (no <c>Audience</c>), with one row.</summary>
     private static void CreateOldTable(SqliteConnection connection)
     {
@@ -100,10 +109,10 @@ public class EfCoreApiTokenStoreTests : IDisposable
         command.ExecuteNonQuery();
     }
 
-    private static List<string> Columns(SqliteConnection connection)
+    private static List<string> Columns(SqliteConnection connection, string table = "QcliApiTokens")
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT name FROM pragma_table_info('api_tokens')";
+        command.CommandText = $"SELECT name FROM pragma_table_info('{table}')";
         using var reader = command.ExecuteReader();
         var columns = new List<string>();
         while (reader.Read()) columns.Add(reader.GetString(0));
@@ -124,13 +133,12 @@ public class EfCoreApiTokenStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AddsTheAudienceColumnToAnOldTable()
+    public async Task RenamesAnOldTable_KeepsItsTokens_AndAddsTheAudienceColumn()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
         CreateOldTable(connection);
-        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options;
-        var store = new EfCoreApiTokenStore(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)), _time);
+        var store = UpgradingStore(connection);
 
         var old = await store.GetTokenAsync("old");
         Assert.Equal("cli", old!.Audience);
@@ -141,6 +149,7 @@ public class EfCoreApiTokenStoreTests : IDisposable
         await store.CreateTokenAsync(host);
         Assert.Equal("host", (await store.GetTokenByHashAsync("hash-h"))!.Audience);
         Assert.Contains("Audience", Columns(connection));
+        Assert.Empty(Columns(connection, "api_tokens"));
     }
 
     [Fact]
@@ -153,7 +162,7 @@ public class EfCoreApiTokenStoreTests : IDisposable
         CreateOldTable(keepAlive);
         var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connectionString).Options;
         EfCoreApiTokenStore NewStore() =>
-            new(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)), _time);
+            new(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)), _time, null, Renames);
         var first = NewStore();
         var second = NewStore();
 
@@ -169,15 +178,18 @@ public class EfCoreApiTokenStoreTests : IDisposable
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
         CreateOldTable(connection);
-        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options;
+        // The host's migrations own the table and kept its name
+        var names = new EfCoreApiTokenStoreOptions { UpgradeSchema = false, LegacyTableNames = true };
+        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection)
+            .UseQcliTables(QcliEfTables.Resolve(names, new Dictionary<string, string> { ["ApiTokens"] = "api_tokens" })).Options;
         var store = new EfCoreApiTokenStore(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)),
-            _time, new EfCoreApiTokenStoreOptions { UpgradeSchema = false });
+            _time, names, Renames);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => store.GetTokenAsync("old"));
 
         Assert.Contains("Audience", ex.Message);
         Assert.Contains("UpgradeSchema", ex.Message);
-        Assert.DoesNotContain("Audience", Columns(connection));
+        Assert.DoesNotContain("Audience", Columns(connection, "api_tokens"));
 
         // Once the host's migration added the column, the same store works.
         using (var command = connection.CreateCommand())
@@ -209,13 +221,12 @@ public class EfCoreApiTokenStoreTests : IDisposable
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
         CreateOldTable(connection);
-        var options = new DbContextOptionsBuilder<ApiTokenStorageDbContext>().UseSqlite(connection).Options;
-        var store = new EfCoreApiTokenStore(new SqliteContextFactory<ApiTokenStorageDbContext>(options, o => new ApiTokenStorageDbContext(o)), _time);
+        var store = UpgradingStore(connection);
 
         await store.GetTokenAsync("old");
 
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT type FROM pragma_table_info('api_tokens') WHERE name = 'Audience'";
+        command.CommandText = "SELECT type FROM pragma_table_info('QcliApiTokens') WHERE name = 'Audience'";
         Assert.Equal("TEXT", command.ExecuteScalar());
     }
 

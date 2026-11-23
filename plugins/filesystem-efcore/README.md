@@ -27,6 +27,12 @@ builder.Services.AddControllers().AddCli(cli =>
 
 The `FileStorageDbContext` schema is created automatically on first use via `Database.EnsureCreated()`.
 
+## Table names (1.0.0-beta.30)
+
+The table is `QcliFiles` (cli-server-dotnet#99). The first start after an upgrade renames the `files` table of
+1.0.0-beta.29 and older, keeping the files; `o.UseEfCore(efOptions, t => t.LegacyTableNames = true)` keeps the old
+name, `TablePrefix`, `Tables["Files"]` and `Schema` set others.
+
 ## Dependencies
 
 - `Qodalis.Cli.Plugin.FileSystem`

@@ -238,12 +238,12 @@ public class EfCoreJobHistoryRetentionTests : JobHistoryRetentionStoreTests, IDi
     {
         await RunAsync("a", 1);
         for (var i = 0; i < 4; i++) await RunAsync("a", 48 + i);
-        Assert.Equal(5, Count("job_log_entries"));
+        Assert.Equal(5, Count("QcliJobLogEntries"));
 
         Assert.Equal(4, await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 3, MaxAge = TimeSpan.FromDays(1) }, DateTimeOffset.UtcNow));
 
-        Assert.Equal(1, Count("job_executions"));
-        Assert.Equal(1, Count("job_log_entries"));
+        Assert.Equal(1, Count("QcliJobExecutions"));
+        Assert.Equal(1, Count("QcliJobLogEntries"));
     }
 
     [Fact]
@@ -254,7 +254,7 @@ public class EfCoreJobHistoryRetentionTests : JobHistoryRetentionStoreTests, IDi
             await Store.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", Status = JobExecutionStatus.Completed, StartedAt = at });
 
         Assert.Equal(3, await Store.PruneAsync("a", new JobHistoryRetention { MaxRunsPerJob = 2 }, DateTimeOffset.UtcNow));
-        Assert.Equal(2, Count("job_executions"));
+        Assert.Equal(2, Count("QcliJobExecutions"));
     }
 }
 

@@ -2,27 +2,31 @@ using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Qodalis.Cli.Abstractions.Helpers;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 
 namespace Qodalis.Cli.Plugin.PublicApi.EfCore;
 
 /// <summary>Options of <see cref="EfCorePublicApiUsageStore"/> (<c>AddEfCorePublicApiUsageStore(..., o =&gt; ...)</c>).</summary>
-public sealed class EfCorePublicApiUsageStoreOptions
+public sealed class EfCorePublicApiUsageStoreOptions : QcliTableNameOptions
 {
     /// <summary>
-    /// Creates the <c>qcli_api_usage</c> table on first use when it does not exist. On by default; turn it off when
-    /// the host's own migrations create the table (<c>modelBuilder.ApplyPublicApiUsageModel()</c>).
+    /// Creates the <c>QcliApiUsage</c> table on first use when it does not exist (renaming the <c>qcli_api_usage</c> of
+    /// 1.0.0-beta.29 unless <see cref="QcliTableNameOptions.LegacyTableNames"/>). On by default; turn it off when the
+    /// host's own migrations create the table (<c>modelBuilder.ApplyPublicApiUsageModel()</c>).
     /// </summary>
     public bool EnsureCreated { get; set; } = true;
 }
 
 /// <summary>
-/// <see cref="IPublicApiUsageStore"/> backed by EF Core (table <c>qcli_api_usage</c>): the counters are shared by every
+/// <see cref="IPublicApiUsageStore"/> backed by EF Core (table <c>QcliApiUsage</c>): the counters are shared by every
 /// process that serves the API, so the quotas hold across them (the guard's increment-then-check-then-compensate never
 /// admits more than a limit; under contention a request may be refused while the count is just below it).
 /// </summary>
 public class EfCorePublicApiUsageStore : IPublicApiUsageStore
 {
     private readonly IDbContextFactory<PublicApiUsageDbContext> _dbFactory;
+    private readonly IReadOnlyDictionary<string, string> _renames;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private volatile bool _initialized;
 
@@ -31,11 +35,13 @@ public class EfCorePublicApiUsageStore : IPublicApiUsageStore
     /// </summary>
     /// <param name="dbFactory">The DbContext factory for creating database contexts.</param>
     /// <param name="options">Store options (defaults when not given).</param>
+    /// <param name="renames">The previous release's table to rename on first use (registered by <c>AddEfCorePublicApiUsageStore</c>).</param>
     public EfCorePublicApiUsageStore(IDbContextFactory<PublicApiUsageDbContext> dbFactory,
-        EfCorePublicApiUsageStoreOptions? options = null)
+        EfCorePublicApiUsageStoreOptions? options = null, QcliEfStoreRenames<PublicApiUsageDbContext>? renames = null)
     {
         _dbFactory = dbFactory;
         Options = options ?? new EfCorePublicApiUsageStoreOptions();
+        _renames = renames?.Renames ?? new Dictionary<string, string>();
     }
 
     /// <summary>The store's options.</summary>
@@ -142,34 +148,9 @@ public class EfCorePublicApiUsageStore : IPublicApiUsageStore
     }
 
     /// <summary>
-    /// Creates the database with the table, or only the table in a database that already exists (the host's own,
-    /// whose other tables make <c>EnsureCreated</c> do nothing). An existing table is kept.
+    /// Renames the table of 1.0.0-beta.29 (<c>qcli_api_usage</c>), then creates the database with the table, or only
+    /// the table in a database that already exists (the host's own, whose other tables make <c>EnsureCreated</c> do
+    /// nothing). An existing table is kept.
     /// </summary>
-    private static async Task EnsureTableAsync(PublicApiUsageDbContext db, CancellationToken ct)
-    {
-        try
-        {
-            if (await db.Database.EnsureCreatedAsync(ct)) return;
-            if (await ExistsAsync(db, ct)) return;
-            await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(ct);
-        }
-        catch (DbException)
-        {
-            // Another process may have created it meanwhile
-            if (!await ExistsAsync(db, ct)) throw;
-        }
-    }
-
-    private static async Task<bool> ExistsAsync(PublicApiUsageDbContext db, CancellationToken ct)
-    {
-        try
-        {
-            _ = await db.Usage.AnyAsync(ct);
-            return true;
-        }
-        catch (DbException)
-        {
-            return false;
-        }
-    }
+    private Task EnsureTableAsync(PublicApiUsageDbContext db, CancellationToken ct) => QcliEfStoreSchema.EnsureAsync(db, _renames, ct);
 }

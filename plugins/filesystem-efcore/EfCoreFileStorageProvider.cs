@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 
 namespace Qodalis.Cli.Plugin.FileSystem.EfCore;
 
@@ -14,13 +15,15 @@ public class EfCoreFileStorageProvider : IFileStorageProvider, IDisposable
     private readonly FileStorageDbContext _db;
 
     /// <summary>
-    /// Initializes a new instance and ensures the database schema is created.
+    /// Initializes a new instance and ensures the database schema is created: the <c>files</c> table of
+    /// 1.0.0-beta.29 and older is renamed first when <paramref name="renames"/> names it (<see cref="EfCoreFileSystemExtensions.UseEfCore"/> does).
     /// </summary>
     /// <param name="db">The EF Core database context to use for storage.</param>
-    public EfCoreFileStorageProvider(FileStorageDbContext db)
+    /// <param name="renames">Previous release's table → its new name; none when not given.</param>
+    public EfCoreFileStorageProvider(FileStorageDbContext db, IReadOnlyDictionary<string, string>? renames = null)
     {
         _db = db;
-        _db.Database.EnsureCreated();
+        QcliEfStoreSchema.EnsureAsync(_db, renames ?? new Dictionary<string, string>()).GetAwaiter().GetResult();
     }
 
     /// <summary>
