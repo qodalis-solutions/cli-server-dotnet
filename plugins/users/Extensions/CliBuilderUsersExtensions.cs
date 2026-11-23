@@ -59,8 +59,12 @@ public static class CliBuilderUsersExtensions
         }
         else
         {
-            // The dashboard's API tokens page, when the package carries its build
-            builder.AddDashboardModule(CliDashboardModules.Tokens, typeof(UsersModuleOptions).Assembly);
+            // The dashboard's Users, Account (the users build, at its own prefix) and API tokens pages, when the
+            // package carries their builds
+            var assembly = typeof(UsersModuleOptions).Assembly;
+            builder.AddDashboardModule(CliDashboardModules.Users, assembly);
+            builder.AddDashboardModule(CliDashboardModules.Account, assembly);
+            builder.AddDashboardModule(CliDashboardModules.Tokens, assembly);
         }
         // B1: protect the whole CLI server (fail closed in core even without the middleware).
         builder.ServerOptions.RequireAuthentication = options.ProtectServer;

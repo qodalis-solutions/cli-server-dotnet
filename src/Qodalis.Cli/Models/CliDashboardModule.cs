@@ -8,7 +8,7 @@ namespace Qodalis.Cli.Models;
 /// </summary>
 public sealed class CliDashboardModule
 {
-    /// <summary>The extension's id; also the build's folder name (<c>wwwroot/&lt;id&gt;</c>).</summary>
+    /// <summary>The extension's id; also the build's folder name (<c>wwwroot/&lt;id&gt;</c>) unless <see cref="Build"/> is set.</summary>
     public required string Id { get; init; }
 
     /// <summary>The page's title in English.</summary>
@@ -20,7 +20,10 @@ public sealed class CliDashboardModule
     /// <summary>One emoji, or an image URL.</summary>
     public string? Icon { get; init; }
 
-    /// <summary>Navigation group: <c>overview</c>, <c>operations</c>, <c>data</c>, <c>access</c>, <c>system</c>.</summary>
+    /// <summary>
+    /// Navigation group: <c>overview</c>, <c>operations</c>, <c>data</c>, <c>access</c>, <c>system</c>, or
+    /// <c>account</c>: listed in the dashboard's account menu (the signed-in user's menu) instead of the sidebar.
+    /// </summary>
     public string? Group { get; init; }
 
     /// <summary>Order within the group.</summary>
@@ -37,6 +40,16 @@ public sealed class CliDashboardModule
 
     /// <summary>Where the files are served, outside the API; default <c>/qcli/modules/&lt;id&gt;</c>.</summary>
     public string? Prefix { get; init; }
+
+    /// <summary>
+    /// The id of another module whose build this page uses (one build rendering several pages, e.g. <c>account</c> from
+    /// <c>users</c>): the files are read from <c>wwwroot/&lt;build&gt;</c>, and <c>ConfigureDashboardModule(build, …)</c>
+    /// applies to this page too. Default: the page's own build.
+    /// </summary>
+    public string? Build { get; init; }
+
+    /// <summary>The folder (and override id) of the page's build: <see cref="Build"/>, else <see cref="Id"/>.</summary>
+    public string BuildId => Build ?? Id;
 
     /// <summary>The prefix the files are served at.</summary>
     public string ResolvedPrefix => (Prefix ?? $"/qcli/modules/{Id}").TrimEnd('/');

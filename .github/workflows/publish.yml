@@ -28,8 +28,9 @@ jobs:
         run: |
           npm install --no-save --no-package-lock --ignore-scripts --prefix . \
             @qodalis/cli-dashboard-module-databases @qodalis/cli-dashboard-module-jobs @qodalis/cli-dashboard-module-audit \
-            @qodalis/cli-dashboard-module-filesystem @qodalis/cli-dashboard-module-data-explorer @qodalis/cli-dashboard-module-tokens
-          for m in databases jobs audit filesystem data-explorer tokens; do
+            @qodalis/cli-dashboard-module-filesystem @qodalis/cli-dashboard-module-data-explorer @qodalis/cli-dashboard-module-tokens \
+            @qodalis/cli-dashboard-module-users
+          for m in databases jobs audit filesystem data-explorer tokens users; do
             test -f node_modules/@qodalis/cli-dashboard-module-$m/dist/extension.js
           done
 

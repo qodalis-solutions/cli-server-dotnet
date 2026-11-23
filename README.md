@@ -600,7 +600,7 @@ builder.Services.AddControllers().AddCli(cli => cli
         Title = "Billing",
         Titles = new Dictionary<string, string> { ["de"] = "Abrechnung" },
         Icon = "💳",
-        Group = "data",                          // overview, operations, data, access, system
+        Group = "data",                          // overview, operations, data, access, system; account: the account menu
         Permission = "billing:read",
         Entry = "/billing/admin/extension.js",   // served by your plugin, same origin
         Styles = ["/billing/admin/extension.css"],
@@ -625,6 +625,8 @@ The dashboard's plugin pages are modules (`@qodalis/cli-dashboard-module-<id>`, 
 |---|---|---|---|
 | Jobs (Overview cards, palette) | `Qodalis.Cli.Plugin.Jobs` | `AddJob` / `ConfigureJobs` | `/qcli/modules/jobs` |
 | Audit | `Qodalis.Cli.Plugin.Audit` | `AddAudit` (also through `AddUsers`) | `/qcli/modules/audit` |
+| Users (users, groups, sessions) | `Qodalis.Cli.Plugin.Users` | `AddUsers` | `/qcli/modules/users` |
+| Account (account menu; the users build) | `Qodalis.Cli.Plugin.Users` | `AddUsers` | `/qcli/modules/account` |
 | API tokens | `Qodalis.Cli.Plugin.Users` | `AddUsers` | `/qcli/modules/tokens` |
 | Filesystem | `Qodalis.Cli` | `AddFileSystem` | `/qcli/modules/filesystem` |
 | Data explorer | `Qodalis.Cli` | `AddDataExplorerProvider` | `/qcli/modules/data-explorer` |
@@ -632,7 +634,12 @@ The dashboard's plugin pages are modules (`@qodalis/cli-dashboard-module-<id>`, 
 
 The files are served outside the API (no token; the page's API enforces access) with `Cache-Control: no-cache`, and
 the extension's URLs carry their hash, so a new build loads at once. A package built without the module simply has
-no page. `cli.ConfigureDashboardModule(id, fileProvider)` serves another build, and `null` leaves the page out.
+no page. `cli.ConfigureDashboardModule(id, fileProvider)` serves another build, and `null` leaves the page out. A page
+built from another module's build (`CliDashboardModule.Build`, e.g. Account from `users`) follows that module's
+override unless it has its own.
+
+The extension group `account` lists a page in the dashboard's account menu (the signed-in user's menu) instead of the
+sidebar.
 
 A plugin of your own does the same: `cli.AddDashboardModule(new CliDashboardModule { Id, Title, … }, typeof(MyPlugin).Assembly)`
 with the build under `wwwroot/<id>` (`<QcliDashboardModule Include="<id>" />` and `build/Qcli.DashboardModules.targets`
