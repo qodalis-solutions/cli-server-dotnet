@@ -64,6 +64,10 @@ public static class JobStorageModelBuilderExtensions
             entity.HasIndex(e => e.ExecutionId).IsUnique();
             entity.HasIndex(e => e.JobId);
             entity.HasIndex(e => e.Status);
+            // Lists and summaries filter on the start time and sort by it (cli-server-dotnet#96)
+            entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => new { e.JobId, e.StartedAt });
+            entity.HasIndex(e => new { e.Status, e.StartedAt });
             entity.Property(e => e.ExecutionId).HasMaxLength(64);
             entity.Property(e => e.JobId).HasMaxLength(256);
             entity.Property(e => e.JobName).HasMaxLength(256);

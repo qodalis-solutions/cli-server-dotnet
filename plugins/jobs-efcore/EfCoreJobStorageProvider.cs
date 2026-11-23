@@ -56,12 +56,15 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     /// <summary>
     /// Renames the tables of 1.0.0-beta.29 and older (<c>job_executions</c>, ...) to their new names, keeping the runs,
     /// then creates the database with the tables, or only the tables in a database that already exists (the host's
-    /// own, whose other tables make <c>EnsureCreated</c> do nothing). Tables the host created in its migrations are kept.
+    /// own, whose other tables make <c>EnsureCreated</c> do nothing), and adds the columns and indexes that tables of
+    /// an earlier version lack. Tables the host created in its migrations are kept.
     /// </summary>
     private async Task EnsureTablesAsync(JobStorageDbContext db, CancellationToken cancellationToken)
     {
         await QcliEfStoreSchema.EnsureAsync(db, _renames, cancellationToken);
         await AddMissingColumnsAsync(db, cancellationToken);
+        // The StartedAt indexes (cli-server-dotnet#96) on tables of an earlier version
+        await QcliEfStoreSchema.EnsureIndexesAsync(db, cancellationToken);
     }
 
     /// <summary>
@@ -246,16 +249,7 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         }
 
         var total = await query.CountAsync(cancellationToken);
-
-        var entities = await query
-            .OrderByDescending(e => e.StartedAt)
-            .ThenByDescending(e => e.Id)
-            .Skip(offset)
-            .Take(limit)
-            .Include(e => e.Logs)
-            .ToListAsync(cancellationToken);
-
-        var items = entities.Select(ToJobExecution).ToList();
+        var items = await PageAsync(query, offset, limit, includeLogs: false, cancellationToken);
         return (items, total);
     }
 
@@ -283,15 +277,64 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
         }
 
         var total = await matches.CountAsync(cancellationToken);
-        var entities = await matches
+        return (await PageAsync(matches, query.Offset, query.Limit, query.IncludeLogs, cancellationToken), total);
+    }
+
+    /// <summary>
+    /// A page of <paramref name="runs"/>, newest first (served by the <c>StartedAt</c> indexes). Without
+    /// <paramref name="includeLogs"/> the log entries are counted, not loaded (<see cref="JobExecution.LogCount"/>).
+    /// </summary>
+    private static async Task<List<JobExecution>> PageAsync(IQueryable<JobExecutionEntity> runs, int offset, int limit,
+        bool includeLogs, CancellationToken cancellationToken)
+    {
+        var page = runs.AsNoTracking()
             .OrderByDescending(e => e.StartedAt)
             .ThenByDescending(e => e.Id)
-            .Skip(query.Offset)
-            .Take(query.Limit)
-            .Include(e => e.Logs)
+            .Skip(offset)
+            .Take(limit);
+
+        if (includeLogs)
+            return (await page.Include(e => e.Logs).ToListAsync(cancellationToken)).Select(ToJobExecution).ToList();
+
+        var rows = await page.Select(e => new { Run = e, LogCount = e.Logs.Count() }).ToListAsync(cancellationToken);
+        return rows.Select(r =>
+        {
+            var execution = ToJobExecution(r.Run);
+            execution.LogCount = r.LogCount;
+            return execution;
+        }).ToList();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>One <c>GROUP BY</c> on the job id and status, served by the <c>StartedAt</c> indexes.</remarks>
+    public async Task<IReadOnlyList<JobExecutionSummary>> SummarizeExecutionsAsync(DateTime since,
+        IReadOnlyCollection<string>? jobIds = null, CancellationToken cancellationToken = default)
+    {
+        await using var db = await CreateDbContextAsync(cancellationToken);
+
+        var from = JobExecutionQuery.AsUtc(since);
+        var runs = db.Executions.Where(e => e.StartedAt >= from);
+        if (jobIds != null)
+        {
+            var ids = jobIds.ToList();
+            runs = runs.Where(e => ids.Contains(e.JobId));
+        }
+
+        var groups = await runs
+            .GroupBy(e => new { e.JobId, e.Status })
+            .Select(g => new { g.Key.JobId, g.Key.Status, Count = g.Count(), LastStartedAt = g.Max(e => e.StartedAt) })
             .ToListAsync(cancellationToken);
 
-        return (entities.Select(ToJobExecution).ToList(), total);
+        return groups
+            .Select(g => new JobExecutionSummary
+            {
+                JobId = g.JobId,
+                Status = Enum.Parse<JobExecutionStatus>(g.Status),
+                Count = g.Count,
+                LastStartedAt = JobExecutionQuery.AsUtc(g.LastStartedAt),
+            })
+            .OrderBy(g => g.JobId, StringComparer.Ordinal).ThenBy(g => g.Status)
+            .ToList();
     }
 
     /// <inheritdoc />

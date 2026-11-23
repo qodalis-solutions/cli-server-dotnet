@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.FileSystem.Sqlite;
+using Qodalis.Cli.Plugin.Jobs.EfCore;
 using Qodalis.Cli.Plugin.Databases;
 using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Tests.Helpers;
@@ -184,6 +185,35 @@ public sealed class DatabasesEfCoreTests : IAsyncLifetime
         Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'audit_entries'"));
         var entries = await _h!.Host.Services.GetRequiredService<IAuditStore>().GetEntriesAsync(new AuditQueryOptions { Username = "alice" });
         Assert.Equal("e1", Assert.Single(entries).Id);
+    }
+
+    [Fact]
+    public async Task TheJobStoresSchemaSource_AddsTheStartedAtIndexes_ToTablesOfAnEarlierVersion()
+    {
+        // The job tables as 1.0.0-beta.30 created them: indexes on ExecutionId, JobId and Status only
+        Sql("""
+            CREATE TABLE QcliJobExecutions (Id INTEGER NOT NULL CONSTRAINT PK_QcliJobExecutions PRIMARY KEY AUTOINCREMENT,
+                ExecutionId TEXT NOT NULL, JobId TEXT NOT NULL, JobName TEXT NOT NULL, Status TEXT NOT NULL, StartedAt TEXT NOT NULL,
+                CompletedAt TEXT NULL, Duration INTEGER NULL, Error TEXT NULL, RetryAttempt INTEGER NOT NULL, Properties TEXT NULL);
+            CREATE UNIQUE INDEX IX_QcliJobExecutions_ExecutionId ON QcliJobExecutions (ExecutionId);
+            CREATE INDEX IX_QcliJobExecutions_JobId ON QcliJobExecutions (JobId);
+            CREATE INDEX IX_QcliJobExecutions_Status ON QcliJobExecutions (Status);
+            CREATE TABLE QcliJobLogEntries (Id INTEGER NOT NULL CONSTRAINT PK_QcliJobLogEntries PRIMARY KEY AUTOINCREMENT,
+                ExecutionId TEXT NOT NULL, Timestamp TEXT NOT NULL, Level TEXT NOT NULL, Message TEXT NOT NULL);
+            CREATE INDEX IX_QcliJobLogEntries_ExecutionId ON QcliJobLogEntries (ExecutionId);
+            CREATE TABLE QcliJobStates (Id INTEGER NOT NULL CONSTRAINT PK_QcliJobStates PRIMARY KEY AUTOINCREMENT,
+                JobId TEXT NOT NULL, Status TEXT NOT NULL, LastRunAt TEXT NULL, UpdatedAt TEXT NOT NULL);
+            CREATE UNIQUE INDEX IX_QcliJobStates_JobId ON QcliJobStates (JobId);
+            """);
+
+        var migrations = await StartAsync(
+            m => m.AddJobStorageSchema("cli", db => db.ApplyMigrationsOnStartup()),
+            cli => cli.AddEfCoreJobStorage(o => o.UseSqlite(ConnectionString)));
+
+        Assert.Equal(["qcli-jobs:1 applied", "qcli-jobs:2 applied"],
+            (await migrations.Require("cli").StatusAsync()).Select(s => $"{s.Source}:{s.Id} {s.Status}"));
+        Assert.Equal("IX_QcliJobExecutions_JobId_StartedAt,IX_QcliJobExecutions_StartedAt,IX_QcliJobExecutions_Status_StartedAt",
+            Scalar("SELECT group_concat(name) FROM (SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE '%StartedAt%' ORDER BY name)"));
     }
 
     [Fact]

@@ -230,6 +230,93 @@ public class EfCoreJobStorageSqliteTests : IDisposable
         using var tables = connection.CreateCommand();
         tables.CommandText = "SELECT group_concat(name) FROM (SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%job%' ORDER BY name)";
         Assert.Equal("QcliJobExecutions,QcliJobLogEntries,QcliJobStates", tables.ExecuteScalar());
+        Assert.Equal(StartedAtIndexes, Indexes(connection));
+    }
+
+    private const string StartedAtIndexes =
+        "IX_QcliJobExecutions_JobId_StartedAt,IX_QcliJobExecutions_StartedAt,IX_QcliJobExecutions_Status_StartedAt";
+
+    /// <summary>The job runs' indexes on <c>StartedAt</c>, by name.</summary>
+    private static object? Indexes(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT group_concat(name) FROM (SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'QcliJobExecutions' AND name LIKE '%StartedAt%' ORDER BY name)";
+        return command.ExecuteScalar();
+    }
+
+    [Fact]
+    public async Task NewTables_HaveTheStartedAtIndexes()
+    {
+        await _provider.SaveJobStateAsync("job", new JobState { Status = JobStatus.Active });
+
+        Assert.Equal(StartedAtIndexes, Indexes(_connection));
+    }
+
+    [Fact]
+    public async Task ExistingTablesWithoutTheStartedAtIndexes_GainThemOnFirstUse_AndARestartKeepsThem()
+    {
+        await _provider.SaveJobStateAsync("job", new JobState { Status = JobStatus.Active });
+        using (var drop = _connection.CreateCommand())
+        {
+            drop.CommandText = "DROP INDEX IX_QcliJobExecutions_StartedAt; DROP INDEX IX_QcliJobExecutions_JobId_StartedAt; DROP INDEX IX_QcliJobExecutions_Status_StartedAt";
+            drop.ExecuteNonQuery();
+        }
+        Assert.Equal(DBNull.Value, Indexes(_connection));
+
+        var restarted = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(_options, o => new JobStorageDbContext(o)));
+        Assert.Single(await restarted.GetAllJobStatesAsync());
+        Assert.Equal(StartedAtIndexes, Indexes(_connection));
+
+        // Idempotent: a further start finds them and creates nothing
+        await using var db = new JobStorageDbContext(_options);
+        Assert.Empty(await QcliEfStoreSchema.EnsureIndexesAsync(db));
+    }
+
+    [Fact]
+    public async Task Lists_LeaveTheLogsOut_WithTheirCount_WhileOneRunHasThem()
+    {
+        var now = DateTime.UtcNow;
+        var logged = new JobExecution
+        {
+            JobId = "fetch", JobName = "fetch", Status = JobExecutionStatus.Completed, StartedAt = now,
+            Logs = [new JobLogEntry { Level = "info", Message = "one" }, new JobLogEntry { Level = "info", Message = "two" }],
+        };
+        var quiet = new JobExecution { JobId = "fetch", JobName = "fetch", Status = JobExecutionStatus.Failed, StartedAt = now.AddMinutes(-1) };
+        await _provider.SaveExecutionAsync(logged);
+        await _provider.SaveExecutionAsync(quiet);
+
+        var (items, _) = await _provider.GetExecutionsAsync("fetch");
+        Assert.All(items, e => Assert.Empty(e.Logs));
+        Assert.Equal([2, 0], items.Select(e => e.LogCount ?? -1));
+        Assert.Equal([2, 0], items.Select(e => e.LogEntryCount));
+
+        var (queried, _) = await _provider.QueryExecutionsAsync(new JobExecutionQuery { JobIds = ["fetch"] });
+        Assert.All(queried, e => Assert.Empty(e.Logs));
+        Assert.Equal(2, queried[0].LogCount);
+
+        var (withLogs, _) = await _provider.QueryExecutionsAsync(new JobExecutionQuery { JobIds = ["fetch"], IncludeLogs = true });
+        Assert.Equal(["one", "two"], withLogs[0].Logs.Select(l => l.Message));
+        Assert.Null(withLogs[0].LogCount);
+
+        var one = await _provider.GetExecutionAsync(logged.Id);
+        Assert.Equal(["one", "two"], one!.Logs.Select(l => l.Message));
+
+        // Saving a listed run (as the scheduler does with interrupted runs) keeps the logs it did not load
+        items[0].Status = JobExecutionStatus.Cancelled;
+        await _provider.SaveExecutionAsync(items[0]);
+        Assert.Equal(2, (await _provider.GetExecutionAsync(logged.Id))!.Logs.Count);
+    }
+
+    [Fact]
+    public async Task SummarizeExecutions_GroupsByJobAndStatus_SinceATime()
+    {
+        var now = DateTime.UtcNow;
+        await JobSummaryCases.SeedAsync(_provider, now);
+
+        JobSummaryCases.AssertSummary(await _provider.SummarizeExecutionsAsync(now.AddHours(-24)), now);
+        Assert.Equal(["b:Failed:1"],
+            (await _provider.SummarizeExecutionsAsync(now.AddHours(-24), ["b"])).Select(s => $"{s.JobId}:{s.Status}:{s.Count}"));
+        Assert.Empty(await _provider.SummarizeExecutionsAsync(now.AddHours(1)));
     }
 
     [Fact]

@@ -49,6 +49,50 @@ public static class QcliEfStoreSchema
         }
     }
 
+    /// <summary>
+    /// Creates the model's indexes that tables created by an earlier version do not have (creating missing tables
+    /// leaves existing ones as they are). Each index is checked by name first, so it runs on every start and does
+    /// nothing once they exist; the statements come from the provider's migrations SQL generator.
+    /// </summary>
+    /// <param name="db">The store's context (its connection and transaction are used).</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The names of the indexes it created.</returns>
+    public static async Task<IReadOnlyList<string>> EnsureIndexesAsync(DbContext db, CancellationToken cancellationToken = default)
+    {
+        var created = new List<string>();
+        if (!db.Database.IsRelational()) return created;
+
+        var model = db.GetService<IDesignTimeModel>().Model;
+        var indexes = db.GetService<IMigrationsModelDiffer>().GetDifferences(null, model.GetRelationalModel())
+            .OfType<CreateIndexOperation>().ToList();
+        var generator = db.GetService<IMigrationsSqlGenerator>();
+        foreach (var index in indexes)
+        {
+            if (await IndexExistsAsync(db, index, cancellationToken)) continue;
+            try
+            {
+                // Identifiers from the model, delimited by the provider: no user input reaches these statements
+                foreach (var command in generator.Generate([index], model))
+                    await db.Database.ExecuteSqlRawAsync(command.CommandText, cancellationToken);
+                created.Add(index.Name);
+            }
+            catch (DbException)
+            {
+                // Another instance of the server may have created it meanwhile
+                if (!await IndexExistsAsync(db, index, cancellationToken)) throw;
+            }
+        }
+        return created;
+    }
+
+    private static async Task<bool> IndexExistsAsync(DbContext db, CreateIndexOperation index, CancellationToken ct)
+    {
+        var exists = false;
+        await WithSessionAsync(db, ct, async session =>
+            exists = await CliSqlSchema.IndexExistsAsync(session, index.Table, index.Name, index.Schema));
+        return exists;
+    }
+
     /// <summary>The model's tables the database lacks.</summary>
     private static async Task<IReadOnlyList<(string Table, string? Schema)>> MissingTablesAsync(DbContext db, CancellationToken ct)
     {
@@ -189,9 +233,11 @@ public static class QcliEfStoreSchema
     /// <summary>
     /// A store's schema as a migration source for the databases plugin: migration <c>1</c> runs
     /// <see cref="EnsureAsync"/> on <typeparamref name="TContext"/> with the store's renames
-    /// (<see cref="QcliEfStoreRenames{TContext}"/>), then creates what is missing.
+    /// (<see cref="QcliEfStoreRenames{TContext}"/>), then creates what is missing; <paramref name="upgrades"/> follow
+    /// it (see <see cref="IndexUpgrade{TContext}"/>).
     /// </summary>
-    public static ICliMigrationSource Source<TContext>(string name, string description) where TContext : DbContext =>
+    public static ICliMigrationSource Source<TContext>(string name, string description, params CliMigration[] upgrades)
+        where TContext : DbContext =>
         new CliCodeMigrationSource(name,
         [
             new CliMigration
@@ -206,7 +252,25 @@ public static class QcliEfStoreSchema
                     await EnsureAsync(lease.Context, renames?.Renames ?? new Dictionary<string, string>(), session.CancellationToken);
                 }),
             },
+            .. upgrades,
         ]);
+
+    /// <summary>
+    /// A migration that creates the indexes of <typeparamref name="TContext"/>'s model that the tables do not have
+    /// (<see cref="EnsureIndexesAsync"/>), for a store that adds indexes to tables of an earlier version.
+    /// </summary>
+    public static CliMigration IndexUpgrade<TContext>(string id, string description) where TContext : DbContext =>
+        new()
+        {
+            Id = id,
+            Name = description,
+            Transaction = false,
+            Up = CliMigrationStep.FromCode(async session =>
+            {
+                await using var lease = await CliEfCoreContexts.CreateAsync<TContext>(session);
+                await EnsureIndexesAsync(lease.Context, session.CancellationToken);
+            }),
+        };
 }
 
 /// <summary>
