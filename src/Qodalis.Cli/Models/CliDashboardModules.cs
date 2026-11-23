@@ -4,8 +4,8 @@ namespace Qodalis.Cli.Models;
 
 /// <summary>
 /// The dashboard pages of the built-in plugins, each served by the package that owns its API (it embeds the build and
-/// calls <c>CliBuilder.AddDashboardModule</c>): jobs by the jobs plugin, audit by the audit plugin, API tokens by the
-/// users plugin, filesystem and data explorer by this package (<c>AddFileSystem</c>, <c>AddDataExplorerProvider</c>).
+/// calls <c>CliBuilder.AddDashboardModule</c>): jobs by the jobs plugin, audit by the audit plugin, users, account and
+/// API tokens by the users plugin, filesystem and data explorer by this package (<c>AddFileSystem</c>, <c>AddDataExplorerProvider</c>).
 /// </summary>
 public static class CliDashboardModules
 {
@@ -71,6 +71,34 @@ public static class CliDashboardModules
         Icon = "🔑",
         Group = "access",
         Order = 10,
+    };
+
+    /// <summary>Users, groups and sessions, with the palette's user search.</summary>
+    public static readonly CliDashboardModule Users = new()
+    {
+        Id = "users",
+        Title = "Users",
+        Titles = Translations("Usuarios", "Utilisateurs", "Benutzer", "Usuários", "Utenti", "ユーザー", "사용자", "用户", "Пользователи", "Utilizatori"),
+        Icon = "👥",
+        Group = "access",
+        Order = 5,
+        Permission = "users:read",
+        Search = "/?q=",
+    };
+
+    /// <summary>
+    /// The signed-in user's account (profile, password change): every user, in the dashboard's account menu. The
+    /// <see cref="Users"/> build renders it for this id; served again at <c>/qcli/modules/account</c>.
+    /// </summary>
+    public static readonly CliDashboardModule Account = new()
+    {
+        Id = "account",
+        Title = "Account",
+        Titles = Translations("Cuenta", "Compte", "Konto", "Conta", "Account", "アカウント", "계정", "账户", "Учётная запись", "Cont"),
+        Icon = "👤",
+        Group = "account",
+        Order = 0,
+        Build = "users",
     };
 
     private static Dictionary<string, string> Translations(string es, string fr, string de, string pt, string it, string ja, string ko, string zh, string ru, string ro) => new()

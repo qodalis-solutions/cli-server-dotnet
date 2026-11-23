@@ -555,7 +555,13 @@ The client then logs in through `POST /sessions`, attaches the bearer token to e
 
 ## Dashboard page
 
-The admin dashboard's API tokens page (`@qodalis/cli-dashboard-module-tokens`; every user sees their own tokens) comes with this package (not in guard-only mode). It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/tokens` outside the API; `cli.ConfigureDashboardModule("tokens", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
+The admin dashboard's pages of this plugin come with the package (not in guard-only mode, also when the host application signs users in). They are embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served outside the API:
+
+- **Users** (users, groups, sessions; `users:read`, with the palette's user search): `@qodalis/cli-dashboard-module-users`, at `/qcli/modules/users`.
+- **Account** (the signed-in user's profile and password change; every user, in the dashboard's account menu, group `account`): the same build, served again at `/qcli/modules/account`; the module renders the page for this id and hides the password change when the host application signs users in.
+- **API tokens** (`@qodalis/cli-dashboard-module-tokens`; every user sees their own tokens): at `/qcli/modules/tokens`.
+
+`cli.ConfigureDashboardModule("users" | "tokens", files)` serves another build, `null` leaves the page out (the Account page follows `users` unless `ConfigureDashboardModule("account", …)` is set; see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
 
 ## License
 

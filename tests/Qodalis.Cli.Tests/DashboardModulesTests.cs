@@ -131,6 +131,8 @@ public sealed class DashboardModulesTests : IDisposable
         [CliDashboardModules.FileSystem, "filesystem", "Filesystem", "📁", "data", 10, "files:read", null, null, "Fișiere"],
         [CliDashboardModules.DataExplorer, "data-explorer", "Data explorer", "⛁", "data", 15, "data:query", null, null, "Explorator de date"],
         [CliDashboardModules.Tokens, "tokens", "API tokens", "🔑", "access", 10, null, null, null, "Tokenuri API"],
+        [CliDashboardModules.Users, "users", "Users", "👥", "access", 5, "users:read", null, "/?q=", "Utilizatori"],
+        [CliDashboardModules.Account, "account", "Account", "👤", "account", 0, null, null, null, "Cont"],
     ];
 
     [Theory]
@@ -157,7 +159,7 @@ public sealed class DashboardModulesTests : IDisposable
     public void ThePluginsRegisterTheirPages_Once()
     {
         var builder = new CliBuilder(new ServiceCollection());
-        foreach (var id in new[] { "jobs", "audit", "filesystem", "data-explorer", "tokens" }) builder.ConfigureDashboardModule(id, Build());
+        foreach (var id in new[] { "jobs", "audit", "filesystem", "data-explorer", "users", "tokens" }) builder.ConfigureDashboardModule(id, Build());
         builder
             .AddJob(new NoopJob())
             .AddJob(new NoopJob(), o => o.Name = "second")
@@ -166,7 +168,41 @@ public sealed class DashboardModulesTests : IDisposable
             .AddDataExplorerProvider(new FakeDataExplorerProvider(), o => o.Name = "one")
             .AddDataExplorerProvider(new FakeDataExplorerProvider(), o => o.Name = "two")
             .AddUsers();
-        Assert.Equal(["jobs", "audit", "filesystem", "data-explorer", "tokens"], builder.DashboardExtensions.Select(e => e.Id));
+        Assert.Equal(["jobs", "audit", "filesystem", "data-explorer", "users", "account", "tokens"], builder.DashboardExtensions.Select(e => e.Id));
+    }
+
+    [Fact]
+    public void TheAccountPageUsesTheUsersBuild_AndFollowsItsOverride()
+    {
+        Assert.Equal("users", CliDashboardModules.Account.BuildId);
+        Assert.Equal("users", CliDashboardModules.Users.BuildId);
+        Assert.Equal("account", CliBuilder.DashboardModuleExtension(CliDashboardModules.Account, Build()).Validate().Group);
+
+        // Before the plugin adds the pages: both from the users build, each at its own prefix
+        var users = Build("export default 'users';");
+        var before = new CliBuilder(new ServiceCollection()).ConfigureDashboardModule("users", users).ConfigureDashboardModule("tokens", null).ConfigureDashboardModule("audit", null).AddUsers();
+        Assert.Equal(["users", "account"], before.DashboardExtensions.Select(e => e.Id));
+        Assert.Matches(@"^/qcli/modules/users/extension\.js\?v=[0-9a-f]{12}$", before.DashboardExtensions[0].Entry);
+        Assert.Matches(@"^/qcli/modules/account/extension\.js\?v=[0-9a-f]{12}$", before.DashboardExtensions[1].Entry);
+        Assert.Equal(before.DashboardExtensions[0].Entry[^12..], before.DashboardExtensions[1].Entry[^12..]);
+        Assert.Null(before.DashboardExtensions[1].Permission);
+
+        // After: replacing or removing the users build applies to the account page too
+        var after = new CliBuilder(new ServiceCollection()).AddDashboardModule(CliDashboardModules.Users, Build()).AddDashboardModule(CliDashboardModules.Account, Build());
+        after.ConfigureDashboardModule("users", users);
+        Assert.Equal(CliBuilder.DashboardModuleExtension(CliDashboardModules.Account, users).Entry, after.DashboardExtensions[1].Entry);
+        after.ConfigureDashboardModule("users", null);
+        Assert.Empty(after.DashboardExtensions);
+        // Its own override wins
+        var own = new CliBuilder(new ServiceCollection()).ConfigureDashboardModule("account", null).ConfigureDashboardModule("users", users).ConfigureDashboardModule("tokens", null).ConfigureDashboardModule("audit", null).AddUsers();
+        Assert.Equal(["users"], own.DashboardExtensions.Select(e => e.Id));
+        Assert.Empty(new CliBuilder(new ServiceCollection()).ConfigureDashboardModule("users", null).ConfigureDashboardModule("tokens", null).ConfigureDashboardModule("audit", null).AddUsers().DashboardExtensions);
+        // The host application signs users in: the pages stay (the Account page hides the password change)
+        Assert.Equal(["users", "account"], new CliBuilder(new ServiceCollection()).ConfigureDashboardModule("users", users).ConfigureDashboardModule("tokens", null).ConfigureDashboardModule("audit", null)
+            .AddUsers(o => o.UseExternalAuth(_ => null)).DashboardExtensions.Select(e => e.Id));
+        // Guard-only: no pages
+        Assert.DoesNotContain(new CliBuilder(new ServiceCollection()).ConfigureDashboardModule("users", users).AddUsers(o => o.GuardOnly = true).DashboardExtensions,
+            e => e.Id is "users" or "account" or "tokens");
     }
 
     private sealed class NoopJob : ICliJob
@@ -188,7 +224,8 @@ public sealed class DashboardModulesTests : IDisposable
                     services.AddControllers()
                         .AddCli(cli =>
                         {
-                            cli.ConfigureDashboardModule("jobs", jobs).ConfigureDashboardModule("tokens", Build("export default 'tokens';"));
+                            cli.ConfigureDashboardModule("jobs", jobs).ConfigureDashboardModule("tokens", Build("export default 'tokens';"))
+                                .ConfigureDashboardModule("users", Build("export default 'users';"));
                             cli.AddUsers(o => { o.DefaultAdminPassword = "root-pass-123"; o.ProtectServer = true; });
                             cli.AddAdmin(o => o.JwtSecret = "dashboard-modules-test-secret-long-enough-for-hmac");
                             cli.AddJob(new NoopJob());
@@ -214,6 +251,9 @@ public sealed class DashboardModulesTests : IDisposable
         Assert.Equal("no-cache", js.Headers.CacheControl?.ToString());
         Assert.Equal("export default 'jobs';", await js.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/qcli/modules/tokens/extension.css")).StatusCode);
+        // One build, two prefixes
+        Assert.Equal("export default 'users';", await client.GetStringAsync("/qcli/modules/users/extension.js"));
+        Assert.Equal("export default 'users';", await client.GetStringAsync("/qcli/modules/account/extension.js"));
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/qcli/jobs")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/qcli/dashboard/extensions")).StatusCode);
 
@@ -228,5 +268,8 @@ public sealed class DashboardModulesTests : IDisposable
         Assert.False(byId["tokens"].TryGetProperty("widgets", out _));
         Assert.False(byId["tokens"].TryGetProperty("search", out _));
         Assert.False(byId["tokens"].TryGetProperty("permission", out _));
+        Assert.Equal("users:read", byId["users"].GetProperty("permission").GetString());
+        Assert.Equal("account", byId["account"].GetProperty("group").GetString());
+        Assert.False(byId["account"].TryGetProperty("permission", out _));
     }
 }

@@ -37,6 +37,7 @@
   </ItemGroup>
   <!-- The dashboard's pages this package serves (build/Qcli.DashboardModules.targets) -->
   <ItemGroup>
+    <QcliDashboardModule Include="users" />
     <QcliDashboardModule Include="tokens" />
   </ItemGroup>
   <Import Project="..\..\build\Qcli.DashboardModules.targets" />

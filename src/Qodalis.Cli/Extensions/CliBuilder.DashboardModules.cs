@@ -17,14 +17,15 @@ public partial class CliBuilder
     private bool _dashboardModuleFilter;
 
     /// <summary>
-    /// Adds a dashboard module embedded in <paramref name="assembly"/> under <c>wwwroot/&lt;id&gt;</c> (the plugin's
+    /// Adds a dashboard module embedded in <paramref name="assembly"/> under <c>wwwroot/&lt;id&gt;</c> (or
+    /// <c>wwwroot/&lt;build&gt;</c>, <see cref="CliDashboardModule.Build"/>; the plugin's
     /// build of <c>@qodalis/cli-dashboard-module-&lt;id&gt;</c>): serves its files at the module's prefix, outside the
     /// API and to anyone (the dashboard's <c>import()</c> sends no token; the page's API enforces access), and
     /// registers it as a dashboard extension. Does nothing when the assembly carries no build, when the CLI's routes
     /// are off, or when the module is already registered.
     /// </summary>
     public CliBuilder AddDashboardModule(CliDashboardModule module, Assembly assembly) =>
-        AddDashboardModule(module, EmbeddedDashboardModule(assembly, module.Id));
+        AddDashboardModule(module, EmbeddedDashboardModule(assembly, module.BuildId));
 
     /// <summary>
     /// Adds a dashboard module from <paramref name="files"/> (<c>extension.js</c>, optional <c>extension.css</c>); see
@@ -36,7 +37,7 @@ public partial class CliBuilder
         ArgumentNullException.ThrowIfNull(module);
         if (!ServerOptions.CliRoutes || _dashboardModules.ContainsKey(module.Id)) return this;
         _dashboardModuleDefinitions.TryAdd(module.Id, module);
-        if (_dashboardModuleOverrides.TryGetValue(module.Id, out var chosen)) files = chosen;
+        if (_dashboardModuleOverrides.TryGetValue(module.Id, out var chosen) || _dashboardModuleOverrides.TryGetValue(module.BuildId, out chosen)) files = chosen;
         if (!HasModuleEntry(files)) return this;
 
         AddDashboardExtension(DashboardModuleExtension(module, files!));
@@ -54,24 +55,26 @@ public partial class CliBuilder
 
     /// <summary>
     /// Serves another build of a dashboard module (<paramref name="files"/>), or leaves the page out (null). Works
-    /// before or after the plugin adds the module (also when the plugin's package carries no build).
+    /// before or after the plugin adds the module (also when the plugin's package carries no build). Pages built from
+    /// this module's build (<see cref="CliDashboardModule.Build"/>) follow it.
     /// </summary>
     public CliBuilder ConfigureDashboardModule(string id, IFileProvider? files)
     {
         _dashboardModuleOverrides[id] = files;
-        if (!_dashboardModuleDefinitions.TryGetValue(id, out var module)) return this;
+        foreach (var module in _dashboardModuleDefinitions.Values.Where(m => m.Id == id || (m.Build == id && !_dashboardModuleOverrides.ContainsKey(m.Id))).ToList())
+        {
+            var index = _dashboardModules.ContainsKey(module.Id) ? _dashboardExtensions.FindIndex(e => e.Id == module.Id) : -1;
+            _dashboardModules.Remove(module.Id);
+            if (index >= 0) _dashboardExtensions.RemoveAt(index);
+            if (!HasModuleEntry(files)) continue;
 
-        var index = _dashboardModules.ContainsKey(id) ? _dashboardExtensions.FindIndex(e => e.Id == id) : -1;
-        _dashboardModules.Remove(id);
-        if (index >= 0) _dashboardExtensions.RemoveAt(index);
-        if (!HasModuleEntry(files)) return this;
-
-        _dashboardExtensions.Insert(index >= 0 ? index : _dashboardExtensions.Count, DashboardModuleExtension(module, files!).Validate());
-        Serve(module, files!);
+            _dashboardExtensions.Insert(index >= 0 ? index : _dashboardExtensions.Count, DashboardModuleExtension(module, files!).Validate());
+            Serve(module, files!);
+        }
         return this;
     }
 
-    /// <summary>The build embedded in <paramref name="assembly"/> under <c>wwwroot/&lt;id&gt;</c>, or null.</summary>
+    /// <summary>The build embedded in <paramref name="assembly"/> under <c>wwwroot/&lt;id&gt;</c> (a module's build id), or null.</summary>
     public static IFileProvider? EmbeddedDashboardModule(Assembly assembly, string id)
     {
         try

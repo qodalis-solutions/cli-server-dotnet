@@ -12,8 +12,11 @@ namespace Qodalis.Cli.Models;
 /// </summary>
 public partial class CliDashboardExtension
 {
-    /// <summary>The navigation groups; any other value becomes <c>system</c>.</summary>
-    public static readonly IReadOnlyList<string> Groups = ["overview", "operations", "data", "access", "system"];
+    /// <summary>
+    /// The navigation groups; any other value becomes <c>system</c>. <c>account</c> is listed in the dashboard's
+    /// account menu (the signed-in user's menu) instead of the sidebar.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Groups = ["overview", "operations", "data", "access", "system", "account"];
 
     /// <summary><c>^[a-z0-9][a-z0-9-]{0,39}$</c>, unique; also the page's path segment (<c>/x/&lt;id&gt;</c>).</summary>
     [JsonPropertyName("id")]
@@ -33,7 +36,10 @@ public partial class CliDashboardExtension
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; init; }
 
-    /// <summary>Navigation group: <c>overview</c>, <c>operations</c>, <c>data</c>, <c>access</c>, <c>system</c> (default).</summary>
+    /// <summary>
+    /// Navigation group: <c>overview</c>, <c>operations</c>, <c>data</c>, <c>access</c>, <c>system</c> (default), or
+    /// <c>account</c>: listed in the dashboard's account menu (the signed-in user's menu) instead of the sidebar.
+    /// </summary>
     [JsonPropertyName("group")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Group { get; init; }
