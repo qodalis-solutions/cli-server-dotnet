@@ -16,6 +16,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Qodalis.Cli.Tests" />
@@ -28,6 +29,33 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.*" />
+  </ItemGroup>
+  <!-- The dashboard's Migrations page (@qodalis/cli-dashboard-module-migrations), embedded and served at /qcli/migrations:
+       the sibling repo's build, else the npm package when installed -->
+  <PropertyGroup>
+    <MigrationsPageSourceDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', '..', 'cli-server-dashboard', 'modules', 'migrations', 'dist'))</MigrationsPageSourceDir>
+    <MigrationsPageNpmDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'node_modules', '@qodalis', 'cli-dashboard-module-migrations', 'dist'))</MigrationsPageNpmDir>
+    <MigrationsPageStagingDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'wwwroot', 'migrations'))</MigrationsPageStagingDir>
+  </PropertyGroup>
+  <Target Name="CopyMigrationsPage" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <MigrationsPageResolvedDir Condition="Exists('$(MigrationsPageSourceDir)extension.js')">$(MigrationsPageSourceDir)</MigrationsPageResolvedDir>
+      <MigrationsPageResolvedDir Condition="'$(MigrationsPageResolvedDir)' == '' AND Exists('$(MigrationsPageNpmDir)extension.js')">$(MigrationsPageNpmDir)</MigrationsPageResolvedDir>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(MigrationsPageResolvedDir)' != ''">
+      <MigrationsPageFiles Include="$(MigrationsPageResolvedDir)**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(MigrationsPageFiles)" DestinationFolder="$(MigrationsPageStagingDir)%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'$(MigrationsPageResolvedDir)' != ''" />
+    <Message Importance="high" Text="Migrations page not found: the dashboard will not show it." Condition="'$(MigrationsPageResolvedDir)' == '' AND !Exists('$(MigrationsPageStagingDir)extension.js')" />
+  </Target>
+  <Target Name="IncludeMigrationsPage" BeforeTargets="PrepareForBuild;GenerateEmbeddedFilesManifest" DependsOnTargets="CopyMigrationsPage">
+    <ItemGroup Condition="Exists('$(MigrationsPageStagingDir)')">
+      <EmbeddedResource Include="wwwroot/migrations/**/*.*" />
+    </ItemGroup>
+  </Target>
   <ItemGroup>
     <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
     <AssemblyMetadata Include="QodalisCliIcon" Value="🗄️" />

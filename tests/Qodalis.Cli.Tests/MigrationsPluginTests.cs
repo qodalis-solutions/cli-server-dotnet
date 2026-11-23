@@ -183,6 +183,22 @@ public sealed class MigrationsPluginTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ServesTheDashboardsMigrationsPage_ToAnyone_AndRegistersIt()
+    {
+        var h = await StartAsync(protect: true);
+        var extension = Assert.Single(h.Host.Services.GetRequiredService<Qodalis.Cli.Models.CliDashboardExtensions>().All, e => e.Id == "migrations");
+        Assert.Equal("data", extension.Group);
+        Assert.Equal(MigrationsPermissions.Read, extension.Permission);
+        Assert.Equal("Migrări", extension.Titles!["ro"]);
+        Assert.Matches(@"^/qcli/migrations/extension\.js\?v=[0-9a-f]{12}$", extension.Entry);
+
+        var js = await h.Client.GetAsync("/qcli/migrations/extension.js");
+        Assert.Equal(HttpStatusCode.OK, js.StatusCode);
+        Assert.Equal("no-cache", js.Headers.CacheControl?.ToString());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await h.GetAsync(Api)).StatusCode);
+    }
+
+    [Fact]
     public void RoutePermissions_LongestPathWins_AndMustBeCliPaths()
     {
         var routes = new List<CliRoutePermission>
