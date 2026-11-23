@@ -31,6 +31,12 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// Permissions of plugins' routes on a protected server (<c>CliBuilder.AddRoutePermission</c>), checked before
+    /// the core table.
+    /// </summary>
+    public List<CliRoutePermission> RoutePermissions { get; } = [];
+
+    /// <summary>
     /// True when requests are authenticated by the host application rather than by the CLI's own
     /// sign-in (set by an authentication plugin, e.g. the users plugin with <c>UseExternalAuth</c>).
     /// The admin dashboard then signs in through the host (<c>GET /api/v1/qcli/auth/mode</c>).

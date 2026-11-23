@@ -11,6 +11,16 @@ public sealed record CliRouteRule(bool IsCliRoute, bool IsPublic, string? Permis
 }
 
 /// <summary>
+/// A plugin's routes and the permissions they need on a protected server: <paramref name="Read"/> for GET and HEAD,
+/// <paramref name="Write"/> (default: <paramref name="Read"/>) for the other methods. Added with
+/// <c>CliBuilder.AddRoutePermission</c>; the longest matching path wins over shorter ones and over the core table.
+/// </summary>
+/// <param name="Path">A path under a CLI prefix, e.g. <c>/api/v1/qcli/migrations</c>, covering everything below it.</param>
+/// <param name="Read">Permission for GET and HEAD.</param>
+/// <param name="Write">Permission for the other methods; null = <paramref name="Read"/>.</param>
+public sealed record CliRoutePermission(string Path, string Read, string? Write = null);
+
+/// <summary>
 /// Permission table for CLI server routes when the server is protected
 /// (users plugin <c>ProtectServer</c>). Users-plugin routes are authenticated here and
 /// authorized by their own controllers.
@@ -54,12 +64,29 @@ public static class CliRoutePolicy
 
     public static bool IsCliPath(string path) => CliPrefixes.Any(p => IsUnder(path, p));
 
-    public static CliRouteRule Resolve(string method, string? rawPath)
+    public static CliRouteRule Resolve(string method, string? rawPath) => Resolve(method, rawPath, null);
+
+    /// <summary>
+    /// The rule of a route, with the plugins' <paramref name="routePermissions"/> (<see cref="CliServerOptions.RoutePermissions"/>)
+    /// taking precedence over the core table for the paths they declare.
+    /// </summary>
+    public static CliRouteRule Resolve(string method, string? rawPath, IReadOnlyList<CliRoutePermission>? routePermissions)
     {
         var path = (rawPath ?? string.Empty).TrimEnd('/').ToLowerInvariant();
         if (path.Length == 0 || !IsCliPath(path)) return CliRouteRule.NotCli;
 
         var isGet = HttpMethodsEquals(method, "GET") || HttpMethodsEquals(method, "HEAD");
+
+        if (routePermissions is { Count: > 0 } && !HttpMethodsEquals(method, "OPTIONS"))
+        {
+            CliRoutePermission? match = null;
+            foreach (var route in routePermissions)
+            {
+                if (IsUnder(path, route.Path.TrimEnd('/')) && (match == null || route.Path.Length > match.Path.Length))
+                    match = route;
+            }
+            if (match != null) return new(true, false, isGet ? match.Read : match.Write ?? match.Read, false);
+        }
 
         if (path.StartsWith("/ws/", StringComparison.Ordinal))
         {

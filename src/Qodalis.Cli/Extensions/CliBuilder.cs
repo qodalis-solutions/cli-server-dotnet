@@ -210,6 +210,25 @@ public class CliBuilder
     }
 
     /// <summary>
+    /// Declares the permissions a plugin's routes need on a protected server: <paramref name="read"/> for GET and
+    /// HEAD under <paramref name="path"/>, <paramref name="write"/> (default <paramref name="read"/>) for the other
+    /// methods. The longest declared path wins, and declared paths win over the core table.
+    /// </summary>
+    /// <param name="path">A path under a CLI prefix (<c>/api/v1/qcli/...</c>, <c>/api/qcli/...</c>).</param>
+    /// <param name="read">Permission for GET and HEAD.</param>
+    /// <param name="write">Permission for the other methods.</param>
+    /// <exception cref="ArgumentException">The path is not under a CLI prefix.</exception>
+    public CliBuilder AddRoutePermission(string path, string read, string? write = null)
+    {
+        var normalized = (path ?? string.Empty).TrimEnd('/').ToLowerInvariant();
+        if (!normalized.StartsWith('/') || !CliRoutePolicy.IsCliPath(normalized) || normalized.StartsWith("/ws/", StringComparison.Ordinal))
+            throw new ArgumentException($"invalid route permission: {path}", nameof(path));
+        if (ServerOptions.RoutePermissions.All(r => r.Path != normalized))
+            ServerOptions.RoutePermissions.Add(new CliRoutePermission(normalized, read, write));
+        return this;
+    }
+
+    /// <summary>
     /// Registers a command processor by type.
     /// </summary>
     /// <typeparam name="T">The command processor type.</typeparam>
