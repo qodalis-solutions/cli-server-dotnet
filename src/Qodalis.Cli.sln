@@ -55,9 +55,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Docs", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Portal", "..\plugins\portal\Qodalis.Cli.Plugin.Portal.csproj", "{CBEE9921-2770-4817-BF97-2BCD52056DEB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Migrations", "..\plugins\migrations\Qodalis.Cli.Plugin.Migrations.csproj", "{ABFEFAFB-7248-4073-914C-3538FF91F2B7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Databases", "..\plugins\databases\Qodalis.Cli.Plugin.Databases.csproj", "{ABFEFAFB-7248-4073-914C-3538FF91F2B7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Migrations.EfCore", "..\plugins\migrations-efcore\Qodalis.Cli.Plugin.Migrations.EfCore.csproj", "{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Databases.EfCore", "..\plugins\databases-efcore\Qodalis.Cli.Plugin.Databases.EfCore.csproj", "{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -5,52 +5,74 @@ using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Security;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
-/// <c>migrations</c>: the databases; <c>migrations status &lt;db&gt;</c>, <c>migrations up &lt;db&gt; [--to] [--dry-run] [--force]</c>,
-/// <c>migrations down &lt;db&gt; --to &lt;id&gt; [--dry-run]</c>.
+/// <c>databases</c> (alias <c>db</c>): <c>databases list</c>, <c>databases stats &lt;db&gt;</c>,
+/// <c>databases migrations &lt;db&gt;</c>, <c>databases up &lt;db&gt; [--to] [--dry-run] [--force]</c>,
+/// <c>databases down &lt;db&gt; --to &lt;id&gt; [--dry-run]</c>.
 /// </summary>
-public class CliMigrationsCommandProcessor : CliCommandProcessor
+public class CliDatabasesCommandProcessor : CliCommandProcessor
 {
     private readonly IServiceProvider _services;
 
-    public CliMigrationsCommandProcessor(IServiceProvider services)
+    public CliDatabasesCommandProcessor(IServiceProvider services)
     {
         _services = services;
         Processors =
         [
-            new Sub(this, "status", "A database's migrations and their status", MigrationsPermissions.Read, StatusAsync),
-            new Sub(this, "up", "Apply pending migrations", MigrationsPermissions.Run, (c, ct) => RunAsync(c, "up", ct), Flags(false)),
-            new Sub(this, "down", "Roll back migrations", MigrationsPermissions.Run, (c, ct) => RunAsync(c, "down", ct), Flags(true)),
+            new Sub(this, "list", "The databases: size, applied and pending migrations, last run", DatabasesPermissions.Read, (c, ct) => ListAsync(ct)),
+            new Sub(this, "stats", "A database's size, connections, load and largest tables", DatabasesPermissions.Read, StatsAsync),
+            new Sub(this, "migrations", "A database's migrations and their status", DatabasesPermissions.Read, StatusAsync),
+            new Sub(this, "up", "Apply pending migrations", DatabasesPermissions.Migrate, (c, ct) => RunAsync(c, "up", ct), Flags(false)),
+            new Sub(this, "down", "Roll back migrations", DatabasesPermissions.Migrate, (c, ct) => RunAsync(c, "down", ct), Flags(true)),
         ];
     }
 
-    public override string Command { get; set; } = "migrations";
-    public override string Description { get; set; } = "Database migrations: status, apply, roll back";
-    public override string? Module { get; set; } = "migrations";
+    public override string Command { get; set; } = "databases";
+    public override IEnumerable<string>? Aliases { get; set; } = ["db"];
+    public override string Description { get; set; } = "Databases: size, connections and load; migrations status, apply, roll back";
+    public override string? Module { get; set; } = "databases";
     public override string? Icon { get; set; } = "🗄️";
-    public override IEnumerable<string>? RequiredPermissions { get; set; } = [MigrationsPermissions.Read];
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [DatabasesPermissions.Read];
 
     public override IEnumerable<CliCommandExample>? Examples { get; set; } =
     [
-        new("migrations", "The databases with their applied and pending migrations"),
-        new("migrations status main", "The migrations of main and their status"),
-        new("migrations up main --dry-run", "The SQL the pending migrations would run"),
-        new("migrations down main --to 0003", "Roll back what was applied after 0003"),
+        new("databases", "The databases with their size and applied and pending migrations"),
+        new("databases stats main", "Size, connections, load and the largest tables of main"),
+        new("databases migrations main", "The migrations of main and their status"),
+        new("databases up main --dry-run", "The SQL the pending migrations would run"),
+        new("databases down main --to 0003", "Roll back what was applied after 0003"),
     ];
 
-    private CliMigrations Migrations => _services.GetRequiredService<CliMigrations>();
+    private CliDatabases Databases => _services.GetRequiredService<CliDatabases>();
 
     private string? Actor => _services.GetService<IHttpContextAccessor>()?.HttpContext?.GetCliPrincipal()?.UserName;
 
-    public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
+    public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default) =>
+        ListAsync(cancellationToken);
+
+    private async Task<string> ListAsync(CancellationToken ct)
     {
-        var databases = await Migrations.OverviewAsync(cancellationToken);
+        var databases = await Databases.OverviewAsync(ct);
         if (databases.Count == 0) return "No databases";
         return string.Join('\n', databases.Select(d => d.Error != null
             ? $"{d.Name} ({d.Dialect}): error: {d.Error}"
-            : $"{d.Name} ({d.Dialect}): {d.Applied} applied, {d.Pending} pending{(d.Problems > 0 ? $", {d.Problems} problem(s)" : "")}"));
+            : $"{d.Name} ({d.Dialect}{(d.SizeBytes is { } size ? $", {CliDatabaseFormat.Bytes(size)}" : "")}): {d.Applied} applied, {d.Pending} pending{(d.Problems > 0 ? $", {d.Problems} problem(s)" : "")}"));
+    }
+
+    private async Task<string> StatsAsync(CliProcessCommand command, CancellationToken ct)
+    {
+        var name = DatabaseOf(command);
+        if (name == null) return "Name the database: databases stats <db>";
+        try
+        {
+            return CliDatabaseFormat.Stats(await Databases.StatsAsync(name, ct));
+        }
+        catch (CliMigrationException ex)
+        {
+            return ex.Message;
+        }
     }
 
     /// <summary>The database named on the command, or the only one.</summary>
@@ -58,7 +80,7 @@ public class CliMigrationsCommandProcessor : CliCommandProcessor
     {
         var name = CliValueHelpers.GetPositionalText(command)?.Trim();
         if (!string.IsNullOrEmpty(name)) return name;
-        var all = Migrations.Databases;
+        var all = Databases.Databases;
         return all.Count == 1 ? all[0].Name : null;
     }
 
@@ -71,10 +93,10 @@ public class CliMigrationsCommandProcessor : CliCommandProcessor
     private async Task<string> StatusAsync(CliProcessCommand command, CancellationToken ct)
     {
         var name = DatabaseOf(command);
-        if (name == null) return "Name the database: migrations status <db>";
+        if (name == null) return "Name the database: databases migrations <db>";
         try
         {
-            var states = await Migrations.Require(name).StatusAsync(ct);
+            var states = await Databases.Require(name).StatusAsync(ct);
             if (states.Count == 0) return "No migrations";
             return string.Join('\n', states.Select(s =>
                 $"{s.Status,-8} {s.Source}:{s.Id} {s.Name}{(s.AppliedAt != null ? $"  ({s.AppliedAt}{(s.AppliedBy != null ? $", {s.AppliedBy}" : "")})" : "")}"));
@@ -88,19 +110,22 @@ public class CliMigrationsCommandProcessor : CliCommandProcessor
     private async Task<string> RunAsync(CliProcessCommand command, string direction, CancellationToken ct)
     {
         var name = DatabaseOf(command);
-        if (name == null) return $"Name the database: migrations {direction} <db>";
+        if (name == null) return $"Name the database: databases {direction} <db>";
         var to = Arg(command, "to");
         if (direction == "down" && to == null) return "--to is required to roll back (an id, or base for everything)";
         try
         {
             if (Flag(command, "dry-run"))
             {
-                var sql = await Migrations.Require(name).ScriptAsync(direction, to, ct);
+                var sql = await Databases.Require(name).ScriptAsync(direction, to, ct);
                 return string.IsNullOrEmpty(sql) ? (direction == "up" ? "Nothing pending" : "Nothing to roll back") : sql;
             }
-            var run = await Migrations.RunAsync(name, direction, new CliMigrationRunOptions
+            var run = await Databases.RunAsync(name, direction, new CliMigrationRunOptions
             {
-                To = to, Force = Flag(command, "force"), Actor = Actor, Trigger = "terminal",
+                To = to,
+                Force = Flag(command, "force"),
+                Actor = Actor,
+                Trigger = "terminal",
             }, ct);
             var text = new StringBuilder($"{(direction == "up" ? "Applied" : "Rolled back")} {run.Applied.Count} migration(s) ({run.Status})");
             foreach (var a in run.Applied) text.Append($"\n  {a.Source}:{a.Id} {a.Name} ({a.DurationMs} ms)");
@@ -130,7 +155,7 @@ public class CliMigrationsCommandProcessor : CliCommandProcessor
     {
         private readonly Func<CliProcessCommand, CancellationToken, Task<string>> _handle;
 
-        public Sub(CliMigrationsCommandProcessor parent, string command, string description, string permission,
+        public Sub(CliDatabasesCommandProcessor parent, string command, string description, string permission,
             Func<CliProcessCommand, CancellationToken, Task<string>> handle, List<ICliCommandParameterDescriptor>? parameters = null)
         {
             _handle = handle;

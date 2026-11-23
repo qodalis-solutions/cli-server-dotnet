@@ -36,10 +36,10 @@ The store's options (`AddEfCoreAuditStore(..., o => ...)`) set the names: `Table
 A host that maps the table in its own model (`modelBuilder.ApplyAuditStorageModel()`) gets the new name there too: its next
 `dotnet ef migrations add` generates the `RenameTable`, or it keeps the old name with `ApplyAuditStorageModel("audit_entries")` and `LegacyTableNames = true`.
 
-With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+With the [databases plugin](../databases-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
 
 ```csharp
-cli.AddMigrations(m => m.AddAuditStoreSchema("cli", db => db.ApplyMigrationsOnStartup()));
+cli.AddDatabases(d => d.AddAuditStoreSchema("cli", db => db.ApplyMigrationsOnStartup()));
 ```
 
 ## Host migrations

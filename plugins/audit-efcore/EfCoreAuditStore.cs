@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.Helpers;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 
 namespace Qodalis.Cli.Plugin.Audit.EfCore;
 

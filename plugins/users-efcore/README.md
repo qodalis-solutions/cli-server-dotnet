@@ -47,10 +47,10 @@ The store's options (`AddEfCoreApiTokenStore(..., o => ...)`) set the names: `Ta
 A host that maps the table in its own model (`modelBuilder.ApplyApiTokenStorageModel()`) gets the new name there too: its next
 `dotnet ef migrations add` generates the `RenameTable`, or it keeps the old name with `ApplyApiTokenStorageModel("api_tokens")` and `LegacyTableNames = true`.
 
-With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+With the [databases plugin](../databases-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
 
 ```csharp
-cli.AddMigrations(m => m.AddApiTokenStoreSchema("cli", db => db.ApplyMigrationsOnStartup()));
+cli.AddDatabases(d => d.AddApiTokenStoreSchema("cli", db => db.ApplyMigrationsOnStartup()));
 ```
 
 

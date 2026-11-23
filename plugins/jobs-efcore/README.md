@@ -61,10 +61,10 @@ The store's options (`AddEfCoreJobStorage(..., o => ...)`) set the names: `Table
 A host that maps the tables in its own model (`modelBuilder.ApplyJobStorageModel()`) gets the new names there too: its next
 `dotnet ef migrations add` generates the `RenameTable`s, or it keeps the old names with `ApplyJobStorageModel("job_executions", "job_log_entries", "job_states")` and `LegacyTableNames = true`.
 
-With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+With the [databases plugin](../databases-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
 
 ```csharp
-cli.AddMigrations(m => m.AddJobStorageSchema("cli", db => db.ApplyMigrationsOnStartup()));
+cli.AddDatabases(d => d.AddJobStorageSchema("cli", db => db.ApplyMigrationsOnStartup()));
 ```
 
 ## Host migrations

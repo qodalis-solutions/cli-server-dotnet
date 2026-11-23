@@ -1,4 +1,4 @@
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;

@@ -25,16 +25,16 @@ Pass `":memory:"` for an in-memory SQLite database (no persistence across restar
 ## Table names (1.0.0-beta.30)
 
 The table is `QcliFiles` with PascalCase columns (`CreatedAt`, `ModifiedAt`, `ParentPath`; cli-server-dotnet#99, the
-same on the three servers). Its schema is versioned with the [migrations plugin](../migrations)'s runner (source
+same on the three servers). Its schema is versioned with the [databases plugin](../databases)'s runner (source
 `qcli-filesystem`, history in `QcliMigrations` next to it): the first start after an upgrade renames the `files` table
 of 1.0.0-beta.29 and older and its columns, keeping the files. `o.UseSqlite(path, s => s.LegacyTableNames = true)`
 keeps the old names; `TablePrefix` and `Tables["Files"]` set others. To show the schema in the dashboard:
-`m.AddDatabase("files", db => db.UseConnection(_ => provider.CreateMigrationConnection())).AddSource("files", provider.MigrationSource)`.
+`d.AddDatabase("files", db => db.UseConnection(_ => provider.CreateMigrationConnection())).AddSource("files", provider.MigrationSource)`.
 
 ## Dependencies
 
 - `Qodalis.Cli.Plugin.FileSystem`
-- `Qodalis.Cli.Plugin.Migrations`
+- `Qodalis.Cli.Plugin.Databases`
 - `Microsoft.Data.Sqlite` 10.0
 
 ## License

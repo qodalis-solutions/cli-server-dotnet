@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Extensions;
-using Qodalis.Cli.Plugin.Migrations;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Plugin.Audit.Extensions;
 
 namespace Qodalis.Cli.Plugin.Audit.EfCore;
@@ -15,7 +15,7 @@ public static class EfCoreAuditStoreExtensions
     /// <summary>
     /// Keeps the audit log in a database through EF Core instead of in memory, and adds the audit plugin. Call it
     /// before or after <c>AddUsers</c> (which keeps it). The table (<c>QcliAuditEntries</c>) is created on first use
-    /// (renaming the <c>audit_entries</c> of 1.0.0-beta.29 and older), by the migrations plugin
+    /// (renaming the <c>audit_entries</c> of 1.0.0-beta.29 and older), by the databases plugin
     /// (<see cref="AddAuditStoreSchema"/>), or by the host's migrations with <c>modelBuilder.ApplyAuditStorageModel()</c>.
     /// </summary>
     /// <param name="builder">The CLI builder instance.</param>
@@ -40,12 +40,12 @@ public static class EfCoreAuditStoreExtensions
     }
 
     /// <summary>
-    /// The audit log's table as source <c>qcli-audit</c> of <paramref name="database"/> in the migrations plugin
+    /// The audit log's table as source <c>qcli-audit</c> of <paramref name="database"/> in the databases plugin
     /// (registered on the store's connection when the database is not added yet), so the dashboard shows it and
-    /// startup applies it: <c>cli.AddMigrations(m =&gt; m.AddAuditStoreSchema("cli", db =&gt; db.ApplyMigrationsOnStartup()))</c>.
+    /// startup applies it: <c>cli.AddDatabases(d =&gt; d.AddAuditStoreSchema("cli", db =&gt; db.ApplyMigrationsOnStartup()))</c>.
     /// Call <see cref="AddEfCoreAuditStore"/> too.
     /// </summary>
-    public static CliMigrationsBuilder AddAuditStoreSchema(this CliMigrationsBuilder builder, string database,
+    public static CliDatabasesBuilder AddAuditStoreSchema(this CliDatabasesBuilder builder, string database,
         Action<CliMigrationDatabaseOptions>? configure = null) =>
         builder.AddEfCoreStore<AuditStorageDbContext>(database, "qcli-audit", "audit log table", configure);
 }

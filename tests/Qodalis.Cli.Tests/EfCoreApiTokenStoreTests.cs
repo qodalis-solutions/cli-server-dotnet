@@ -1,5 +1,5 @@
 using Microsoft.Data.Sqlite;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Extensions;

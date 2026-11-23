@@ -2,8 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
-using Qodalis.Cli.Plugin.Migrations;
-using Qodalis.Cli.Plugin.Migrations.EfCore;
+using Qodalis.Cli.Plugin.Databases;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
@@ -15,7 +15,7 @@ public static class EfCoreJobStorageExtensions
     /// <summary>
     /// Registers the EF Core job storage provider, replacing the default in-memory provider. The tables
     /// (<c>QcliJobExecutions</c>, <c>QcliJobLogEntries</c>, <c>QcliJobStates</c>) are created on first use (renaming the
-    /// <c>job_*</c> tables of 1.0.0-beta.29 and older), by the migrations plugin (<see cref="AddJobStorageSchema"/>),
+    /// <c>job_*</c> tables of 1.0.0-beta.29 and older), by the databases plugin (<see cref="AddJobStorageSchema"/>),
     /// or by the host's migrations with <c>modelBuilder.ApplyJobStorageModel()</c>.
     /// </summary>
     /// <param name="builder">The CLI builder instance.</param>
@@ -43,11 +43,11 @@ public static class EfCoreJobStorageExtensions
     }
 
     /// <summary>
-    /// The job storage tables as source <c>qcli-jobs</c> of <paramref name="database"/> in the migrations plugin
+    /// The job storage tables as source <c>qcli-jobs</c> of <paramref name="database"/> in the databases plugin
     /// (registered on the store's connection when the database is not added yet). Call
     /// <see cref="AddEfCoreJobStorage"/> too.
     /// </summary>
-    public static CliMigrationsBuilder AddJobStorageSchema(this CliMigrationsBuilder builder, string database,
+    public static CliDatabasesBuilder AddJobStorageSchema(this CliDatabasesBuilder builder, string database,
         Action<CliMigrationDatabaseOptions>? configure = null) =>
         builder.AddEfCoreStore<JobStorageDbContext>(database, "qcli-jobs", "job runs, logs and states tables", configure);
 

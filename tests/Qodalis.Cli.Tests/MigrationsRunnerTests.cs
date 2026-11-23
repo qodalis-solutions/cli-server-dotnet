@@ -3,7 +3,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using Npgsql;
-using Qodalis.Cli.Plugin.Migrations;
+using Qodalis.Cli.Plugin.Databases;
 
 namespace Qodalis.Cli.Tests;
 
@@ -406,6 +406,59 @@ public sealed class MigrationsRunnerTests : IDisposable
     {
         Assert.Equal(["1", "2", "10", "20261120111649_PublicApi", "a"],
             new[] { "10", "a", "2", "20261120111649_PublicApi", "1" }.OrderBy(x => x, CliMigrationIdComparer.Instance));
+    }
+
+    [Theory]
+    [MemberData(nameof(Dialects))]
+    public async Task Stats_ReadSizeServerConnectionsCountersAndTables(string dialect)
+    {
+        var (connect, p) = Database(dialect);
+        try
+        {
+            var runner = Runner(connect, p, new CliCodeMigrationSource("app", Migrations(p)));
+            await runner.UpAsync();
+
+            var stats = await runner.StatsAsync();
+            Assert.Equal("main", stats.Name);
+            Assert.Equal(dialect, stats.Dialect);
+            Assert.True(DateTimeOffset.TryParse(stats.CollectedAt, out _));
+            Assert.Empty(stats.Unavailable.Select(u => $"{u.Metric}: {u.Error}"));
+            Assert.StartsWith(dialect switch
+            {
+                "postgres" => "PostgreSQL ",
+                "mysql" => "M",
+                "mssql" => "SQL Server ",
+                _ => "SQLite ",
+            }, stats.Server!.Version);
+            Assert.True(stats.Size!.Bytes > 0);
+            Assert.True(await runner.SizeAsync() > 0);
+            // The shared test databases may hold larger tables of other tests: the test's own are listed when among the 10
+            Assert.InRange(stats.Tables!.Count, 1, 10);
+            if (dialect != "sqlite") Assert.Equal(stats.Tables.Select(t => t.Bytes).OrderByDescending(b => b), stats.Tables.Select(t => t.Bytes));
+            var notes = stats.Tables.FirstOrDefault(t => string.Equals(t.Name, $"{p}Notes", StringComparison.OrdinalIgnoreCase));
+            if (dialect == "sqlite") Assert.NotNull(notes);
+            if (notes != null && dialect is "sqlite" or "mssql") Assert.Equal(1, notes.Rows);
+
+            if (dialect == "sqlite")
+            {
+                Assert.Null(stats.Connections);
+                Assert.Null(stats.Counters);
+            }
+            else
+            {
+                Assert.True(stats.Server.UptimeSeconds > 0);
+                Assert.NotNull(stats.Server.StartedAt);
+                Assert.True(stats.Connections!.Open >= 1);
+                Assert.True(stats.Connections.Max > 0);
+                Assert.True(stats.Counters!.Transactions > 0);
+                Assert.NotNull(stats.CountersScope);
+                Assert.InRange(stats.CacheHitRatio!.Value, 0, 1);
+            }
+        }
+        finally
+        {
+            await DropAsync(connect, Tables(p));
+        }
     }
 
     [Fact]

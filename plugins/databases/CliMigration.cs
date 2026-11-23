@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
 /// One direction of a migration: SQL, SQL per dialect (<c>postgres</c>, <c>mysql</c>, <c>mssql</c>, <c>sqlite</c>),

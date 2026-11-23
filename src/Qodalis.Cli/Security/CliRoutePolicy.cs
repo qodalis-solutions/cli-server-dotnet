@@ -15,7 +15,7 @@ public sealed record CliRouteRule(bool IsCliRoute, bool IsPublic, string? Permis
 /// <paramref name="Write"/> (default: <paramref name="Read"/>) for the other methods. Added with
 /// <c>CliBuilder.AddRoutePermission</c>; the longest matching path wins over shorter ones and over the core table.
 /// </summary>
-/// <param name="Path">A path under a CLI prefix, e.g. <c>/api/v1/qcli/migrations</c>, covering everything below it.</param>
+/// <param name="Path">A path under a CLI prefix, e.g. <c>/api/v1/qcli/databases</c>, covering everything below it.</param>
 /// <param name="Read">Permission for GET and HEAD.</param>
 /// <param name="Write">Permission for the other methods; null = <paramref name="Read"/>.</param>
 public sealed record CliRoutePermission(string Path, string Read, string? Write = null);

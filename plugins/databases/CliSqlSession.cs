@@ -4,9 +4,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
-/// <summary>The SQL dialects the migrations plugin knows.</summary>
+/// <summary>The SQL dialects the databases plugin knows.</summary>
 public static class CliSqlDialects
 {
     public const string Postgres = "postgres";

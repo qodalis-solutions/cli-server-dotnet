@@ -23,11 +23,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      # The migrations plugin embeds the dashboard's Migrations page from the npm package
-      - name: Fetch the Migrations page
+      # The databases plugin embeds the dashboard's Databases page from the npm package
+      - name: Fetch the Databases page
         run: |
-          npm install --no-save --no-package-lock --ignore-scripts --prefix plugins/migrations @qodalis/cli-dashboard-module-migrations
-          test -f plugins/migrations/node_modules/@qodalis/cli-dashboard-module-migrations/dist/extension.js
+          npm install --no-save --no-package-lock --ignore-scripts --prefix plugins/databases @qodalis/cli-dashboard-module-databases
+          test -f plugins/databases/node_modules/@qodalis/cli-dashboard-module-databases/dist/extension.js
 
       - name: Restore dependencies
         run: dotnet restore src/Qodalis.Cli.sln

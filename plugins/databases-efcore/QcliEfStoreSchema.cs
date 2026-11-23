@@ -5,13 +5,13 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 
-namespace Qodalis.Cli.Plugin.Migrations.EfCore;
+namespace Qodalis.Cli.Plugin.Databases.EfCore;
 
 /// <summary>
 /// Creates a CLI EF Core store's tables (users-efcore, jobs-efcore, audit-efcore, filesystem-efcore,
 /// public-api-efcore): renames the previous release's tables first (<c>audit_entries</c> → <c>QcliAuditEntries</c>,
 /// with their indexes, keeping the data; cli-server-dotnet#99), then creates the database or only the missing tables.
-/// The stores run it on first use; with the migrations plugin it is their schema's first migration.
+/// The stores run it on first use; with the databases plugin it is their schema's first migration.
 /// </summary>
 public static class QcliEfStoreSchema
 {
@@ -158,7 +158,7 @@ public static class QcliEfStoreSchema
     }
 
     /// <summary>
-    /// A store's schema as a migration source for the migrations plugin: migration <c>1</c> runs
+    /// A store's schema as a migration source for the databases plugin: migration <c>1</c> runs
     /// <see cref="EnsureAsync"/> on <typeparamref name="TContext"/> with the store's renames
     /// (<see cref="QcliEfStoreRenames{TContext}"/>), then creates what is missing.
     /// </summary>

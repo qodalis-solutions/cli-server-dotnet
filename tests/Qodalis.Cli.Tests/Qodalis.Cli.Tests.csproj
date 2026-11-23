@@ -51,8 +51,8 @@
     <ProjectReference Include="..\..\plugins\users\Qodalis.Cli.Plugin.Users.csproj" />
     <ProjectReference Include="..\..\plugins\public-api\Qodalis.Cli.Plugin.PublicApi.csproj" />
     <ProjectReference Include="..\..\plugins\public-api-efcore\Qodalis.Cli.Plugin.PublicApi.EfCore.csproj" />
-    <ProjectReference Include="..\..\plugins\migrations\Qodalis.Cli.Plugin.Migrations.csproj" />
-    <ProjectReference Include="..\..\plugins\migrations-efcore\Qodalis.Cli.Plugin.Migrations.EfCore.csproj" />
+    <ProjectReference Include="..\..\plugins\databases\Qodalis.Cli.Plugin.Databases.csproj" />
+    <ProjectReference Include="..\..\plugins\databases-efcore\Qodalis.Cli.Plugin.Databases.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\docs\Qodalis.Cli.Plugin.Docs.csproj" />
     <ProjectReference Include="..\..\plugins\portal\Qodalis.Cli.Plugin.Portal.csproj" />
     <!-- The demo server, for its smoke test (an alias: Qodalis.Cli.Server has a Program too) -->

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.Events;
 
-namespace Qodalis.Cli.Plugin.Migrations;
+namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>The last run of a database, in the overview.</summary>
 public sealed class CliMigrationLastRun
@@ -25,8 +25,8 @@ public sealed class CliMigrationLastRun
     public string? Error { get; init; }
 }
 
-/// <summary>A database in the overview (<c>GET /api/v1/qcli/migrations</c>).</summary>
-public sealed class CliMigrationDatabaseSummary
+/// <summary>A database in the list (<c>GET /api/v1/qcli/databases</c>).</summary>
+public sealed class CliDatabaseSummary
 {
     public required string Name { get; init; }
     public required string Dialect { get; init; }
@@ -40,29 +40,34 @@ public sealed class CliMigrationDatabaseSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CliMigrationLastRun? LastRun { get; init; }
 
+    /// <summary>Size in bytes (best effort: left out when it cannot be read).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? SizeBytes { get; init; }
+
     /// <summary>Set when the database could not be read (down, wrong credentials).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
 }
 
 /// <summary>
-/// The registered databases and what happens around a run: the <c>migrations:run</c> event (audience
-/// <c>migrations:read</c>) and the audit entry (<c>migrations.up</c> / <c>migrations.down</c>).
+/// The registered databases: their stats, and what happens around a migration run: the
+/// <c>databases:migration-run</c> event (audience <c>databases:read</c>) and the audit entry (<c>migrations.up</c> /
+/// <c>migrations.down</c>).
 /// </summary>
-public sealed class CliMigrations
+public sealed class CliDatabases
 {
-    /// <summary>The event published after every run.</summary>
-    public const string RunEvent = "migrations:run";
+    /// <summary>The event published after every migration run.</summary>
+    public const string RunEvent = "databases:migration-run";
 
     private readonly Dictionary<string, CliMigrationRunner> _runners;
     private readonly IServiceProvider _services;
-    private readonly ILogger<CliMigrations>? _logger;
+    private readonly ILogger<CliDatabases>? _logger;
 
-    public CliMigrations(IEnumerable<CliMigrationRunner> runners, IServiceProvider services)
+    public CliDatabases(IEnumerable<CliMigrationRunner> runners, IServiceProvider services)
     {
         _runners = runners.ToDictionary(r => r.Name);
         _services = services;
-        _logger = services.GetService<ILogger<CliMigrations>>();
+        _logger = services.GetService<ILogger<CliDatabases>>();
     }
 
     public IReadOnlyList<CliMigrationRunner> Databases => _runners.Values.ToList();
@@ -73,50 +78,74 @@ public sealed class CliMigrations
     public CliMigrationRunner Require(string name) =>
         Database(name) ?? throw new CliMigrationException($"unknown database: {name}", 404);
 
-    /// <summary>Every database with its counts and last run; a database that cannot be read carries its error.</summary>
-    public async Task<List<CliMigrationDatabaseSummary>> OverviewAsync(CancellationToken ct = default)
+    /// <summary>Every database with its counts, last run and size; a database that cannot be read carries its error.</summary>
+    public async Task<List<CliDatabaseSummary>> OverviewAsync(CancellationToken ct = default) =>
+        (await Task.WhenAll(_runners.Values.Select(db => SummarizeAsync(db, ct)))).ToList();
+
+    /// <summary>One database's counts, last run and size, or its error.</summary>
+    public Task<CliDatabaseSummary> SummaryAsync(string name, CancellationToken ct = default) => SummarizeAsync(Require(name), ct);
+
+    /// <summary>A database's stats: size, connections, load counters, largest tables.</summary>
+    public Task<CliDatabaseStats> StatsAsync(string name, CancellationToken ct = default) => Require(name).StatsAsync(ct);
+
+    private static async Task<CliDatabaseSummary> SummarizeAsync(CliMigrationRunner db, CancellationToken ct)
     {
-        var summaries = await Task.WhenAll(_runners.Values.Select(async db =>
+        try
         {
+            var states = await db.StatusAsync(ct);
+            var last = (await db.RunsAsync(1, 0, ct)).Items.FirstOrDefault();
+            long? size;
             try
             {
-                var states = await db.StatusAsync(ct);
-                var last = (await db.RunsAsync(1, 0, ct)).Items.FirstOrDefault();
-                return new CliMigrationDatabaseSummary
-                {
-                    Name = db.Name,
-                    Dialect = db.Dialect,
-                    Sources = db.SourceNames,
-                    Applied = states.Count(s => s.Status == CliMigrationStatus.Applied),
-                    Pending = states.Count(s => s.Status is CliMigrationStatus.Pending or CliMigrationStatus.Failed),
-                    Problems = states.Count(s => s.Status is CliMigrationStatus.Changed or CliMigrationStatus.Missing or CliMigrationStatus.Failed),
-                    LastRun = last == null
-                        ? null
-                        : new CliMigrationLastRun
-                        {
-                            Id = last.Id, Direction = last.Direction, Status = last.Status, StartedAt = last.StartedAt,
-                            Trigger = last.Trigger, FinishedAt = last.FinishedAt, Actor = last.Actor, Error = last.Error,
-                        },
-                };
+                size = await db.SizeAsync(ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                string dialect;
-                try
-                {
-                    dialect = db.Dialect;
-                }
-                catch (Exception)
-                {
-                    dialect = "unknown";
-                }
-                return new CliMigrationDatabaseSummary
-                {
-                    Name = db.Name, Dialect = dialect, Sources = db.SourceNames, Error = ex.Message,
-                };
+                size = null;
             }
-        }));
-        return summaries.ToList();
+            return new CliDatabaseSummary
+            {
+                Name = db.Name,
+                Dialect = db.Dialect,
+                Sources = db.SourceNames,
+                Applied = states.Count(s => s.Status == CliMigrationStatus.Applied),
+                Pending = states.Count(s => s.Status is CliMigrationStatus.Pending or CliMigrationStatus.Failed),
+                Problems = states.Count(s => s.Status is CliMigrationStatus.Changed or CliMigrationStatus.Missing or CliMigrationStatus.Failed),
+                LastRun = last == null
+                    ? null
+                    : new CliMigrationLastRun
+                    {
+                        Id = last.Id,
+                        Direction = last.Direction,
+                        Status = last.Status,
+                        StartedAt = last.StartedAt,
+                        Trigger = last.Trigger,
+                        FinishedAt = last.FinishedAt,
+                        Actor = last.Actor,
+                        Error = last.Error,
+                    },
+                SizeBytes = size,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            string dialect;
+            try
+            {
+                dialect = db.Dialect;
+            }
+            catch (Exception)
+            {
+                dialect = "unknown";
+            }
+            return new CliDatabaseSummary
+            {
+                Name = db.Name,
+                Dialect = dialect,
+                Sources = db.SourceNames,
+                Error = ex.Message,
+            };
+        }
     }
 
     /// <summary>Runs up or down on a database, then publishes the event and writes the audit entry.</summary>
@@ -131,10 +160,14 @@ public sealed class CliMigrations
         {
             var data = new Dictionary<string, object?>
             {
-                ["database"] = name, ["run"] = run.Id, ["direction"] = direction, ["status"] = run.Status, ["count"] = run.Applied.Count,
+                ["database"] = name,
+                ["run"] = run.Id,
+                ["direction"] = direction,
+                ["status"] = run.Status,
+                ["count"] = run.Applied.Count,
             };
             if (run.Error != null) data["error"] = run.Error;
-            await events.PublishAsync(RunEvent, data, CliEventAudience.WithPermission(MigrationsPermissions.Read));
+            await events.PublishAsync(RunEvent, data, CliEventAudience.WithPermission(DatabasesPermissions.Read));
         }
 
         var audit = _services.GetService<IAuditStore>();
@@ -152,7 +185,10 @@ public sealed class CliMigrations
                     Details = run.Status == "failed" ? $"{summary}; failed: {run.Error}" : summary,
                     Properties = new()
                     {
-                        ["run"] = run.Id, ["status"] = run.Status, ["trigger"] = run.Trigger, ["applied"] = run.Applied.Count,
+                        ["run"] = run.Id,
+                        ["status"] = run.Status,
+                        ["trigger"] = run.Trigger,
+                        ["applied"] = run.Applied.Count,
                     },
                 });
             }
@@ -182,12 +218,12 @@ public sealed class CliMigrations
     }
 }
 
-/// <summary>Permissions of the migrations plugin.</summary>
-public static class MigrationsPermissions
+/// <summary>Permissions of the databases plugin.</summary>
+public static class DatabasesPermissions
 {
-    /// <summary>See databases, migrations, runs and the SQL a run would execute.</summary>
-    public const string Read = "migrations:read";
+    /// <summary>See databases, their stats, migrations, runs and the SQL a run would execute.</summary>
+    public const string Read = "databases:read";
 
     /// <summary>Apply and roll back migrations.</summary>
-    public const string Run = "migrations:run";
+    public const string Migrate = "databases:migrate";
 }

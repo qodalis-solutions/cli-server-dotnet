@@ -2,7 +2,7 @@ using System.Data.Common;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Qodalis.Cli.Abstractions.Helpers;
-using Qodalis.Cli.Plugin.Migrations;
+using Qodalis.Cli.Plugin.Databases;
 
 namespace Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
@@ -26,10 +26,10 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
     private readonly string _modified;
     private readonly string _parent;
 
-    /// <summary>The files table's migrations (source <c>qcli-filesystem</c>), to show them in the migrations plugin.</summary>
+    /// <summary>The files table's migrations (source <c>qcli-filesystem</c>), to show them in the databases plugin.</summary>
     public ICliMigrationSource MigrationSource { get; }
 
-    /// <summary>A new connection to the database, for the migrations plugin (<c>db.UseConnection(_ =&gt; provider.CreateMigrationConnection())</c>).</summary>
+    /// <summary>A new connection to the database, for the databases plugin (<c>db.UseConnection(_ =&gt; provider.CreateMigrationConnection())</c>).</summary>
     public DbConnection CreateMigrationConnection() => new SqliteConnection(_connectionString);
 
     /// <summary>
