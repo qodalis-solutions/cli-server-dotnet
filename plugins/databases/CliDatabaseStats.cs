@@ -486,7 +486,25 @@ internal static class CliDatabaseStatsCollector
         }
 
         var tables = new List<CliDatabaseTable>();
-        var counted = bytes != null ? names.OrderByDescending(n => bytes.GetValueOrDefault(n)).Take(20) : names.Take(20);
+        IEnumerable<string> counted;
+        if (bytes != null) counted = names.OrderByDescending(n => bytes.GetValueOrDefault(n)).Take(20);
+        else
+        {
+            // Without sizes, every table is ranked by its highest rowid (an index lookup, not a scan) before the counts
+            var estimate = new Dictionary<string, long>();
+            foreach (var name in names)
+            {
+                try
+                {
+                    estimate[name] = Long(await ScalarAsync(db, $"SELECT MAX(rowid) FROM {CliSqlSchema.QuoteIdent(CliSqlDialects.Sqlite, name)}")) ?? 0;
+                }
+                catch (System.Data.Common.DbException)
+                {
+                    estimate[name] = 0; // a WITHOUT ROWID table
+                }
+            }
+            counted = names.OrderByDescending(n => estimate[n]).Take(20);
+        }
         foreach (var name in counted)
         {
             var rows = Long(await ScalarAsync(db, $"SELECT COUNT(*) FROM {CliSqlSchema.QuoteIdent(CliSqlDialects.Sqlite, name)}"));

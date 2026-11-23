@@ -44,6 +44,19 @@ public class CreateTagsMigration : Migration
     protected override void Down(MigrationBuilder migrationBuilder) => migrationBuilder.DropTable("Tags");
 }
 
+/// <summary>A store-like context with two tables, for a database that has only one of them.</summary>
+public class TwoTablesDbContext(DbContextOptions<TwoTablesDbContext> options) : DbContext(options)
+{
+    public DbSet<MigrationNote> Notes => Set<MigrationNote>();
+    public DbSet<MigrationTag> Tags => Set<MigrationTag>();
+}
+
+public class MigrationTag
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+}
+
 /// <summary>
 /// <c>Qodalis.Cli.Plugin.Databases.EfCore</c>: a DbContext's EF Core migrations in the plugin, the EF Core stores'
 /// schemas as sources (renaming the previous release's tables), and filesystem-sqlite's versioned schema.
@@ -94,6 +107,20 @@ public sealed class DatabasesEfCoreTests : IAsyncLifetime
                 c.AddDatabases(configure);
             });
         return _h.Host.Services.GetRequiredService<CliDatabases>();
+    }
+
+    [Fact]
+    public async Task AStoresSchema_CreatesOnlyTheMissingTables_KeepingTheExistingOnes()
+    {
+        Sql("CREATE TABLE \"Notes\" (\"Id\" INTEGER NOT NULL CONSTRAINT \"PK_Notes\" PRIMARY KEY AUTOINCREMENT); INSERT INTO \"Notes\" (\"Id\") VALUES (7);");
+        await using var db = new TwoTablesDbContext(new DbContextOptionsBuilder<TwoTablesDbContext>().UseSqlite(ConnectionString).Options);
+
+        await QcliEfStoreSchema.EnsureAsync(db, new Dictionary<string, string>());
+
+        Assert.Equal(7L, Scalar("SELECT \"Id\" FROM \"Notes\""));
+        db.Tags.Add(new MigrationTag { Name = "a" });
+        await db.SaveChangesAsync();
+        Assert.Equal(1L, Scalar("SELECT COUNT(*) FROM \"Tags\""));
     }
 
     [Fact]
