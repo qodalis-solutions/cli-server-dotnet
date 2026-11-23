@@ -65,6 +65,7 @@ public static class MvcBuilderExtensions
         });
 
         builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
+        builder.Services.AddSingleton(new CliDashboardExtensions(cliBuilder.DashboardExtensions));
 
         var serverOptions = cliBuilder.ServerOptions;
         builder.Services.AddSingleton(serverOptions);

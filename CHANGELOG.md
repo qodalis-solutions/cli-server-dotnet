@@ -3,6 +3,10 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+- **Dashboard extensions** (cli-server-dashboard `docs/extensions.md`): `cli.AddDashboardExtension(new CliDashboardExtension { Id, Title, Titles?, Icon?, Group?, Order?, Permission?, Entry, Styles?, Version? })` adds a page to the admin dashboard, which loads `Entry` (an ES module the plugin serves) and mounts it. The admin plugin lists them at `GET /api/v1/qcli/dashboard/extensions` (`{ "extensions": [...] }`, registration order, unset optional fields left out, behind the dashboard's sign-in and `admin:access`, `Cache-Control: no-cache`). An invalid extension throws `ArgumentException` `invalid dashboard extension: <reason>`, a repeated id `InvalidOperationException` `dashboard extension already registered: <id>`.
+
 ## 1.0.0-beta.29
 
 - The admin plugin embeds dashboard 1.0.0-beta.26: pick a new token's permissions from the server's list, host tokens marked, and a Requests today column when the server counts API usage. The portal plugin embeds `@qodalis/cli-server-portal` 1.0.0-beta.26.

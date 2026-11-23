@@ -18,6 +18,7 @@ public class CliBuilder
 {
     private readonly List<ICliModule> _modules = [];
     private readonly List<CliInstalledPlugin> _installedPlugins = [];
+    private readonly List<CliDashboardExtension> _dashboardExtensions = [];
     private readonly CliPermissionCatalog _permissions = new();
     private readonly HashSet<string> _permissionSources = new(StringComparer.Ordinal);
 
@@ -39,6 +40,35 @@ public class CliBuilder
     /// The server plugin packages installed so far, shown on the admin dashboard's plugins page.
     /// </summary>
     public IReadOnlyList<CliInstalledPlugin> InstalledPlugins => _installedPlugins;
+
+    /// <summary>The dashboard extensions registered so far, in registration order.</summary>
+    public IReadOnlyList<CliDashboardExtension> DashboardExtensions => _dashboardExtensions;
+
+    /// <summary>
+    /// Adds a page to the admin dashboard: the dashboard lists it in its navigation and loads
+    /// <see cref="CliDashboardExtension.Entry"/> (an ES module the plugin serves) when it is opened. Served by the
+    /// admin plugin at <c>GET /api/v1/qcli/dashboard/extensions</c>, in registration order. Throws
+    /// <see cref="ArgumentException"/> <c>invalid dashboard extension: &lt;reason&gt;</c> or
+    /// <see cref="InvalidOperationException"/> <c>dashboard extension already registered: &lt;id&gt;</c>.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.AddDashboardExtension(new CliDashboardExtension
+    /// {
+    ///     Id = "billing", Title = "Billing", Icon = "💳", Group = "data", Permission = "billing:read",
+    ///     Entry = "/billing/admin/extension.js", Styles = ["/billing/admin/extension.css"],
+    /// });
+    /// </code>
+    /// </example>
+    public CliBuilder AddDashboardExtension(CliDashboardExtension extension)
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        var valid = extension.Validate();
+        if (_dashboardExtensions.Any(e => e.Id == valid.Id))
+            throw new InvalidOperationException($"dashboard extension already registered: {valid.Id}");
+        _dashboardExtensions.Add(valid);
+        return this;
+    }
 
     /// <summary>
     /// Lists the package <paramref name="assembly"/> belongs to among the installed plugins (once). The built-in

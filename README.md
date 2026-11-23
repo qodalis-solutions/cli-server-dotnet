@@ -582,6 +582,34 @@ cli.AddDataExplorerPostgres(connectionString, o =>
 });
 ```
 
+## Dashboard extensions
+
+A plugin can add its own pages to the admin dashboard. It serves an ES module (built with
+`@qodalis/cli-server-dashboard-kit`, so it looks like the dashboard) and registers it; the dashboard lists the
+page in its navigation for users holding `Permission`, loads the module when the page is opened and mounts it.
+Contract: [cli-server-dashboard `docs/extensions.md`](https://github.com/qodalis-solutions/cli-server-dashboard/blob/develop/docs/extensions.md).
+
+```csharp
+builder.Services.AddControllers().AddCli(cli => cli
+    .AddAdmin()
+    .AddDashboardExtension(new CliDashboardExtension
+    {
+        Id = "billing",                          // /qcli/admin/x/billing
+        Title = "Billing",
+        Titles = new Dictionary<string, string> { ["de"] = "Abrechnung" },
+        Icon = "💳",
+        Group = "data",                          // overview, operations, data, access, system
+        Permission = "billing:read",
+        Entry = "/billing/admin/extension.js",   // served by your plugin, same origin
+        Styles = ["/billing/admin/extension.css"],
+    }));
+```
+
+The admin plugin lists them at `GET /api/v1/qcli/dashboard/extensions` (behind the dashboard's sign-in). Every
+page is listed whatever the caller's permissions; the dashboard hides what the user may not see and the plugin's
+own API enforces access. Invalid entries fail startup (`invalid dashboard extension: <reason>`,
+`dashboard extension already registered: <id>`).
+
 ## Docker
 
 ```bash
