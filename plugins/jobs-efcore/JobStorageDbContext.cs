@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
@@ -7,6 +8,8 @@ namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 /// </summary>
 public class JobStorageDbContext : DbContext
 {
+    private readonly QcliEfTables _tables;
+
     internal DbSet<JobExecutionEntity> Executions { get; set; } = null!;
     internal DbSet<JobLogEntryEntity> LogEntries { get; set; } = null!;
     internal DbSet<JobStateEntity> States { get; set; } = null!;
@@ -15,12 +18,19 @@ public class JobStorageDbContext : DbContext
     /// Initializes a new instance of the <see cref="JobStorageDbContext"/> class.
     /// </summary>
     /// <param name="options">The context options configured via <see cref="EfCoreJobStorageExtensions.AddEfCoreJobStorage"/>.</param>
-    public JobStorageDbContext(DbContextOptions<JobStorageDbContext> options) : base(options) { }
+    public JobStorageDbContext(DbContextOptions<JobStorageDbContext> options) : base(options)
+    {
+        _tables = QcliEfTables.Of(options);
+    }
 
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyJobStorageModel();
+        modelBuilder.ApplyJobStorageModel(
+            _tables.Table(JobStorageModelBuilderExtensions.ExecutionsTable),
+            _tables.Table(JobStorageModelBuilderExtensions.LogEntriesTable),
+            _tables.Table(JobStorageModelBuilderExtensions.StatesTable),
+            _tables.Schema);
     }
 }
 
@@ -30,15 +40,26 @@ public class JobStorageDbContext : DbContext
 /// </summary>
 public static class JobStorageModelBuilderExtensions
 {
+    /// <summary>Base names of the tables (<c>QcliJobExecutions</c>, ... with the default prefix).</summary>
+    public const string ExecutionsTable = "JobExecutions", LogEntriesTable = "JobLogEntries", StatesTable = "JobStates";
+
+    /// <summary>The tables of 1.0.0-beta.29 and older, by base name, renamed on upgrade.</summary>
+    public static readonly IReadOnlyDictionary<string, string> LegacyTables = new Dictionary<string, string>
+    {
+        [ExecutionsTable] = "job_executions", [LogEntriesTable] = "job_log_entries", [StatesTable] = "job_states",
+    };
+
     /// <summary>
-    /// Adds the job storage tables (<c>job_executions</c>, <c>job_log_entries</c>, <c>job_states</c>) to
-    /// <paramref name="modelBuilder"/>; call it from the host's <c>OnModelCreating</c>.
+    /// Adds the job storage tables (<c>QcliJobExecutions</c>, <c>QcliJobLogEntries</c>, <c>QcliJobStates</c> unless
+    /// named) to <paramref name="modelBuilder"/>; call it from the host's <c>OnModelCreating</c>.
     /// </summary>
-    public static ModelBuilder ApplyJobStorageModel(this ModelBuilder modelBuilder)
+    public static ModelBuilder ApplyJobStorageModel(this ModelBuilder modelBuilder,
+        string executionsTable = "Qcli" + ExecutionsTable, string logEntriesTable = "Qcli" + LogEntriesTable,
+        string statesTable = "Qcli" + StatesTable, string? schema = null)
     {
         modelBuilder.Entity<JobExecutionEntity>(entity =>
         {
-            entity.ToTable("job_executions");
+            entity.ToTable(executionsTable, schema);
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.ExecutionId).IsUnique();
             entity.HasIndex(e => e.JobId);
@@ -51,7 +72,7 @@ public static class JobStorageModelBuilderExtensions
 
         modelBuilder.Entity<JobLogEntryEntity>(entity =>
         {
-            entity.ToTable("job_log_entries");
+            entity.ToTable(logEntriesTable, schema);
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.ExecutionId);
             entity.Property(e => e.ExecutionId).HasMaxLength(64);
@@ -65,7 +86,7 @@ public static class JobStorageModelBuilderExtensions
 
         modelBuilder.Entity<JobStateEntity>(entity =>
         {
-            entity.ToTable("job_states");
+            entity.ToTable(statesTable, schema);
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.JobId).IsUnique();
             entity.Property(e => e.JobId).HasMaxLength(256);

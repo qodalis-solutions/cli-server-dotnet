@@ -28,7 +28,23 @@ builder.Services
     });
 ```
 
-The `qcli_api_usage` table is created on first use, also inside a database that already has other tables.
+The `QcliApiUsage` table is created on first use, also inside a database that already has other tables.
+
+## Table names (1.0.0-beta.30)
+
+The table is `QcliApiUsage` (cli-server-dotnet#99: `Qcli` + PascalCase, the same on the three servers). On the first start
+after an upgrade the store renames the `qcli_api_usage` of 1.0.0-beta.29 to the new name, with its keys and indexes, keeping the rows.
+The store's options (`AddEfCorePublicApiUsageStore(..., o => ...)`) set the names: `TablePrefix` (default `Qcli`), `Tables["…"]` for one table, `Schema`, and
+`LegacyTableNames = true` to keep the old names.
+
+A host that maps the table in its own model (`modelBuilder.ApplyPublicApiUsageModel()`) gets the new name there too: its next
+`dotnet ef migrations add` generates the `RenameTable`, or it keeps the old name with `ApplyPublicApiUsageModel("qcli_api_usage")` and `LegacyTableNames = true`.
+
+With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+
+```csharp
+cli.AddMigrations(m => m.AddPublicApiUsageSchema("cli", db => db.ApplyMigrationsOnStartup()));
+```
 
 ## Host migrations
 
@@ -47,7 +63,7 @@ cli.AddEfCorePublicApiUsageStore(o => o.UseNpgsql(connectionString), o => o.Ensu
 | Column | Type | |
 |---|---|---|
 | `TokenId` | string, 64 | primary key (with `Window`) |
-| `UserId` | string, 128 | index (with `Window`); the same limit as `api_tokens.UserId`: user ids (e.g. from an external adapter) must fit |
+| `UserId` | string, 128 | index (with `Window`); the same limit as `QcliApiTokens.UserId`: user ids (e.g. from an external adapter) must fit |
 | `Window` | string, 16 | `yyyy-MM-dd` (UTC day) or `yyyy-MM-ddTHH:mm` (UTC minute) |
 | `Count` | bigint | requests counted in the window |
 

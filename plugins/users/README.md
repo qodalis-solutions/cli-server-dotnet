@@ -279,7 +279,7 @@ adapter call; a failing store is logged and ignored); anonymous and `cli`-token 
 routes (sign-in, link requests, version discovery) do not check. `ICliAuthBridge.AuthenticateAsync` throws
 `CliAuthException(403, …)` for host tokens and `RevalidateAsync` returns `null`.
 
-The EF Core store keeps the audience in the `api_tokens.Audience` column; see
+The EF Core store keeps the audience in the `QcliApiTokens.Audience` column; see
 [Qodalis.Cli.Plugin.Users.EfCore](../users-efcore/README.md#upgrading-from-100-beta28-or-older-the-audience-column)
 for upgrading an existing table.
 

@@ -1,3 +1,4 @@
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 using Qodalis.Cli.Abstractions.Audit;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -197,7 +198,7 @@ public class EfCoreJobStorageSqliteTests : IDisposable
     }
 
     [Fact]
-    public async Task TablesFromAnEarlierVersion_GainThePropertiesColumn()
+    public async Task TablesFromAnEarlierVersion_AreRenamed_AndGainThePropertiesColumn()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
@@ -216,12 +217,19 @@ public class EfCoreJobStorageSqliteTests : IDisposable
             command.ExecuteNonQuery();
         }
         var options = new DbContextOptionsBuilder<JobStorageDbContext>().UseSqlite(connection).Options;
-        var provider = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(options, o => new JobStorageDbContext(o)));
+        var renames = new QcliEfStoreRenames<JobStorageDbContext>(new Dictionary<string, string>
+        {
+            ["job_executions"] = "QcliJobExecutions", ["job_log_entries"] = "QcliJobLogEntries", ["job_states"] = "QcliJobStates",
+        });
+        var provider = new EfCoreJobStorageProvider(new SqliteContextFactory<JobStorageDbContext>(options, o => new JobStorageDbContext(o)), renames);
 
         await provider.SaveExecutionAsync(new JobExecution { JobId = "a", JobName = "a", Properties = new() { ["n"] = 1 } });
 
         var (items, _) = await provider.GetExecutionsAsync("a");
         Assert.Equal(1, ((System.Text.Json.JsonElement)items[0].Properties["n"]!).GetInt32());
+        using var tables = connection.CreateCommand();
+        tables.CommandText = "SELECT group_concat(name) FROM (SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%job%' ORDER BY name)";
+        Assert.Equal("QcliJobExecutions,QcliJobLogEntries,QcliJobStates", tables.ExecuteScalar());
     }
 
     [Fact]

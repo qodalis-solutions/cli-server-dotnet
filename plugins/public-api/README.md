@@ -226,7 +226,7 @@ keep usage across restarts), use [Qodalis.Cli.Plugin.PublicApi.EfCore](../public
 cli.AddEfCorePublicApiUsageStore(o => o.UseNpgsql(connectionString));
 ```
 
-User ids up to 128 characters (the `qcli_api_usage.UserId` column, as `api_tokens.UserId`); the guard prunes old
+User ids up to 128 characters (the `QcliApiUsage.UserId` column, as `QcliApiTokens.UserId`); the guard prunes old
 counters at most once an hour with one delete over the table, which is fine at the table's size (31 days of rows per
 token).
 

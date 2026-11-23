@@ -45,11 +45,27 @@ application's own):
 
 | Table | Purpose |
 |-------|---------|
-| `job_executions` | Execution records (status, timestamps, duration, error, retry attempt) |
-| `job_log_entries` | Structured log entries per execution (timestamp, level, message) |
-| `job_states` | Persistent job state (active/paused/stopped, last run time) |
+| `QcliJobExecutions` | Execution records (status, timestamps, duration, error, retry attempt) |
+| `QcliJobLogEntries` | Structured log entries per execution (timestamp, level, message) |
+| `QcliJobStates` | Persistent job state (active/paused/stopped, last run time) |
 
 Executions keep their `properties` (the job's own values) as JSON.
+
+## Table names (1.0.0-beta.30)
+
+The tables are `QcliJobExecutions`, `QcliJobLogEntries` and `QcliJobStates` (cli-server-dotnet#99: `Qcli` + PascalCase, the same on the three servers). On the first start
+after an upgrade the store renames the `job_executions`, `job_log_entries` and `job_states` of 1.0.0-beta.29 and older to the new names, with their keys and indexes, keeping the rows.
+The store's options (`AddEfCoreJobStorage(..., o => ...)`) set the names: `TablePrefix` (default `Qcli`), `Tables["…"]` for one table, `Schema`, and
+`LegacyTableNames = true` to keep the old names.
+
+A host that maps the tables in its own model (`modelBuilder.ApplyJobStorageModel()`) gets the new names there too: its next
+`dotnet ef migrations add` generates the `RenameTable`s, or it keeps the old names with `ApplyJobStorageModel("job_executions", "job_log_entries", "job_states")` and `LegacyTableNames = true`.
+
+With the [migrations plugin](../migrations-efcore), the schema is a source of a database, so the dashboard shows it and startup applies it.
+
+```csharp
+cli.AddMigrations(m => m.AddJobStorageSchema("cli", db => db.ApplyMigrationsOnStartup()));
+```
 
 ## Host migrations
 

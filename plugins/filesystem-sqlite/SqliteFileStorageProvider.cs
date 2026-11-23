@@ -1,5 +1,8 @@
+using System.Data.Common;
 using System.Text;
 using Microsoft.Data.Sqlite;
+using Qodalis.Cli.Abstractions.Helpers;
+using Qodalis.Cli.Plugin.Migrations;
 
 namespace Qodalis.Cli.Plugin.FileSystem.Sqlite;
 
@@ -16,8 +19,22 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
     private readonly string _connectionString;
     private readonly SqliteConnection? _keepAliveConnection;
 
+    // The table and the columns whose names changed (cli-server-dotnet#99), quoted; SQLite matches the others
+    // (path, name, ...) case-insensitively
+    private readonly string _t;
+    private readonly string _created;
+    private readonly string _modified;
+    private readonly string _parent;
+
+    /// <summary>The files table's migrations (source <c>qcli-filesystem</c>), to show them in the migrations plugin.</summary>
+    public ICliMigrationSource MigrationSource { get; }
+
+    /// <summary>A new connection to the database, for the migrations plugin (<c>db.UseConnection(_ =&gt; provider.CreateMigrationConnection())</c>).</summary>
+    public DbConnection CreateMigrationConnection() => new SqliteConnection(_connectionString);
+
     /// <summary>
-    /// Initializes a new instance, creating the database schema if it does not exist.
+    /// Initializes a new instance, migrating the database schema: the first start after an upgrade renames the
+    /// <c>files</c> table of 1.0.0-beta.29 and older to <c>QcliFiles</c> with its columns, keeping the files.
     /// For in-memory databases, a persistent connection is kept open to prevent data loss.
     /// </summary>
     /// <param name="options">Options specifying the database path.</param>
@@ -39,7 +56,69 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
             _keepAliveConnection.Open();
         }
 
+        var table = QcliTableNames.Resolve("Files", options, "files");
+        var legacy = options.LegacyTableNames && table == "files";
+        _t = CliSqlSchema.QuoteIdent(CliSqlDialects.Sqlite, table);
+        _created = legacy ? "created_at" : "\"CreatedAt\"";
+        _modified = legacy ? "modified_at" : "\"ModifiedAt\"";
+        _parent = legacy ? "parent_path" : "\"ParentPath\"";
+        MigrationSource = Migrations(table, legacy);
+
         InitializeDatabase();
+    }
+
+    private static readonly Dictionary<string, string> LegacyColumns = new()
+    {
+        ["id"] = "Id", ["path"] = "Path", ["name"] = "Name", ["type"] = "Type", ["content"] = "Content", ["size"] = "Size",
+        ["permissions"] = "Permissions", ["created_at"] = "CreatedAt", ["modified_at"] = "ModifiedAt", ["parent_path"] = "ParentPath",
+    };
+
+    /// <summary>The files table's schema as migrations (source <c>qcli-filesystem</c>), as on the Node and Python servers.</summary>
+    private static ICliMigrationSource Migrations(string table, bool legacy)
+    {
+        string Col(string name) => "\"" + (legacy ? LegacyColumns.First(c => c.Value == name).Key : name) + "\"";
+        var t = CliSqlSchema.QuoteIdent(CliSqlDialects.Sqlite, table);
+        return new CliCodeMigrationSource("qcli-filesystem",
+        [
+            new CliMigration
+            {
+                Id = "1",
+                Name = "files table",
+                Up = CliMigrationStep.FromCode(async db =>
+                {
+                    if (!legacy) await CliSqlSchema.AdoptLegacyTableAsync(db, "files", table, LegacyColumns);
+                    if (await CliSqlSchema.TableExistsAsync(db, table)) return;
+                    await db.ExecuteAsync($@"CREATE TABLE {t} (
+                        {Col("Id")} INTEGER PRIMARY KEY AUTOINCREMENT,
+                        {Col("Path")} TEXT NOT NULL UNIQUE,
+                        {Col("Name")} TEXT NOT NULL,
+                        {Col("Type")} TEXT NOT NULL CHECK({Col("Type")} IN ('file', 'directory')),
+                        {Col("Content")} BLOB,
+                        {Col("Size")} INTEGER NOT NULL DEFAULT 0,
+                        {Col("Permissions")} TEXT DEFAULT '644',
+                        {Col("CreatedAt")} TEXT NOT NULL,
+                        {Col("ModifiedAt")} TEXT NOT NULL,
+                        {Col("ParentPath")} TEXT
+                    )");
+                }),
+            },
+            new CliMigration
+            {
+                Id = "2",
+                Name = "index on the parent path",
+                Up = CliMigrationStep.FromCode(async db =>
+                {
+                    if (!legacy) await db.ExecuteAsync("DROP INDEX IF EXISTS \"idx_files_parent\"");
+                    var index = CliSqlSchema.QuoteIdent(CliSqlDialects.Sqlite, legacy ? "idx_files_parent" : $"IX_{table}_ParentPath");
+                    await db.ExecuteAsync($"CREATE INDEX IF NOT EXISTS {index} ON {t} ({Col("ParentPath")})");
+                }),
+            },
+        ]);
+    }
+
+    private sealed class NoServices : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => null;
     }
 
     /// <summary>
@@ -66,7 +145,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT name, type, size, modified_at, permissions FROM files WHERE parent_path = @parent";
+        cmd.CommandText = $"SELECT name, type, size, {_modified}, permissions FROM {_t} WHERE {_parent} = @parent";
         cmd.Parameters.AddWithValue("@parent", normalizedPath);
 
         var entries = new List<FileEntry>();
@@ -130,7 +209,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "UPDATE files SET content = @content, size = @size, modified_at = @modified WHERE path = @path";
+            cmd.CommandText = $"UPDATE {_t} SET content = @content, size = @size, {_modified} = @modified WHERE path = @path";
             cmd.Parameters.AddWithValue("@content", content);
             cmd.Parameters.AddWithValue("@size", content.Length);
             cmd.Parameters.AddWithValue("@modified", DateTime.UtcNow.ToString("o"));
@@ -142,8 +221,8 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
             var now = DateTime.UtcNow.ToString("o");
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                INSERT INTO files (path, name, type, content, size, created_at, modified_at, parent_path)
+            cmd.CommandText = $@"
+                INSERT INTO {_t} (path, name, type, content, size, {_created}, {_modified}, {_parent})
                 VALUES (@path, @name, 'file', @content, @size, @created, @modified, @parent)";
             cmd.Parameters.AddWithValue("@path", normalizedPath);
             cmd.Parameters.AddWithValue("@name", fileName);
@@ -246,7 +325,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         {
             using var conn = CreateConnection();
             using var countCmd = conn.CreateCommand();
-            countCmd.CommandText = "SELECT COUNT(*) FROM files WHERE parent_path = @path";
+            countCmd.CommandText = $"SELECT COUNT(*) FROM {_t} WHERE {_parent} = @path";
             countCmd.Parameters.AddWithValue("@path", normalizedPath);
             var count = (long)countCmd.ExecuteScalar()!;
             if (count > 0)
@@ -257,7 +336,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         {
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM files WHERE path = @path OR path LIKE @prefix";
+            cmd.CommandText = $"DELETE FROM {_t} WHERE path = @path OR path LIKE @prefix";
             cmd.Parameters.AddWithValue("@path", normalizedPath);
             cmd.Parameters.AddWithValue("@prefix", normalizedPath + "/%");
             cmd.ExecuteNonQuery();
@@ -266,7 +345,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         {
             using var conn = CreateConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM files WHERE path = @path";
+            cmd.CommandText = $"DELETE FROM {_t} WHERE path = @path";
             cmd.Parameters.AddWithValue("@path", normalizedPath);
             cmd.ExecuteNonQuery();
         }
@@ -300,8 +379,8 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            INSERT OR REPLACE INTO files (path, name, type, content, size, permissions, created_at, modified_at, parent_path)
+        cmd.CommandText = $@"
+            INSERT OR REPLACE INTO {_t} (path, name, type, content, size, permissions, {_created}, {_modified}, {_parent})
             VALUES (@path, @name, @type, @content, @size, @permissions, @created, @modified, @parent)";
         cmd.Parameters.AddWithValue("@path", destPath);
         cmd.Parameters.AddWithValue("@name", destName);
@@ -341,8 +420,8 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
 
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            UPDATE files SET path = @newPath, name = @newName, parent_path = @newParent, modified_at = @modified
+        cmd.CommandText = $@"
+            UPDATE {_t} SET path = @newPath, name = @newName, {_parent} = @newParent, {_modified} = @modified
             WHERE path = @oldPath";
         cmd.Parameters.AddWithValue("@newPath", destPath);
         cmd.Parameters.AddWithValue("@newName", destName);
@@ -398,24 +477,14 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
                 Directory.CreateDirectory(dir);
         }
 
-        using var conn = CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL CHECK(type IN ('file', 'directory')),
-                content BLOB,
-                size INTEGER NOT NULL DEFAULT 0,
-                permissions TEXT DEFAULT '644',
-                created_at TEXT NOT NULL,
-                modified_at TEXT NOT NULL,
-                parent_path TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_path);
-        ";
-        cmd.ExecuteNonQuery();
+        // The schema is versioned (QcliMigrations / QcliMigrationRuns next to the files table)
+        var runner = new CliMigrationRunner("files", new CliMigrationDatabaseOptions
+        {
+            Connection = _ => CreateMigrationConnection(),
+            TablePrefix = _options.TablePrefix,
+        }.WithSource(MigrationSource), new NoServices());
+        var run = runner.UpAsync(new CliMigrationRunOptions { Trigger = "startup", Wait = true }).GetAwaiter().GetResult();
+        if (run.Status == "failed") throw new InvalidOperationException($"filesystem-sqlite schema: {run.Error}");
     }
 
     private void InsertDirectory(string fullPath, string name, string parentPath)
@@ -423,8 +492,8 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
         var now = DateTime.UtcNow.ToString("o");
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            INSERT INTO files (path, name, type, size, created_at, modified_at, parent_path)
+        cmd.CommandText = $@"
+            INSERT INTO {_t} (path, name, type, size, {_created}, {_modified}, {_parent})
             VALUES (@path, @name, 'directory', 0, @created, @modified, @parent)";
         cmd.Parameters.AddWithValue("@path", fullPath);
         cmd.Parameters.AddWithValue("@name", name);
@@ -438,7 +507,7 @@ public class SqliteFileStorageProvider : IFileStorageProvider, IDisposable
     {
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT name, type, content, size, permissions, created_at, modified_at, parent_path FROM files WHERE path = @path";
+        cmd.CommandText = $"SELECT name, type, content, size, permissions, {_created}, {_modified}, {_parent} FROM {_t} WHERE path = @path";
         cmd.Parameters.AddWithValue("@path", normalizedPath);
 
         using var reader = cmd.ExecuteReader();

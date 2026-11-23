@@ -10,8 +10,11 @@ public static class SqliteFileSystemExtensions
     /// </summary>
     /// <param name="options">The file system options to configure.</param>
     /// <param name="dbPath">The path to the SQLite database file, or ":memory:" for in-memory storage.</param>
-    public static void UseSqlite(this FileSystemOptions options, string dbPath)
+    /// <param name="configure">The table's name (<c>TablePrefix</c>, <c>Tables["Files"]</c>, <c>LegacyTableNames</c>).</param>
+    public static void UseSqlite(this FileSystemOptions options, string dbPath, Action<SqliteProviderOptions>? configure = null)
     {
-        options.Provider = new SqliteFileStorageProvider(new SqliteProviderOptions { DbPath = dbPath });
+        var providerOptions = new SqliteProviderOptions { DbPath = dbPath };
+        configure?.Invoke(providerOptions);
+        options.Provider = new SqliteFileStorageProvider(providerOptions);
     }
 }

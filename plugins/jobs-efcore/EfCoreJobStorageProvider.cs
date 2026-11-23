@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Qodalis.Cli.Abstractions.Jobs;
+using Qodalis.Cli.Plugin.Migrations.EfCore;
 
 namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 
@@ -14,6 +15,7 @@ namespace Qodalis.Cli.Plugin.Jobs.EfCore;
 public class EfCoreJobStorageProvider : ICliJobStorageProvider
 {
     private readonly IDbContextFactory<JobStorageDbContext> _dbFactory;
+    private readonly IReadOnlyDictionary<string, string> _renames;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private volatile bool _initialized;
 
@@ -21,9 +23,11 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     /// Initializes a new instance of the <see cref="EfCoreJobStorageProvider"/> class.
     /// </summary>
     /// <param name="dbFactory">The DbContext factory for creating database contexts.</param>
-    public EfCoreJobStorageProvider(IDbContextFactory<JobStorageDbContext> dbFactory)
+    /// <param name="renames">The previous release's tables to rename on first use (registered by <c>AddEfCoreJobStorage</c>).</param>
+    public EfCoreJobStorageProvider(IDbContextFactory<JobStorageDbContext> dbFactory, QcliEfStoreRenames<JobStorageDbContext>? renames = null)
     {
         _dbFactory = dbFactory;
+        _renames = renames?.Renames ?? new Dictionary<string, string>();
     }
 
     private async Task<JobStorageDbContext> CreateDbContextAsync(CancellationToken cancellationToken)
@@ -50,48 +54,18 @@ public class EfCoreJobStorageProvider : ICliJobStorageProvider
     }
 
     /// <summary>
-    /// Creates the database with the tables, or only the tables in a database that already exists (the host's own,
-    /// whose other tables make <c>EnsureCreated</c> do nothing). Tables the host created in its migrations are kept.
+    /// Renames the tables of 1.0.0-beta.29 and older (<c>job_executions</c>, ...) to their new names, keeping the runs,
+    /// then creates the database with the tables, or only the tables in a database that already exists (the host's
+    /// own, whose other tables make <c>EnsureCreated</c> do nothing). Tables the host created in its migrations are kept.
     /// </summary>
-    private static async Task EnsureTablesAsync(JobStorageDbContext db, CancellationToken cancellationToken)
+    private async Task EnsureTablesAsync(JobStorageDbContext db, CancellationToken cancellationToken)
     {
-        if (await db.Database.EnsureCreatedAsync(cancellationToken))
-            return;
-
-        if (!await ExistsAsync(db, cancellationToken))
-        {
-            try
-            {
-                await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(cancellationToken);
-            }
-            catch (DbException)
-            {
-                // Another instance of the server may have created them meanwhile
-                if (!await ExistsAsync(db, cancellationToken))
-                    throw;
-            }
-            return;
-        }
-
+        await QcliEfStoreSchema.EnsureAsync(db, _renames, cancellationToken);
         await AddMissingColumnsAsync(db, cancellationToken);
     }
 
-    /// <summary>Whether the store's tables are there; a query on a missing table fails with the provider's error.</summary>
-    private static async Task<bool> ExistsAsync(JobStorageDbContext db, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _ = await db.States.AnyAsync(cancellationToken);
-            return true;
-        }
-        catch (DbException)
-        {
-            return false;
-        }
-    }
-
     /// <summary>
-    /// Brings tables created by an earlier version up to date: <c>job_executions.Properties</c> (1.0.0-beta.15).
+    /// Brings tables created by an earlier version up to date: the executions' <c>Properties</c> (1.0.0-beta.15).
     /// </summary>
     private static async Task AddMissingColumnsAsync(JobStorageDbContext db, CancellationToken cancellationToken)
     {
