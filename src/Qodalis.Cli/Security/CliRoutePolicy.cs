@@ -40,6 +40,8 @@ public static class CliRoutePolicy
     public const string AdminAccess = "admin:access";
     /// <summary>Install, update and remove dashboard plugins from the marketplace (the admin plugin).</summary>
     public const string DashboardInstall = "dashboard:install";
+    /// <summary>Restart the server (<c>POST /api/v1/qcli/server/restart</c>, <c>admin restart</c>).</summary>
+    public const string ServerRestart = "server:restart";
 
     /// <summary>The MCP endpoint (Streamable HTTP, stateless).</summary>
     public const string McpPath = "/api/qcli/mcp";
@@ -119,6 +121,8 @@ public static class CliRoutePolicy
         // Config providers: config:read to see, config:write to change (the admin plugin's auth also applies)
         if (IsUnder(path, "/api/v1/qcli/config"))
             return new(true, false, isGet ? Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Read : Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Write, false);
+        // Restart: admin:access to see the status, server:restart to restart
+        if (IsUnder(path, "/api/v1/qcli/server/restart")) return new(true, false, isGet ? AdminAccess : ServerRestart, false);
         if (AdminPrefixes.Any(p => IsUnder(path, p))) return new(true, false, AdminAccess, false);
 
         return new(true, false, null, false);

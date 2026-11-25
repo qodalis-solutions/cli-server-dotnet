@@ -30,4 +30,10 @@ public interface ICliLogSocketManager : ICliSessionBoundSockets, IDisposable
     /// Sends a disconnect message to all connected log clients and closes their connections.
     /// </summary>
     Task BroadcastDisconnectAsync();
+
+    /// <summary>
+    /// Sends a disconnect message to all connected log clients and closes their connections with
+    /// <paramref name="closeCode"/> (1000 on shutdown, 1012 on a restart).
+    /// </summary>
+    Task BroadcastDisconnectAsync(int closeCode, string reason) => BroadcastDisconnectAsync();
 }

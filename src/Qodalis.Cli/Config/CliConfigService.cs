@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
+using Qodalis.Cli.Abstractions.Restart;
 
 namespace Qodalis.Cli.Config;
 
@@ -79,6 +80,8 @@ public sealed class CliConfigService : ICliConfigService
 {
     private readonly IServiceProvider? _services;
     private readonly ILogger _logger;
+    // The value of each requiresRestart entry changed so far, as it was at start (by pending id)
+    private readonly Dictionary<string, JsonNode?> _startValues = new(StringComparer.Ordinal);
 
     public CliConfigService(CliConfigRegistry registry, IServiceProvider? services = null, ILogger<CliConfigService>? logger = null)
     {
@@ -95,7 +98,14 @@ public sealed class CliConfigService : ICliConfigService
     /// <summary>The bus <c>config:changed</c> is published on; default the server's <see cref="ICliEventBus"/>.</summary>
     public Func<ICliEventBus?>? EventBus { get; set; }
 
+    /// <summary>
+    /// The restart service a change to a <c>requiresRestart</c> entry is marked pending with
+    /// (<c>config:&lt;provider&gt;.&lt;section&gt;.&lt;key&gt;</c>); default the server's <see cref="ICliServerRestart"/>.
+    /// </summary>
+    public Func<ICliServerRestart?>? Restart { get; set; }
+
     private IAuditStore? Audit => AuditStore != null ? AuditStore() : _services?.GetService<IAuditStore>();
+    private ICliServerRestart? RestartService => Restart != null ? Restart() : _services?.GetService<ICliServerRestart>();
     private ICliEventBus? Bus => EventBus != null ? EventBus() : _services?.GetService<ICliEventBus>();
 
     /// <summary>Completes once every provider has applied its stored settings.</summary>
@@ -246,6 +256,7 @@ public sealed class CliConfigService : ICliConfigService
                 ["new"] = now != null || raw != null ? AuditValue(now ?? old, raw, old: false) : null,
             });
         }
+        TrackRestart(provider, sectionId, result.Applied, before, after);
         var storeKind = DescribeProviderStore(provider)?.Kind;
         await AuditAsync(provider.Id, sectionId, result.Version, auditChanges, context, storeKind);
         await PublishAsync(provider.Id, sectionId, result, context, storeKind, cancellationToken);
@@ -257,6 +268,44 @@ public sealed class CliConfigService : ICliConfigService
             RequiresRestart = result.RequiresRestart,
             Version = result.Version,
         };
+    }
+
+    /// <summary>
+    /// Marks a changed <c>requiresRestart</c> entry as waiting for a restart, and clears it when its value is set back to
+    /// what it was at start (a secret, whose value is never seen, stays marked).
+    /// </summary>
+    private void TrackRestart(ICliConfigProvider provider, string sectionId, IEnumerable<string> applied,
+        CliConfigSectionView before, CliConfigSectionView after)
+    {
+        var restart = RestartService;
+        if (restart == null) return;
+        foreach (var key in applied)
+        {
+            var old = before.Entries.FirstOrDefault(e => e.Key == key);
+            var now = after.Entries.FirstOrDefault(e => e.Key == key);
+            if (old?.RequiresRestart != true && now?.RequiresRestart != true) continue;
+            var id = $"config:{provider.Id}.{sectionId}.{key}";
+            var sensitive = old?.Sensitive == true || now?.Sensitive == true;
+            JsonNode? start;
+            lock (_startValues)
+            {
+                if (!_startValues.TryGetValue(id, out start))
+                {
+                    start = old?.Value?.DeepClone();
+                    _startValues[id] = start;
+                }
+            }
+            var unchanged = !sensitive && JsonNode.DeepEquals(now?.Value, start);
+            try
+            {
+                if (unchanged) restart.ClearRequired(id);
+                else restart.MarkRequired(new CliRestartRequirementInput(id, "config", $"{provider.Title}: {(now ?? old)?.Label ?? key} changed"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Marking a restart failed");
+            }
+        }
     }
 
     /// <summary>How a value appears in the audit log: a secret as <c>***</c>, or null when cleared/unset.</summary>

@@ -198,7 +198,10 @@ public class CliEventSocketManager : ICliEventSocketManager
     }
 
     /// <inheritdoc />
-    public async Task BroadcastDisconnectAsync()
+    public Task BroadcastDisconnectAsync() => BroadcastDisconnectAsync(1000, "Server shutting down");
+
+    /// <inheritdoc />
+    public async Task BroadcastDisconnectAsync(int closeCode, string reason)
     {
         _logger.LogInformation("Broadcasting disconnect to {Count} event clients", _clients.Count);
         var bytes = Serialize(new { type = "disconnect" });
@@ -208,7 +211,7 @@ public class CliEventSocketManager : ICliEventSocketManager
         {
             if (sender.Socket.State == WebSocketState.Open)
             {
-                tasks.Add(SendAndCloseAsync(sender, bytes));
+                tasks.Add(SendAndCloseAsync(sender, bytes, closeCode, reason));
             }
 
             _clients.TryRemove(id, out _);
@@ -238,11 +241,11 @@ public class CliEventSocketManager : ICliEventSocketManager
 
     private static byte[] Serialize(object message) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
-    private static async Task SendAndCloseAsync(SerializedWebSocketSender sender, byte[] bytes)
+    private static async Task SendAndCloseAsync(SerializedWebSocketSender sender, byte[] bytes, int closeCode, string reason)
     {
         try
         {
-            await sender.SendAndCloseAsync(bytes, "Server shutting down");
+            await sender.SendAndCloseAsync(bytes, reason, closeCode);
         }
         catch
         {

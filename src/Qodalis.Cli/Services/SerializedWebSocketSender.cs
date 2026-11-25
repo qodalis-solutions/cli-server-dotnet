@@ -37,14 +37,14 @@ internal sealed class SerializedWebSocketSender : IDisposable
     }
 
     /// <summary>Sends a last text message, then closes the socket (no other send can interleave).</summary>
-    public async Task SendAndCloseAsync(byte[] bytes, string reason)
+    public async Task SendAndCloseAsync(byte[] bytes, string reason, int closeCode = (int)WebSocketCloseStatus.NormalClosure)
     {
         if (!await EnterAsync()) return;
         try
         {
             if (Socket.State != WebSocketState.Open) return;
             await Socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            await Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, reason, CancellationToken.None);
+            await Socket.CloseAsync((WebSocketCloseStatus)closeCode, reason, CancellationToken.None);
         }
         finally
         {

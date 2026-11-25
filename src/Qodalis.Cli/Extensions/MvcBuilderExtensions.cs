@@ -15,6 +15,7 @@ using Qodalis.Cli.Controllers;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Logging;
 using Qodalis.Cli.Mcp;
+using Qodalis.Cli.Restart;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Security;
@@ -76,6 +77,7 @@ public static class MvcBuilderExtensions
         });
 
         AddConfigServices(builder.Services, cliBuilder);
+        AddRestartServices(builder.Services, cliBuilder);
 
         builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
         // The runtime registry: the builder's extensions when first resolved, then pages added and removed at runtime
@@ -187,6 +189,21 @@ public static class MvcBuilderExtensions
         services.AddMcpToolProvider<ConfigMcpToolProvider>();
     }
 
+    /// <summary>Restart: the service (its runtime the options', else one in the container, else the real process) and its startup.</summary>
+    private static void AddRestartServices(IServiceCollection services, CliBuilder cliBuilder)
+    {
+        var options = cliBuilder.RestartOptions;
+        options.Validate();
+        services.AddSingleton(sp => new CliServerRestart(options,
+            options.Runtime ?? sp.GetService<ICliServerRestartRuntime>() ?? new CliServerProcessRuntime(
+                sp.GetService<IHostApplicationLifetime>(),
+                sp.GetService<Microsoft.Extensions.Options.IOptions<HostOptions>>(),
+                sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Restart")),
+            sp, sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Restart"), sp.GetService<TimeProvider>()));
+        services.AddSingleton<Qodalis.Cli.Abstractions.Restart.ICliServerRestart>(sp => sp.GetRequiredService<CliServerRestart>());
+        services.AddHostedService<CliServerRestartStartup>();
+    }
+
     private static IEnumerable<CliHostOption> HostOptions(CliServerOptions options) =>
     [
         new("cliRoutes", "CLI routes", "The CLI's routes and sockets are served", options.CliRoutes),
@@ -218,6 +235,18 @@ public static class CliConfigContexts
         return new CliConfigContext(new CliConfigCaller(principal.UserId, principal.UserName, principal.Permissions),
             principal.Can, via);
     }
+}
+
+/// <summary>Creates the restart service when the server starts (its <c>startedAt</c>).</summary>
+internal sealed class CliServerRestartStartup(CliServerRestart restart) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _ = restart.StartedAt;
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 /// <summary>Loads and applies the stored settings when the server starts.</summary>

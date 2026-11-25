@@ -36,6 +36,12 @@ public interface ICliEventSocketManager : ICliSessionBoundSockets, IDisposable
     Task BroadcastDisconnectAsync();
 
     /// <summary>
+    /// Sends a disconnect message to all connected clients and closes their connections with <paramref name="closeCode"/>
+    /// (1000 on shutdown, 1012 on a restart).
+    /// </summary>
+    Task BroadcastDisconnectAsync(int closeCode, string reason) => BroadcastDisconnectAsync();
+
+    /// <summary>
     /// Returns information about all currently connected event clients.
     /// </summary>
     IReadOnlyList<CliWebSocketClientInfo> GetClients();
