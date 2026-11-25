@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Config;
 
 namespace Qodalis.Cli;
 
@@ -13,4 +14,5 @@ public abstract class CliModule : ICliModule
     public virtual ICliCommandAuthor Author { get; } = DefaultLibraryAuthor.Instance;
     public abstract IEnumerable<ICliCommandProcessor> Processors { get; }
     public virtual string? Icon => null;
+    public virtual IEnumerable<ICliConfigProvider> ConfigProviders => [];
 }

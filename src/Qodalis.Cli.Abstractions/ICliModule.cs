@@ -1,3 +1,5 @@
+using Qodalis.Cli.Abstractions.Config;
+
 namespace Qodalis.Cli.Abstractions;
 
 /// <summary>
@@ -34,4 +36,9 @@ public interface ICliModule
     /// One emoji or an image URL shown for the module (the admin dashboard's plugins page); <c>null</c> = none.
     /// </summary>
     string? Icon => null;
+
+    /// <summary>
+    /// Config providers the module brings (its settings), registered with the module (<c>cli.AddModule</c>).
+    /// </summary>
+    IEnumerable<ICliConfigProvider> ConfigProviders => [];
 }
