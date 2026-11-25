@@ -4,6 +4,12 @@ namespace Qodalis.Cli.Plugin.Portal;
 public sealed class PortalOptions
 {
     /// <summary>
+    /// Keeps the <c>portal</c> config provider's changes (the branding) in this store (its own) instead of the server's
+    /// default one; the host's store for the provider's id (<c>cli.SetConfigStore(store, "portal")</c>) still wins.
+    /// </summary>
+    public Qodalis.Cli.Abstractions.Config.ICliConfigStore? ConfigStore { get; set; }
+
+    /// <summary>
     /// Where the site is mounted: starts with <c>/</c>, no trailing <c>/</c>; <c>/</c> itself mounts it at the root
     /// (it then answers only its own paths, never the host's routes). Default <c>/qcli/portal</c>.
     /// </summary>

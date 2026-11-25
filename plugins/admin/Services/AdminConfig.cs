@@ -11,6 +11,12 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// </summary>
 public class AdminConfig
 {
+    /// <summary>
+    /// Keeps the <c>logs</c> config provider's changes (the log buffer) in this store (its own) instead of the server's
+    /// default one; the host's store for the provider's id (<c>cli.SetConfigStore(store, "logs")</c>) still wins.
+    /// </summary>
+    public Qodalis.Cli.Abstractions.Config.ICliConfigStore? LogsConfigStore { get; set; }
+
     private readonly ILogger<AdminConfig> _logger;
 
     /// <summary>

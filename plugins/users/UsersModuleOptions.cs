@@ -1,4 +1,5 @@
 using Qodalis.Cli.Abstractions.Audit;
+using Qodalis.Cli.Abstractions.Config;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Plugin.Users.Models;
@@ -11,6 +12,12 @@ namespace Qodalis.Cli.Plugin.Users;
 /// </summary>
 public class UsersModuleOptions
 {
+    /// <summary>
+    /// Keeps the <c>users</c> config provider's changes in this store (its own) instead of the server's default one;
+    /// the host's store for the provider's id (<c>cli.SetConfigStore(store, "users")</c>) still wins.
+    /// </summary>
+    public ICliConfigStore? ConfigStore { get; set; }
+
     /// <summary>Default idle session timeout (30 minutes).</summary>
     public const long DefaultSessionTimeoutMs = 30 * 60 * 1000;
 

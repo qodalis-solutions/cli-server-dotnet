@@ -138,6 +138,15 @@ public static class CliBuilderJobExtensions
         // Register the scheduler factory — captures the registrations list by reference
         // so all AddJob calls that happen after this will still be included
         var registrations = state.Registrations;
+        // The plugin's options: the Jobs configuration section, then the ConfigureJobs callbacks
+        builder.Services.AddSingleton(sp =>
+        {
+            var jobsOptions = new CliJobsOptions();
+            sp.GetService<IConfiguration>()?.GetSection(CliJobsOptions.SectionName).Bind(jobsOptions);
+            foreach (var configure in state.Configure)
+                configure(jobsOptions);
+            return jobsOptions;
+        });
         builder.Services.AddSingleton<CliJobScheduler>(sp =>
         {
             var storage = sp.GetRequiredService<ICliJobStorageProvider>();
@@ -146,10 +155,7 @@ public static class CliBuilderJobExtensions
             var scheduler = new CliJobScheduler(storage, events, logger, sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetService<TimeProvider>());
 
-            var jobsOptions = new CliJobsOptions();
-            sp.GetService<IConfiguration>()?.GetSection(CliJobsOptions.SectionName).Bind(jobsOptions);
-            foreach (var configure in state.Configure)
-                configure(jobsOptions);
+            var jobsOptions = sp.GetRequiredService<CliJobsOptions>();
 
             foreach (var (job, jobType, options) in registrations)
             {
@@ -179,7 +185,8 @@ public static class CliBuilderJobExtensions
         builder.Services.AddMcpToolProvider<JobsMcpToolProvider>();
 
         // The jobs config provider: history retention defaults, changeable at runtime
-        builder.AddConfigProvider(sp => JobsConfigProvider.Create(sp.GetRequiredService<CliJobScheduler>()));
+        builder.AddConfigProvider(sp => JobsConfigProvider.Create(sp.GetRequiredService<CliJobScheduler>())
+            .SetStore(sp.GetRequiredService<CliJobsOptions>().ConfigStore));
     }
 
     private static List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> GetRegistrations(CliBuilder builder) =>

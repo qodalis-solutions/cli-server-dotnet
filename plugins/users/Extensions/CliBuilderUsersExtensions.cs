@@ -93,7 +93,11 @@ public static class CliBuilderUsersExtensions
         if (services.All(d => d.ServiceType != typeof(UsersConfigProviderRegistered)))
         {
             services.AddSingleton<UsersConfigProviderRegistered>();
-            builder.AddConfigProvider(sp => UsersConfigProvider.Create(sp.GetRequiredService<UsersModuleOptions>()));
+            builder.AddConfigProvider(sp =>
+            {
+                var usersOptions = sp.GetRequiredService<UsersModuleOptions>();
+                return UsersConfigProvider.Create(usersOptions).SetStore(usersOptions.ConfigStore);
+            });
         }
         if (!options.GuardOnly)
             builder.AddApplicationPart(typeof(SessionsController).Assembly);

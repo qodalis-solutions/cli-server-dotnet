@@ -72,7 +72,7 @@ public static class CliBuilderAdminExtensions
             var external = sp.GetRequiredService<Qodalis.Cli.Security.CliServerOptions>().ExternalAuthentication;
             return external ? "external" : sp.GetService<Qodalis.Cli.Security.ICliAuthBridge>() != null ? "users" : "password";
         }));
-        builder.AddConfigProvider(_ => AdminConfigProviders.Logs(logBuffer));
+        builder.AddConfigProvider(sp => AdminConfigProviders.Logs(logBuffer).SetStore(sp.GetRequiredService<AdminConfig>().LogsConfigStore));
         builder.AddRoutePermission("/api/v1/qcli/config", CliConfigPermissions.Read, CliConfigPermissions.Write);
 
         // Register the admin plugin controller assembly

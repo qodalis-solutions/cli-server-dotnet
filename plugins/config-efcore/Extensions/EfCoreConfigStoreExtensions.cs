@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Databases;
@@ -16,14 +17,17 @@ public static class EfCoreConfigStoreExtensions
     /// every instance of the server. The table (<c>QcliConfig</c>; <paramref name="tables"/>: <c>TablePrefix</c>,
     /// <c>Tables["Config"]</c>, <c>Schema</c>) is created on first use, by the databases plugin
     /// (<see cref="AddConfigStoreSchema"/>), or by the host's migrations with <c>modelBuilder.ApplyConfigStorageModel()</c>.
+    /// The default store of every provider without its own, or, with <paramref name="providerId"/>, the store of that
+    /// provider only (more with <c>cli.SetConfigStore&lt;EfCoreConfigStore&gt;("users")</c>, sharing the same instance).
     /// </summary>
     /// <example>
     /// <code>
-    /// cli.AddEfCoreConfigStore(o =&gt; o.UseSqlite("Data Source=qcli.db"));
+    /// cli.AddEfCoreConfigStore(o =&gt; o.UseSqlite("Data Source=qcli.db"));                       // every provider
+    /// cli.AddEfCoreConfigStore(o =&gt; o.UseSqlite("Data Source=qcli.db"), providerId: "jobs");  // jobs only
     /// </code>
     /// </example>
     public static CliBuilder AddEfCoreConfigStore(this CliBuilder builder, Action<DbContextOptionsBuilder> configure,
-        Action<QcliTableNameOptions>? tables = null)
+        Action<QcliTableNameOptions>? tables = null, string? providerId = null)
     {
         var names = new QcliTableNameOptions();
         tables?.Invoke(names);
@@ -35,8 +39,10 @@ public static class EfCoreConfigStoreExtensions
             configure(o);
             o.UseQcliTables(resolved);
         });
-        builder.SetConfigStore(sp => new EfCoreConfigStore(sp.GetRequiredService<IDbContextFactory<ConfigStorageDbContext>>(),
+        builder.Services.TryAddSingleton(sp => new EfCoreConfigStore(sp.GetRequiredService<IDbContextFactory<ConfigStorageDbContext>>(),
             renames, sp.GetService<TimeProvider>()));
+        if (providerId == null) builder.SetConfigStore<EfCoreConfigStore>();
+        else builder.SetConfigStore<EfCoreConfigStore>(providerId);
         return builder.AddInstalledPlugin(typeof(EfCoreConfigStore).Assembly);
     }
 

@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Jobs;
 
 namespace Qodalis.Cli.Plugin.Jobs;
@@ -17,6 +18,12 @@ public class CliJobsOptions
     /// <see cref="CliJobsHistoryOptions.PruneInterval"/>.
     /// </summary>
     public CliJobsHistoryOptions History { get; set; } = new();
+
+    /// <summary>
+    /// Keeps the <c>jobs</c> config provider's changes in this store (its own) instead of the server's default one; the
+    /// host's store for the provider's id (<c>cli.SetConfigStore(store, "jobs")</c>) still wins. Set in code only.
+    /// </summary>
+    public ICliConfigStore? ConfigStore { get; set; }
 }
 
 /// <summary>The global history retention (<see cref="CliJobsOptions.History"/>) and how often it is applied.</summary>

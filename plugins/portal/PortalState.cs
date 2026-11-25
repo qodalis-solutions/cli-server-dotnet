@@ -110,7 +110,7 @@ public sealed class PortalState
         Defaults = new PortalBranding(options.Name, options.LogoUrl, ModeName(options.Theme?.Mode ?? PortalThemeMode.System),
             options.FooterLinks.ToList());
         _branding = Defaults;
-        ConfigProvider = CreateConfigProvider();
+        ConfigProvider = CreateConfigProvider().SetStore(options.ConfigStore);
     }
 
     /// <summary>The options' branding: what a reset brings back.</summary>
