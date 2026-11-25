@@ -188,11 +188,15 @@ public sealed partial class CliAdminCommandProcessor : CliCommandProcessor
         {
             _list = new PluginsListProcessor(services);
             Processors = [_list, new PluginsSwitchProcessor(services, true), new PluginsSwitchProcessor(services, false)];
+            // Server plugins from the marketplace, unless it is turned off
+            if (services.GetService<ServerPluginMarketplace>() is { } marketplace)
+                Processors = [.. Processors, .. ServerPluginProcessors(marketplace, services)];
         }
 
         public override string Command { get; set; } = "plugins";
         public override IEnumerable<string>? Aliases { get; set; } = ["modules"];
-        public override string Description { get; set; } = "Command modules: list them, enable or disable one";
+        public override string Description { get; set; } =
+            "Command modules: list them, enable or disable one; server plugins from the marketplace: search, installed, install, update, remove";
         public override string? Module { get; set; } = ModuleName;
         public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } = [JsonParam];
 

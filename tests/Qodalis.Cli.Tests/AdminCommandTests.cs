@@ -104,7 +104,7 @@ public sealed class AdminCommandTests : IAsyncLifetime
             root.Processors!.Select(p => $"{p.Command} {(p.RequiredPermissions == null ? "-" : string.Join(",", p.RequiredPermissions))}"));
         Assert.Contains(h.Service<ModuleRegistry>().List(), m => m.Id == "admin" && m.Processors.SequenceEqual(["admin"]));
         var plugins = root.Processors!.Single(p => p.Command == "plugins");
-        Assert.Equal(["list", "enable", "disable"], plugins.Processors!.Select(p => p.Command));
+        Assert.Equal(["list", "enable", "disable", "search", "installed", "install", "update", "remove"], plugins.Processors!.Select(p => p.Command));
     }
 
     // ---- admin status ----

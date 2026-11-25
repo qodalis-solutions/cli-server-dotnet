@@ -95,6 +95,24 @@ public static class CliBuilderAdminExtensions
         builder.AddRoutePermission("/api/v1/qcli/dashboard/marketplace", Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
             Qodalis.Cli.Security.CliRoutePolicy.DashboardInstall);
 
+        // Server plugins from the marketplace (the same marketplace options): NuGet packages installed into
+        // <data dir>/server-plugins, loaded at the next start; changes need plugins:install
+        builder.Services.AddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<AdminConfig>().Marketplace;
+            var plugins = sp.GetService<Qodalis.Cli.Plugins.CliServerPlugins>();
+            if (!options.Enabled || plugins == null) return null!;
+            return new ServerPluginMarketplace(options, plugins,
+                () => sp.GetService<Qodalis.Cli.Models.CliInstalledPlugins>()?.All ?? [],
+                () => sp.GetService<Qodalis.Cli.Abstractions.Restart.ICliServerRestart>(),
+                () => sp.GetService<IAuditStore>(),
+                () => sp.GetService<ICliEventBus>(),
+                sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin"),
+                sp.GetService<TimeProvider>());
+        });
+        builder.AddRoutePermission(ServerPluginMarketplace.ApiPath, Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
+            Qodalis.Cli.Security.CliRoutePolicy.PluginsInstall);
+
         // Register the admin plugin controller assembly
         builder.AddApplicationPart(typeof(StatusController).Assembly);
 

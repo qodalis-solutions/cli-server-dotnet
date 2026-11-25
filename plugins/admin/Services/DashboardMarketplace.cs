@@ -49,6 +49,12 @@ public sealed class DashboardMarketplaceOptions
     /// <summary>Timeout of each request (default 15 seconds).</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// The NuGet feed server plugins are downloaded from: its flat container (default
+    /// <c>https://api.nuget.org/v3-flatcontainer</c>).
+    /// </summary>
+    public string NuGetFeed { get; set; } = ServerPluginMarketplace.DefaultNuGetFeed;
+
     /// <summary>Throws <see cref="ArgumentException"/> <c>invalid marketplace url</c> or <c>invalid marketplace install policy</c>.</summary>
     public void Validate()
     {
@@ -59,6 +65,8 @@ public sealed class DashboardMarketplaceOptions
         if (Install is not ("verified" or "listed" or "off"))
             throw new ArgumentException($"invalid marketplace install policy: {Install}", nameof(Install));
         if (Timeout <= TimeSpan.Zero) throw new ArgumentException("invalid marketplace timeout", nameof(Timeout));
+        if (!Regex.IsMatch((NuGetFeed ?? string.Empty).Trim(), @"^https?://[^/\s]+", RegexOptions.IgnoreCase))
+            throw new ArgumentException($"invalid NuGet feed: {NuGetFeed}", nameof(NuGetFeed));
     }
 }
 
