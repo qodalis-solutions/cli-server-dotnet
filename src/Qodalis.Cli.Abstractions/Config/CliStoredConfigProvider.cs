@@ -126,6 +126,9 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
     public int Order { get; }
     public string? RequiredPermission { get; }
 
+    /// <summary>Changes are saved to the config store.</summary>
+    public CliConfigProviderStorage? Storage { get; } = CliConfigStoreHelpers.StoreStorage();
+
     /// <summary>The store in use (in memory until the server attaches its own).</summary>
     protected ICliConfigStore Store
     {

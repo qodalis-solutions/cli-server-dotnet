@@ -237,6 +237,12 @@ public interface ICliConfigProvider
     /// <summary>A permission needed, besides <c>config:read</c> / <c>config:write</c>, to see or change this provider.</summary>
     string? RequiredPermission => null;
 
+    /// <summary>
+    /// Where its settings come from. Without it a writer is described as <c>custom</c> "Saved by the provider", a
+    /// read-only provider as <c>custom</c> "Read by the provider".
+    /// </summary>
+    CliConfigProviderStorage? Storage => null;
+
     Task<IReadOnlyList<CliConfigSection>> GetSectionsAsync(CliConfigContext context, CancellationToken cancellationToken = default);
 }
 
@@ -320,6 +326,64 @@ public sealed class CliConfigException : Exception
     }
 }
 
+/// <summary>What kind of store keeps the writable settings.</summary>
+public static class CliConfigStoreKinds
+{
+    /// <summary>In memory: lost on restart.</summary>
+    public const string Memory = "memory";
+    public const string File = "file";
+    public const string Database = "database";
+    public const string Custom = "custom";
+}
+
+/// <summary>
+/// Where changes are saved (<c>store</c> of <c>GET /api/v1/qcli/config</c>): what a store says about itself
+/// (<see cref="ICliConfigStore.Describe"/>). <see cref="Detail"/> names the file (relative to the app) or the database
+/// and table, never credentials or a connection string.
+/// </summary>
+public sealed class CliConfigStoreDescription
+{
+    /// <summary>One of <see cref="CliConfigStoreKinds"/>.</summary>
+    [JsonPropertyName("kind")] public string Kind { get; init; } = CliConfigStoreKinds.Custom;
+
+    /// <summary><c>In memory</c>, <c>JSON file</c>, <c>Database</c>, ...</summary>
+    [JsonPropertyName("title")] public string Title { get; init; } = string.Empty;
+
+    /// <summary><c>qcli-config.json</c>, <c>SQL Server database qcli, table QcliConfig</c>; empty when nothing to add.</summary>
+    [JsonPropertyName("detail")] public string Detail { get; init; } = string.Empty;
+
+    /// <summary>Changes are kept across restarts.</summary>
+    [JsonPropertyName("persistent")] public bool Persistent { get; init; }
+}
+
+/// <summary>Where a provider's settings come from (<see cref="CliConfigProviderStorage.Kind"/>).</summary>
+public static class CliConfigStorageKinds
+{
+    /// <summary>Changes are saved to the config store.</summary>
+    public const string Store = "store";
+    /// <summary>The running process.</summary>
+    public const string Runtime = "runtime";
+    /// <summary>The options the server or a plugin was created with.</summary>
+    public const string Options = "options";
+    /// <summary>Environment variables.</summary>
+    public const string Environment = "environment";
+    /// <summary>The host's configuration (<c>IConfiguration</c>).</summary>
+    public const string Configuration = "configuration";
+    public const string Custom = "custom";
+}
+
+/// <summary>Where a provider reads its settings from and saves changes to (<c>storage</c> of a provider view).</summary>
+public sealed class CliConfigProviderStorage
+{
+    /// <summary>One of <see cref="CliConfigStorageKinds"/>.</summary>
+    [JsonPropertyName("kind")] public string Kind { get; init; } = CliConfigStorageKinds.Custom;
+
+    [JsonPropertyName("description")] public string Description { get; init; } = string.Empty;
+
+    /// <summary>The origins in the order they apply (later ones override earlier ones): <c>Server options</c>, <c>appsettings.json</c>, ...</summary>
+    [JsonPropertyName("sources")] public List<string> Sources { get; init; } = [];
+}
+
 // ---------------------------------------------------------------- the JSON the server returns
 
 /// <summary>An entry as the API returns it: every field present (<c>validation</c>, <c>editor</c>, <c>isSet</c> when relevant).</summary>
@@ -401,7 +465,17 @@ public sealed class CliConfigProviderView
     /// <summary>True when the provider implements the writer and the caller may change settings.</summary>
     [JsonPropertyName("writable")] public bool Writable { get; init; }
 
+    /// <summary>Where its settings come from (<c>sources</c> always present).</summary>
+    [JsonPropertyName("storage")] public CliConfigProviderStorage Storage { get; init; } = new();
+
     [JsonPropertyName("sections")] public List<CliConfigSectionView> Sections { get; init; } = [];
+}
+
+/// <summary>The body of <c>GET /api/v1/qcli/config</c>: where changes are saved, and the providers.</summary>
+public sealed class CliConfigListView
+{
+    [JsonPropertyName("store")] public CliConfigStoreDescription Store { get; init; } = new();
+    [JsonPropertyName("providers")] public List<CliConfigProviderView> Providers { get; init; } = [];
 }
 
 /// <summary>The body of <c>PATCH /api/v1/qcli/config/{provider}/{section}</c>.</summary>
@@ -435,6 +509,9 @@ public interface ICliConfigService
 {
     /// <summary>The providers the caller may see, sorted. Throws <see cref="CliConfigException"/> 403 without <c>config:read</c>.</summary>
     Task<IReadOnlyList<CliConfigProviderView>> ListAsync(CliConfigContext context, CancellationToken cancellationToken = default);
+
+    /// <summary>Where writable settings are saved: the config store's own description.</summary>
+    CliConfigStoreDescription DescribeStore();
 
     /// <summary>One provider. Throws <see cref="CliConfigException"/> 403 / 404.</summary>
     Task<CliConfigProviderView> GetAsync(string providerId, CliConfigContext context, CancellationToken cancellationToken = default);

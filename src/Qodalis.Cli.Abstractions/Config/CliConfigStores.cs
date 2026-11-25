@@ -46,6 +46,13 @@ public interface ICliConfigStore
     /// <summary>The source of the settings it holds: <c>runtime</c> (memory), <c>file</c> or <c>database</c>.</summary>
     string Source { get; }
 
+    /// <summary>
+    /// Where it keeps the settings, shown by <c>GET /config</c> (<c>store</c>), the dashboard's Config page and
+    /// <c>config list</c>: the file name or the database and table, never credentials. A store returning null is shown
+    /// as a <c>custom</c> store (<see cref="CliConfigStoreHelpers.Describe"/>).
+    /// </summary>
+    CliConfigStoreDescription? Describe() => null;
+
     /// <summary>A section's values; empty with version 0 when nothing is stored.</summary>
     Task<CliConfigStoredSection> ReadAsync(string provider, string section, CancellationToken cancellationToken = default);
 
@@ -61,6 +68,43 @@ public interface ICliConfigStore
 /// <summary>Helpers shared by the stores.</summary>
 public static class CliConfigStoreHelpers
 {
+    /// <summary>The storage of a provider whose changes are kept in the config store.</summary>
+    public static CliConfigProviderStorage StoreStorage() => new()
+    {
+        Kind = CliConfigStorageKinds.Store,
+        Description = "Changes are saved to the config store",
+    };
+
+    /// <summary>A store's description: its own <see cref="ICliConfigStore.Describe"/>, else a <c>custom</c> store named after its class.</summary>
+    public static CliConfigStoreDescription Describe(ICliConfigStore store)
+    {
+        var own = store.Describe();
+        if (own != null)
+            return new CliConfigStoreDescription { Kind = own.Kind, Title = own.Title, Detail = own.Detail ?? string.Empty, Persistent = own.Persistent };
+        return new CliConfigStoreDescription
+        {
+            Kind = CliConfigStoreKinds.Custom,
+            Title = "Custom store",
+            Detail = store.GetType().Name,
+            Persistent = store.Source != CliConfigSources.Runtime,
+        };
+    }
+
+    /// <summary>The store as one line: <c>JSON file (qcli-config.json), kept across restarts</c>.</summary>
+    public static string DescribeLine(CliConfigStoreDescription store) =>
+        $"{store.Title}{(string.IsNullOrEmpty(store.Detail) ? "" : $" ({store.Detail})")}, " +
+        (store.Persistent ? "kept across restarts" : "changes are lost on restart");
+
+    /// <summary>A path relative to the working directory when inside it, else the file name only (no absolute paths in descriptions).</summary>
+    public static string DisplayPath(string filePath)
+    {
+        var absolute = Path.GetFullPath(filePath);
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), absolute);
+        if (relative != "." && !relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative))
+            return relative.Replace(Path.DirectorySeparatorChar, '/');
+        return Path.GetFileName(absolute);
+    }
+
     /// <summary>Applies changes to stored values: null removes the key.</summary>
     public static Dictionary<string, JsonNode?> ApplyChanges(IReadOnlyDictionary<string, JsonNode?> values,
         IReadOnlyDictionary<string, JsonNode?> changes)
@@ -91,6 +135,9 @@ public class InMemoryConfigStore : ICliConfigStore
     private readonly object _lock = new();
 
     public string Source => CliConfigSources.Runtime;
+
+    public virtual CliConfigStoreDescription? Describe() =>
+        new() { Kind = CliConfigStoreKinds.Memory, Title = "In memory", Detail = string.Empty, Persistent = false };
 
     public Task<CliConfigStoredSection> ReadAsync(string provider, string section, CancellationToken cancellationToken = default)
     {
@@ -133,6 +180,10 @@ public class JsonFileConfigStore : ICliConfigStore
     public string FilePath { get; }
 
     public string Source => CliConfigSources.File;
+
+    /// <summary>The file's path relative to the working directory, or its name when outside it.</summary>
+    public virtual CliConfigStoreDescription? Describe() =>
+        new() { Kind = CliConfigStoreKinds.File, Title = "JSON file", Detail = CliConfigStoreHelpers.DisplayPath(FilePath), Persistent = true };
 
     private Dictionary<string, Dictionary<string, CliConfigStoredSection>> Load()
     {
