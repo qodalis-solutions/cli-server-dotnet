@@ -37,6 +37,13 @@ public class CliServerCommandDescriptor
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; set; }
 
+    /// <summary>
+    /// Permissions the command itself declares (left out when it has none). Running it also needs those of the
+    /// commands above it and, on a protected server, <c>commands:execute</c>; neither is repeated here.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? RequiredPermissions { get; set; }
+
     /// <summary>Gets or sets the parameter descriptors for this command.</summary>
     public List<CliCommandParameterDescriptorDto>? Parameters { get; set; }
 

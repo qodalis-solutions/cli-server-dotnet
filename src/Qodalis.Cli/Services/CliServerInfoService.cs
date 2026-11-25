@@ -101,6 +101,8 @@ public class CliServerInfoService : ICliServerInfoService
                 ? _services?.GetService<CliProcessorModules>()?.Of(processor)
                 : processor.Module,
             Icon = string.IsNullOrEmpty(processor.Icon) ? null : processor.Icon,
+            // Only the command's own permissions: the parents' and commands:execute are not repeated
+            RequiredPermissions = NonEmpty(processor.RequiredPermissions),
         };
     }
 }
