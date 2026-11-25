@@ -1,7 +1,8 @@
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
-using Qodalis.Cli.Demo.Processors;
+using Qodalis.Cli.Demo;
+using Qodalis.Cli.Processors;
 using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.Jobs;
@@ -56,15 +57,8 @@ builder.Services
             o.MaxSessionsPerUser = 3;
         });
 
-        cli.AddProcessor<CliEchoCommandProcessor>();
-        cli.AddProcessor<CliStatusCommandProcessor>();
-        cli.AddProcessor<CliTimeCommandProcessor>();
-        cli.AddProcessor<CliHelloCommandProcessor>();
-        cli.AddProcessor<CliMathCommandProcessor>();
-        cli.AddProcessor<CliSystemCommandProcessor>();
+        cli.AddModule(new DemoModule());
         cli.AddProcessor<CliHttpCommandProcessor>();
-        cli.AddProcessor<CliHashCommandProcessor>();
-        cli.AddProcessor<CliBase64CommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddModule(new AwsModule());
 
