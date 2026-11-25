@@ -1,10 +1,11 @@
+extern alias demo;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.Helpers;
 using Qodalis.Cli.Plugin.Weather;
-using Qodalis.Cli.Server.Processors;
+using demo::Qodalis.Cli.Demo.Processors;
 
 namespace Qodalis.Cli.Tests;
 
@@ -134,7 +135,7 @@ public class CliPositionalsTests
     [Fact]
     public async Task Echo_UsesPositionals()
     {
-        var p = new Qodalis.Cli.Server.Processors.CliEchoCommandProcessor();
+        var p = new CliEchoCommandProcessor();
         Assert.Equal("a b c", await p.HandleAsync(Cmd("\"a b\" c")));
         Assert.Equal("a  b", await p.HandleAsync(Cmd("ignored", ["a  b"])));
     }
