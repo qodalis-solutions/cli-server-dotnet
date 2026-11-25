@@ -177,6 +177,9 @@ public static class CliBuilderJobExtensions
 
         // MCP tools (jobs_*), listed when the MCP endpoint is enabled
         builder.Services.AddMcpToolProvider<JobsMcpToolProvider>();
+
+        // The jobs config provider: history retention defaults, changeable at runtime
+        builder.AddConfigProvider(sp => JobsConfigProvider.Create(sp.GetRequiredService<CliJobScheduler>()));
     }
 
     private static List<(ICliJob? Job, Type? JobType, CliJobOptions Options)> GetRegistrations(CliBuilder builder) =>

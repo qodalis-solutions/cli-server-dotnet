@@ -22,6 +22,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     private readonly IServiceScopeFactory? _scopes;
     private readonly TimeProvider _time;
     private volatile bool _stopping;
+    private volatile bool _running;
 
     /// <summary>The error of a run a previous process left running (finished as cancelled on start).</summary>
     internal const string InterruptedError = "Interrupted: the server stopped during the run";
@@ -127,9 +128,15 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             throw new ArgumentOutOfRangeException(nameof(history), history.PruneInterval,
                 "Jobs: History.PruneInterval must be positive");
         History = history;
-        if (_jobs.ContainsKey(PruneHistoryJob.JobId)) return;
-        if (!history.HasLimits && !_jobs.Values.Any(r => r.Options.History.HasLimits && !r.Options.History.KeepAll))
-            return;
+        EnsurePruneHistoryJob();
+    }
+
+    /// <summary>Registers <c>jobs:prune-history</c> when a limit is set globally or on a job and it is not registered yet.</summary>
+    private bool EnsurePruneHistoryJob()
+    {
+        if (_jobs.ContainsKey(PruneHistoryJob.JobId)) return false;
+        if (!History.HasLimits && !_jobs.Values.Any(r => r.Options.History.HasLimits && !r.Options.History.KeepAll))
+            return false;
 
         Register(new PruneHistoryJob(this), new CliJobOptions
         {
@@ -138,9 +145,36 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             Description = "Deletes the job runs past the history retention",
             Group = "system",
             Tags = ["system"],
-            Interval = history.PruneInterval,
+            Interval = History.PruneInterval,
             RunOnStart = true,
         });
+        return true;
+    }
+
+    /// <summary>
+    /// Replaces the global history limits at runtime (the <c>jobs</c> config provider): the next prune applies them.
+    /// Registers (and, while the scheduler runs, starts) <c>jobs:prune-history</c> when it was not needed before. The
+    /// prune interval stays. Throws <see cref="ArgumentOutOfRangeException"/> on an invalid limit.
+    /// </summary>
+    public void SetHistoryDefaults(JobHistoryRetention limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        var next = new CliJobsHistoryOptions
+        {
+            MaxAge = limits.MaxAge,
+            MaxRunsPerJob = limits.MaxRunsPerJob,
+            FailedMaxAge = limits.FailedMaxAge,
+            FailedMaxRunsPerJob = limits.FailedMaxRunsPerJob,
+            PruneInterval = History.PruneInterval,
+        };
+        next.Validate("Jobs");
+        lock (_jobs)
+        {
+            History = next;
+            if (EnsurePruneHistoryJob() && _running && !_stopping
+                && _jobs.TryGetValue(PruneHistoryJob.JobId, out var reg) && reg.Status == JobStatus.Active)
+                StartTimer(reg);
+        }
     }
 
     /// <summary>The history retention in effect for the job, or null when no limits apply to it.</summary>
@@ -251,6 +285,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
                 RunDue(reg);
         }
 
+        _running = true;
         _logger.LogInformation("Job scheduler started with {Count} jobs", _jobs.Count);
     }
 
@@ -321,6 +356,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _stopping = true;
+        _running = false;
         foreach (var reg in _jobs.Values)
         {
             StopTimer(reg);
