@@ -40,9 +40,10 @@ public static class MvcBuilderExtensions
         var cliBuilder = new CliBuilder(builder.Services);
         configure?.Invoke(cliBuilder);
 
-        // The plugins installed at runtime from the marketplace, after the host's own registrations (a failing one is
-        // left out and its error kept; the server starts all the same)
+        // The plugins added in code (cli.AddPlugin) and those installed at runtime from the marketplace, in their declared
+        // order after the host's own registrations (a failing one is left out and its error kept; the server starts all the same)
         var serverPlugins = cliBuilder.ServerPlugins;
+        foreach (var (entry, id, options) in cliBuilder.CodePlugins) serverPlugins.AddCode(entry, id, options);
         serverPlugins.Load(cliBuilder);
         builder.Services.AddSingleton(serverPlugins);
         builder.Services.AddHostedService(sp => new CliServerPluginsStartup(serverPlugins, sp));

@@ -36,6 +36,9 @@ public static class CliConfigSources
     public const string Environment = "environment";
     public const string Database = "database";
     public const string Runtime = "runtime";
+
+    /// <summary>Given in code: the options of a plugin added with <c>cli.AddPlugin</c> (saved settings override them).</summary>
+    public const string Code = "code";
 }
 
 /// <summary>The permissions, event names and naming rules of config providers.</summary>
@@ -143,6 +146,9 @@ public sealed class CliConfigEntry
 
     /// <summary>For a sensitive entry whose value the provider leaves out: whether one is set.</summary>
     public bool? IsSet { get; init; }
+
+    /// <summary>Must have a value for its owner to work (a server plugin without it is <c>needs-configuration</c>).</summary>
+    public bool Required { get; init; }
 
     public CliConfigValidation? Validation { get; init; }
 
@@ -410,6 +416,9 @@ public sealed class CliConfigEntryView
     [JsonPropertyName("mutable")] public bool Mutable { get; init; }
     [JsonPropertyName("requiresRestart")] public bool RequiresRestart { get; init; }
     [JsonPropertyName("sensitive")] public bool Sensitive { get; init; }
+
+    /// <summary>Must have a value for its owner to work (a server plugin without it is <c>needs-configuration</c>).</summary>
+    [JsonPropertyName("required")] public bool Required { get; init; }
 
     /// <summary>Sensitive entries only.</summary>
     [JsonPropertyName("isSet")]

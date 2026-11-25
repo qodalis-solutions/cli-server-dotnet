@@ -251,32 +251,67 @@ public sealed partial class CliServerPlugins
         lock (_lock) return _states.Select(s => s.Clone()).ToList();
     }
 
-    private sealed record Candidate(CliServerPluginRecord Record, CliServerPluginState State, ICliPluginEntry Entry, int Order, int Index);
+    /// <summary>A plugin to register: from the installed list (<see cref="Record"/>) or added in code.</summary>
+    private sealed record Candidate(CliServerPluginRecord? Record, CliServerPluginState State, ICliPluginEntry Entry, int Order, int Index,
+        string Name, string Package, string Version, string? Title, string Source, JsonObject? Options);
+
+    /// <summary>A plugin added in code (<c>cli.AddPlugin</c>), run with the installed ones.</summary>
+    private sealed record CodePlugin(ICliPluginEntry Entry, string? Id, JsonObject Options);
+
+    private readonly List<CodePlugin> _code = [];
+
+    /// <summary>Queues a plugin added in code; <see cref="Load"/> runs it with the installed ones, in the declared order.</summary>
+    internal void AddCode(ICliPluginEntry entry, string? id, JsonObject options)
+    {
+        lock (_lock)
+        {
+            if (_loaded) throw new InvalidOperationException("plugins are added while the server's services are configured");
+            _code.Add(new CodePlugin(entry, id, options));
+        }
+    }
 
     /// <summary>
-    /// Loads and registers the installed plugins on <paramref name="builder"/> (once; <c>AddCli</c> calls it after the
-    /// host's own registrations). Errors are kept, never thrown.
+    /// Registers the plugins added in code and the installed ones on <paramref name="builder"/>, in their declared order
+    /// (once; <c>AddCli</c> calls it after the host's own registrations). Errors are kept, never thrown.
     /// </summary>
     public void Load(CliBuilder builder)
     {
+        List<CodePlugin> code;
         lock (_lock)
         {
             if (_loaded) return;
             _loaded = true;
+            code = [.. _code];
         }
-        if (!Enabled) return;
-        var records = Records();
-        if (records.Count == 0) return;
         var candidates = new List<Candidate>();
-        for (var i = 0; i < records.Count; i++)
+        var index = 0;
+        foreach (var plugin in code)
         {
-            var record = records[i];
+            var type = plugin.Entry.GetType();
+            var assembly = type.Assembly;
+            var attribute = assembly.GetCustomAttribute<CliPluginAttribute>() is { } a && a.EntryType == type ? a : null;
+            var package = assembly.GetName().Name ?? type.Name;
+            var version = (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? assembly.GetName().Version?.ToString() ?? "0.0.0").Split('+')[0];
+            var name = plugin.Id ?? attribute?.Id ?? package;
+            var state = new CliServerPluginState
+            {
+                Name = name, Package = package, Version = version, Status = CliServerPluginStatuses.Loaded, Source = CliServerPluginSources.Code,
+            };
+            lock (_lock) _states.Add(state);
+            candidates.Add(new Candidate(null, state, plugin.Entry, attribute?.Order ?? CliPluginOrder.Default, index++, name, package, version,
+                null, CliServerPluginSources.Code, plugin.Options));
+        }
+        var records = Enabled ? Records() : [];
+        foreach (var record in records)
+        {
             var state = new CliServerPluginState { Name = record.Name, Package = record.Package, Version = record.Version, Status = CliServerPluginStatuses.Loaded };
             lock (_lock) _states.Add(state);
             try
             {
                 var (entry, order) = Prepare(builder, record);
-                candidates.Add(new Candidate(record, state, entry, order, i));
+                candidates.Add(new Candidate(record, state, entry, order, index++, record.Name, record.Package, record.Version, record.Title,
+                    CliServerPluginSources.Marketplace, null));
             }
             catch (Exception ex)
             {
@@ -287,14 +322,14 @@ public sealed partial class CliServerPlugins
         {
             try
             {
-                Register(builder, candidate.Record, candidate.State, candidate.Entry);
+                Register(builder, candidate);
             }
             catch (Exception ex)
             {
                 Fail(candidate.State, ex is TargetInvocationException { InnerException: { } inner } ? inner : ex);
             }
         }
-        PersistErrors();
+        if (records.Count > 0) PersistErrors();
     }
 
     private static void Fail(CliServerPluginState state, Exception ex)
@@ -326,41 +361,78 @@ public sealed partial class CliServerPlugins
         return (entry, attribute.Order);
     }
 
-    private void Register(CliBuilder builder, CliServerPluginRecord record, CliServerPluginState state, ICliPluginEntry entry)
+    /// <summary>The settings with the code options as their defaults (source <c>code</c>).</summary>
+    internal static List<CliConfigSectionDefinition> WithOptions(List<CliConfigSectionDefinition> sections, JsonObject? options)
+    {
+        if (options == null || options.Count == 0) return sections;
+        return sections.Select(section => new CliConfigSectionDefinition
+        {
+            Id = section.Id,
+            Title = section.Title,
+            Description = section.Description,
+            AllowCustomKeys = section.AllowCustomKeys,
+            Settings = section.Settings.Select(setting =>
+            {
+                // { key: value } is the section "settings"; { section: { key: value } } any section
+                JsonNode? value = null;
+                var found = options[section.Id] is JsonObject nested && nested.TryGetPropertyValue(setting.Key, out value)
+                    || (section.Id == "settings" && options.TryGetPropertyValue(setting.Key, out value) && value is not JsonObject);
+                if (!found || value == null) return setting;
+                return new CliConfigSettingDefinition
+                {
+                    Key = setting.Key, Label = setting.Label, Description = setting.Description, Type = setting.Type,
+                    Default = value.DeepClone(), Source = CliConfigSources.Code, Mutable = setting.Mutable,
+                    RequiresRestart = setting.RequiresRestart, Sensitive = setting.Sensitive, Required = setting.Required,
+                    Validation = setting.Validation, Editor = setting.Editor, Value = setting.Value, Validate = setting.Validate, Apply = setting.Apply,
+                };
+            }).ToList(),
+        }).ToList();
+    }
+
+    private void Register(CliBuilder builder, Candidate candidate)
     {
         var services = builder.Services.Count;
         var snapshot = builder.Snapshot();
-        // Listed first, as installed from the marketplace (the plugin's own listing of its assembly is then ignored)
-        builder.AddInstalledPlugin(new CliInstalledPlugin
+        if (candidate.Source == CliServerPluginSources.Marketplace)
         {
-            Id = record.Package,
-            Name = record.Title ?? record.Name,
-            Version = record.Version,
-            Description = record.Description,
-            Icon = record.Icon,
-            Source = CliInstalledPlugin.MarketplaceSource,
-        });
-        var dataDir = Path.Combine(DataDir, "plugin-data", record.Name);
+            // Listed first, as installed from the marketplace (the plugin's own listing of its assembly is then ignored)
+            var record = candidate.Record!;
+            builder.AddInstalledPlugin(new CliInstalledPlugin
+            {
+                Id = record.Package,
+                Name = record.Title ?? record.Name,
+                Version = record.Version,
+                Description = record.Description,
+                Icon = record.Icon,
+                Source = CliInstalledPlugin.MarketplaceSource,
+            });
+        }
+        else
+        {
+            builder.AddInstalledPlugin(candidate.Entry.GetType().Assembly);
+        }
+        var dataDir = Path.Combine(DataDir, "plugin-data", candidate.Name);
         Directory.CreateDirectory(dataDir);
-        var logger = new CliPluginLogger($"Qodalis.Cli.Plugin:{record.Name}");
+        var logger = new CliPluginLogger($"Qodalis.Cli.Plugin:{candidate.Name}");
         var providers = new List<CliStoredConfigProvider>();
-        var context = new CliPluginContext(record.Name, record.Package, record.Version, builder, logger, dataDir, DataDir, Restart, options =>
+        var context = new CliPluginContext(candidate.Name, candidate.Package, candidate.Version, builder, logger, dataDir, DataDir, Restart, options =>
         {
+            var sections = options.Sections ?? [new CliConfigSectionDefinition { Id = "settings", Title = "Settings", Settings = options.Settings ?? [] }];
             var provider = new CliStoredConfigProvider(new CliStoredConfigProviderOptions
             {
-                Id = options.Id ?? record.Name,
-                Title = options.Title ?? record.Title ?? record.Name,
+                Id = options.Id ?? candidate.Name,
+                Title = options.Title ?? candidate.Title ?? candidate.Name,
                 Description = options.Description,
                 Store = options.Store,
-                Sections = options.Sections ?? [new CliConfigSectionDefinition { Id = "settings", Title = "Settings", Settings = options.Settings ?? [] }],
+                Sections = WithOptions(sections, candidate.Options),
             });
             builder.AddConfigProvider(provider);
             providers.Add(provider);
             return provider;
-        });
+        }, candidate.Source, candidate.Options);
         try
         {
-            entry.Register(context);
+            candidate.Entry.Register(context);
         }
         catch
         {
@@ -372,7 +444,7 @@ public sealed partial class CliServerPlugins
         lock (_lock)
         {
             _loggers.Add(logger);
-            foreach (var provider in providers) _settings.Add((state, provider));
+            foreach (var provider in providers) _settings.Add((candidate.State, provider));
         }
     }
 
@@ -439,47 +511,34 @@ public sealed partial class CliServerPlugins
         return Task.CompletedTask;
     }
 
-    /// <summary>Marks the loaded plugins whose required settings have no value <c>needs-configuration</c> (and back).</summary>
+    /// <summary>Marks the loaded plugins whose required settings have no value <c>needs-configuration</c> with <c>missing</c> (and back).</summary>
     public async Task CheckSettingsAsync()
     {
         List<(CliServerPluginState State, CliStoredConfigProvider Provider)> settings;
         lock (_lock) settings = [.. _settings];
-        var context = new CliConfigContext(null, _ => true, "server");
         foreach (var group in settings.GroupBy(s => s.State))
         {
             var missing = new List<string>();
             foreach (var (_, provider) in group)
-                missing.AddRange(await MissingSettingsAsync(provider, context));
+            {
+                try
+                {
+                    await provider.ReadyAsync();
+                    missing.AddRange(provider.Missing().Select(m => $"{provider.Id}.{m}"));
+                }
+                catch (Exception)
+                {
+                    // a store that cannot be read: the config page shows why
+                }
+            }
             lock (_lock)
             {
                 if (group.Key.Status is not (CliServerPluginStatuses.Loaded or CliServerPluginStatuses.NeedsConfiguration)) continue;
                 group.Key.Status = missing.Count > 0 ? CliServerPluginStatuses.NeedsConfiguration : CliServerPluginStatuses.Loaded;
                 group.Key.Error = missing.Count > 0 ? $"needs configuration: {string.Join(", ", missing)}" : null;
+                group.Key.Missing = missing.Count > 0 ? missing : null;
             }
         }
-    }
-
-    /// <summary>The required settings of <paramref name="provider"/> without a value (<c>&lt;provider&gt;.&lt;section&gt;.&lt;key&gt;</c>).</summary>
-    public static async Task<IReadOnlyList<string>> MissingSettingsAsync(ICliConfigProvider provider, CliConfigContext? context = null)
-    {
-        var missing = new List<string>();
-        try
-        {
-            foreach (var section in await provider.GetSectionsAsync(context ?? new CliConfigContext(null, _ => true, "server")))
-            {
-                foreach (var entry in section.Entries)
-                {
-                    if (entry.Validation?.Required != true) continue;
-                    var empty = entry.Sensitive ? entry.IsSet != true : CliConfigValues.IsEmpty(entry.Value);
-                    if (empty) missing.Add($"{provider.Id}.{section.Id}.{entry.Key}");
-                }
-            }
-        }
-        catch (Exception)
-        {
-            // a store that cannot be read: the config page shows why
-        }
-        return missing;
     }
 
     private sealed class SkippedException(string message) : Exception(message);

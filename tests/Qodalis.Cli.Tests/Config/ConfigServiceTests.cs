@@ -188,7 +188,7 @@ public class ConfigServiceTests
     public void EntryView_DefaultsFilled_SensitiveMasked_IsSet()
     {
         var plain = CliConfigViews.Entry(new CliConfigEntry { Key = "k", Type = "string", Value = "v" }, true);
-        Assert.Equal("{\"key\":\"k\",\"label\":\"k\",\"description\":\"\",\"type\":\"string\",\"value\":\"v\",\"default\":null,\"source\":\"default\",\"mutable\":false,\"requiresRestart\":false,\"sensitive\":false}",
+        Assert.Equal("{\"key\":\"k\",\"label\":\"k\",\"description\":\"\",\"type\":\"string\",\"value\":\"v\",\"default\":null,\"source\":\"default\",\"mutable\":false,\"requiresRestart\":false,\"sensitive\":false,\"required\":false}",
             JsonSerializer.Serialize(plain));
         var secret = CliConfigViews.Entry(new CliConfigEntry { Key = "p", Type = "secret", Value = "hunter2", Default = "x", Mutable = true }, true);
         Assert.Equal((null, null, true, true, true), (secret.Value, secret.Default, secret.Sensitive, secret.IsSet, secret.Mutable));

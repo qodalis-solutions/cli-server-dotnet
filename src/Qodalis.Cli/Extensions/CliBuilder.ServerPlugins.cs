@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugins;
@@ -31,6 +33,42 @@ public partial class CliBuilder
         ArgumentNullException.ThrowIfNull(configure);
         if (_serverPlugins != null) throw new InvalidOperationException("the server plugins are configured before they are used");
         configure(ServerPluginsOptions);
+        return this;
+    }
+
+    private readonly List<(ICliPluginEntry Entry, string? Id, JsonObject Options)> _codePlugins = [];
+
+    internal IReadOnlyList<(ICliPluginEntry Entry, string? Id, JsonObject Options)> CodePlugins => _codePlugins;
+
+    /// <summary>
+    /// Adds a server plugin in code through the same entry the marketplace uses (<c>[assembly: CliPlugin(typeof(T))]</c>),
+    /// run with the installed plugins in the declared order. <paramref name="options"/> (an object, a dictionary or a
+    /// <see cref="JsonObject"/>: <c>{ key: value }</c> for the section <c>settings</c>, or <c>{ section: { key: value } }</c>)
+    /// are the defaults of the plugin's settings, with source <c>code</c>; settings saved from the dashboard or
+    /// <c>config set</c> override them, so the settings are the same whichever way the plugin was added. A required
+    /// setting left without a value lists it as <c>needs-configuration</c>; a plugin that throws is left out and listed
+    /// as <c>failed</c>. <paramref name="id"/>: its settings' id (default the attribute's <c>Id</c>, else the assembly's name).
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// cli.AddPlugin&lt;WeatherPluginEntry&gt;(new { defaultLocation = "Paris" });
+    /// </code>
+    /// </example>
+    public CliBuilder AddPlugin<TEntry>(object? options = null, string? id = null) where TEntry : ICliPluginEntry, new() =>
+        AddPlugin(new TEntry(), options, id);
+
+    /// <summary>Adds a server plugin in code (see <see cref="AddPlugin{TEntry}"/>).</summary>
+    public CliBuilder AddPlugin(ICliPluginEntry entry, object? options = null, string? id = null)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        var json = options switch
+        {
+            null => [],
+            JsonObject o => (JsonObject)o.DeepClone(),
+            _ => JsonSerializer.SerializeToNode(options, options.GetType()) as JsonObject
+                ?? throw new ArgumentException("plugin options must be an object", nameof(options)),
+        };
+        _codePlugins.Add((entry, id, json));
         return this;
     }
 

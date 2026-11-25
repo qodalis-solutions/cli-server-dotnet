@@ -50,6 +50,12 @@ public sealed class CliPluginAttribute(Type entryType) : Attribute
 {
     public Type EntryType { get; } = entryType;
 
+    /// <summary>
+    /// The plugin's id (its marketplace entry, <c>weather</c>): the default id of its settings when added in code with
+    /// <c>cli.AddPlugin</c> (installed from the marketplace, the marketplace's id is used). Default: the assembly's name.
+    /// </summary>
+    public string? Id { get; set; }
+
     /// <summary>When it registers among the installed plugins (<see cref="CliPluginOrder"/>; default <see cref="CliPluginOrder.Default"/>).</summary>
     public int Order { get; set; } = CliPluginOrder.Default;
 }
@@ -92,8 +98,11 @@ public sealed class CliPluginContext
     private readonly Func<CliPluginSettingsOptions, CliStoredConfigProvider> _settings;
 
     internal CliPluginContext(string pluginId, string packageName, string version, CliBuilder builder, ILogger logger, string dataDir,
-        string serverDataDir, ICliServerRestart restart, Func<CliPluginSettingsOptions, CliStoredConfigProvider> settings)
+        string serverDataDir, ICliServerRestart restart, Func<CliPluginSettingsOptions, CliStoredConfigProvider> settings,
+        string source = CliServerPluginSources.Marketplace, System.Text.Json.Nodes.JsonObject? options = null)
     {
+        Source = source;
+        Options = options ?? [];
         PluginId = pluginId;
         PackageName = packageName;
         Version = version;
@@ -107,6 +116,16 @@ public sealed class CliPluginContext
 
     /// <summary>The marketplace entry's id (<c>weather</c>).</summary>
     public string PluginId { get; }
+
+    /// <summary><c>marketplace</c> (installed at runtime) or <c>code</c> (<c>cli.AddPlugin</c>).</summary>
+    public string Source { get; }
+
+    /// <summary>
+    /// The options of a plugin added in code (<c>cli.AddPlugin&lt;T&gt;(options)</c>): <c>{ key: value }</c> for the
+    /// section <c>settings</c>, or <c>{ section: { key: value } }</c>; empty for one installed from the marketplace.
+    /// <see cref="Settings"/> takes them as the defaults (source <c>code</c>); saved settings override them.
+    /// </summary>
+    public System.Text.Json.Nodes.JsonObject Options { get; }
 
     /// <summary>The NuGet package (<c>Qodalis.Cli.Plugin.Weather</c>).</summary>
     public string PackageName { get; }
@@ -134,14 +153,26 @@ public sealed class CliPluginContext
 
     /// <summary>
     /// Registers the plugin's settings as a config provider (defaults, validation, values kept in the config store),
-    /// edited from the dashboard's Config page and <c>config set &lt;id&gt;.&lt;section&gt;.&lt;key&gt;</c>. Read a value
-    /// with <c>provider.GetValue(section, key)</c> once the server started. A setting whose validation is
-    /// <c>required</c> and that has no value marks the plugin <c>needs-configuration</c>.
+    /// edited from the dashboard's Config page and <c>config set &lt;id&gt;.&lt;section&gt;.&lt;key&gt;</c>. The code
+    /// options (<see cref="Options"/>) are the defaults, with source <c>code</c>; saved settings override them. Read a
+    /// value with <c>provider.GetValue(section, key)</c> once the server started (the stored values load then: read
+    /// them lazily). A <c>Required</c> setting without a value marks the plugin <c>needs-configuration</c> (with
+    /// <c>missing</c>); it should then stay idle until the value is set.
     /// </summary>
     public CliStoredConfigProvider Settings(CliPluginSettingsOptions options) => _settings(options ?? new CliPluginSettingsOptions());
 }
 
-/// <summary>The statuses of a runtime-installed plugin in this process.</summary>
+/// <summary>How a server plugin was added.</summary>
+public static class CliServerPluginSources
+{
+    /// <summary>Installed at runtime from the marketplace (<c>installed.json</c>).</summary>
+    public const string Marketplace = "marketplace";
+
+    /// <summary>Added by the host in code (<c>cli.AddPlugin</c>).</summary>
+    public const string Code = "code";
+}
+
+/// <summary>The statuses of a server plugin in this process.</summary>
 public static class CliServerPluginStatuses
 {
     public const string Loaded = "loaded";
@@ -203,5 +234,16 @@ public sealed class CliServerPluginState
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; set; }
 
-    internal CliServerPluginState Clone() => new() { Name = Name, Package = Package, Version = Version, Status = Status, Error = Error };
+    /// <summary><see cref="CliServerPluginSources"/>: <c>marketplace</c> or <c>code</c>.</summary>
+    [JsonPropertyName("source")] public string Source { get; init; } = CliServerPluginSources.Marketplace;
+
+    /// <summary>The required settings without a value (<c>&lt;provider&gt;.&lt;section&gt;.&lt;key&gt;</c>), while <c>needs-configuration</c>.</summary>
+    [JsonPropertyName("missing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Missing { get; set; }
+
+    internal CliServerPluginState Clone() => new()
+    {
+        Name = Name, Package = Package, Version = Version, Status = Status, Error = Error, Source = Source, Missing = Missing?.ToList(),
+    };
 }

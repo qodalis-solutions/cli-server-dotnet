@@ -27,6 +27,13 @@ public sealed class CliConfigSettingDefinition
     /// <summary>Never returned; every <c>secret</c> is sensitive.</summary>
     public bool Sensitive { get; init; }
 
+    /// <summary>
+    /// Must have a value (stored, or a default) for its owner to work: a server plugin without it is
+    /// <c>needs-configuration</c> (see <see cref="CliStoredConfigProvider.Missing"/>). Unlike
+    /// <see cref="CliConfigValidation.Required"/> it does not refuse clearing the value.
+    /// </summary>
+    public bool Required { get; init; }
+
     public CliConfigValidation? Validation { get; init; }
     public string? Editor { get; init; }
 
@@ -254,6 +261,27 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
         return null;
     }
 
+    /// <summary>
+    /// The required settings without a value (<c>section.key</c>; an empty string or list counts as none), once the
+    /// stored values are loaded (<see cref="ReadyAsync"/>).
+    /// </summary>
+    public IReadOnlyList<string> Missing()
+    {
+        var missing = new List<string>();
+        foreach (var section in _sections)
+        {
+            foreach (var setting in section.Settings)
+            {
+                if (!setting.Required && setting.Validation?.Required != true) continue;
+                if (CliConfigValues.IsEmpty(GetValue(section.Id, setting.Key))) missing.Add($"{section.Id}.{setting.Key}");
+            }
+        }
+        return missing;
+    }
+
+    /// <summary>The sections as given (for a copy with other defaults).</summary>
+    public IReadOnlyList<CliConfigSectionDefinition> Definitions => _sections;
+
     public virtual async Task<IReadOnlyList<CliConfigSection>> GetSectionsAsync(CliConfigContext context,
         CancellationToken cancellationToken = default)
     {
@@ -282,6 +310,7 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
                     Mutable = setting.Mutable,
                     RequiresRestart = setting.RequiresRestart,
                     Sensitive = sensitive,
+                    Required = setting.Required || setting.Validation?.Required == true,
                     Validation = setting.Validation?.Clone(),
                     Editor = setting.Editor,
                 });

@@ -28,6 +28,7 @@ public static class CliConfigViews
             Mutable = writable && entry.Mutable,
             RequiresRestart = entry.RequiresRestart,
             Sensitive = sensitive,
+            Required = entry.Required || entry.Validation?.Required == true,
             IsSet = sensitive ? entry.IsSet ?? !CliConfigValues.IsEmpty(entry.Value) : null,
             Validation = entry.Validation?.Clone(),
             Editor = string.IsNullOrEmpty(entry.Editor) ? null : entry.Editor,

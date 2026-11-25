@@ -110,10 +110,10 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
             (section.GetProperty("id").GetString(), section.GetProperty("title").GetString(), section.GetProperty("mutable").GetBoolean(),
              section.GetProperty("version").GetString(), section.GetProperty("allowCustomKeys").GetBoolean()));
         Assert.Equal(
-            "{\"key\":\"dueDays\",\"label\":\"dueDays\",\"description\":\"\",\"type\":\"number\",\"value\":30,\"default\":30,\"source\":\"default\",\"mutable\":true,\"requiresRestart\":false,\"sensitive\":false,\"validation\":{\"min\":1,\"max\":90}}",
+            "{\"key\":\"dueDays\",\"label\":\"dueDays\",\"description\":\"\",\"type\":\"number\",\"value\":30,\"default\":30,\"source\":\"default\",\"mutable\":true,\"requiresRestart\":false,\"sensitive\":false,\"required\":false,\"validation\":{\"min\":1,\"max\":90}}",
             section.GetProperty("entries")[0].GetRawText());
         Assert.Equal(
-            "{\"key\":\"apiKey\",\"label\":\"apiKey\",\"description\":\"\",\"type\":\"secret\",\"value\":null,\"default\":null,\"source\":\"default\",\"mutable\":true,\"requiresRestart\":false,\"sensitive\":true,\"isSet\":false}",
+            "{\"key\":\"apiKey\",\"label\":\"apiKey\",\"description\":\"\",\"type\":\"secret\",\"value\":null,\"default\":null,\"source\":\"default\",\"mutable\":true,\"requiresRestart\":false,\"sensitive\":true,\"required\":false,\"isSet\":false}",
             section.GetProperty("entries")[1].GetRawText());
     }
 
