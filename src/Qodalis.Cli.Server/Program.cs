@@ -1,6 +1,6 @@
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
-using Qodalis.Cli.Server.Processors;
+using Qodalis.Cli.Processors;
 using Qodalis.Cli.Server.Jobs;
 using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugin.Jobs;
@@ -26,12 +26,8 @@ builder.Services
         var shellToken = builder.Configuration["Shell:Token"] ?? Environment.GetEnvironmentVariable("QCLI_SHELL_TOKEN");
         cli.EnableShell(o => o.Token = string.IsNullOrWhiteSpace(shellToken) ? null : shellToken);
 
-        cli.AddProcessor<CliEchoCommandProcessor>();
-        cli.AddProcessor<CliStatusCommandProcessor>();
-        cli.AddProcessor<CliSystemCommandProcessor>();
+        // The built-in http command (http:request); the example commands live in the demo app (demo/)
         cli.AddProcessor<CliHttpCommandProcessor>();
-        cli.AddProcessor<CliHashCommandProcessor>();
-        cli.AddProcessor<CliBase64CommandProcessor>();
         cli.AddModule(new WeatherModule());
         cli.AddFileSystem(o => o.AllowedPaths.Add("/tmp"));
         cli.AddJob(new SampleHealthCheckJob(), o =>
