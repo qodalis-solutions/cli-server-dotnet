@@ -89,6 +89,12 @@ public static class CliBuilderUsersExtensions
 
         // Once per builder: AddUsers may run twice, while a host entry with one of these names must still collide.
         builder.AddPermissionsOnce(typeof(UsersModuleOptions).FullName!, AddCatalogEntries, CliPermissionSurface.Cli);
+        // The users config provider (sessions, lockout, passwords at runtime), once per builder
+        if (services.All(d => d.ServiceType != typeof(UsersConfigProviderRegistered)))
+        {
+            services.AddSingleton<UsersConfigProviderRegistered>();
+            builder.AddConfigProvider(sp => UsersConfigProvider.Create(sp.GetRequiredService<UsersModuleOptions>()));
+        }
         if (!options.GuardOnly)
             builder.AddApplicationPart(typeof(SessionsController).Assembly);
 
@@ -156,3 +162,6 @@ public static class CliBuilderUsersExtensions
         return app;
     }
 }
+
+/// <summary>Marks the users config provider as registered (AddUsers may run twice).</summary>
+internal sealed class UsersConfigProviderRegistered;
