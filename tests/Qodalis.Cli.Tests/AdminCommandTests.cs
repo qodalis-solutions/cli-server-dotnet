@@ -51,11 +51,12 @@ public sealed class AdminCommandTests : IAsyncLifetime
     /// An open server with the admin plugin and the weather module. <paramref name="logs"/> is the log store (a buffer
     /// the host does not log into, so only the test's entries are there); <paramref name="time"/> the status sampler's clock.
     /// </summary>
-    private async Task<ConfigTestHost> StartAsync(ILogStore? logs = null, ManualTimeProvider? time = null)
+    private async Task<ConfigTestHost> StartAsync(ILogStore? logs = null, ManualTimeProvider? time = null, SystemMemoryReaders? memory = null)
     {
         var host = await ConfigTestHost.StartAsync(cli =>
         {
             cli.AddModule(new WeatherTestModule());
+            if (memory != null) cli.Services.AddSingleton(memory);
             cli.Services.AddSingleton<ILogStore>(logs ?? new LogRingBuffer());
             if (time != null) cli.Services.AddSingleton(sp => new StatusHistory(sp, StatusHistory.DefaultCapacity, time));
         }, admin: true);
@@ -118,7 +119,7 @@ public sealed class AdminCommandTests : IAsyncLifetime
         Assert.Matches(@"^Server {6}Qodalis\.Cli \S+", lines[0]);
         Assert.Equal($"Platform    dotnet {RuntimeInformation.FrameworkDescription} ({RuntimeInformation.OSDescription})", lines[1]);
         Assert.Matches(@"^Uptime {6}\d+ (s|min|h \d+ min|d \d+ h) \(since \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\)$", lines[2]);
-        Assert.Matches(@"^Memory {6}[\d.]+ MB$", lines[3]);
+        Assert.Matches(@"^Memory {6}[\d.]+ MB( \(process\) · (machine|container) .+)?$", lines[3]);
         Assert.Matches(@"^CPU {9}(n/a|[\d.]+%)$", lines[4]);
         Assert.Equal("Connections 0 WebSocket, 0 shell", lines[5]);
         Assert.Matches(@"^Commands {4}\d+$", lines[6]);
@@ -136,8 +137,96 @@ public sealed class AdminCommandTests : IAsyncLifetime
         Assert.Equal("dotnet", body.GetProperty("platform").GetString());
         Assert.Equal("Qodalis.Cli", body.GetProperty("server").GetProperty("id").GetString());
         Assert.Equal(JsonValueKind.Number, body.GetProperty("memoryUsageMb").ValueKind);
+        Assert.True(body.TryGetProperty("systemMemoryTotalMb", out _));
+        Assert.True(body.TryGetProperty("systemMemoryUsedMb", out _));
+        Assert.True(body.TryGetProperty("memoryLimited", out _));
         Assert.True(body.TryGetProperty("cpuUsagePercent", out _));
         Assert.Equal(RuntimeInformation.OSDescription, body.GetProperty("os").GetString());
+    }
+
+    private const long Mb = 1024 * 1024;
+    private const long Gb = 1024 * Mb;
+
+    private static SystemMemoryReaders Memory(
+        Func<long?>? installed = null, Func<long?>? available = null, Func<long?>? limit = null, Func<long?>? usage = null) => new()
+        {
+            InstalledBytes = installed ?? (() => 16 * Gb),
+            AvailableBytes = available ?? (() => 6 * Gb),
+            LimitBytes = limit ?? (() => null),
+            ContainerUsageBytes = usage ?? (() => null),
+        };
+
+    private static long? Throws() => throw new IOException("unreadable");
+
+    [Fact]
+    public async Task StatusMemory_TheMachineUse()
+    {
+        var h = await StartAsync(memory: Memory());
+        Assert.Matches(@"(?m)^Memory {6}[\d.]+ MB \(process\) · machine 10 GB of 16 GB used \(63%\)$", await Text(h, "admin status"));
+        var body = JsonDocument.Parse(await Text(h, "admin status --json")).RootElement;
+        Assert.Equal(16384, body.GetProperty("systemMemoryTotalMb").GetInt64());
+        Assert.Equal(10240, body.GetProperty("systemMemoryUsedMb").GetInt64());
+        Assert.False(body.GetProperty("memoryLimited").GetBoolean());
+    }
+
+    [Fact]
+    public async Task StatusMemory_TheContainerLimitAndItsUsage()
+    {
+        var h = await StartAsync(memory: Memory(limit: () => 512 * Mb, usage: () => 300 * Mb));
+        Assert.Matches(@"(?m)^Memory {6}[\d.]+ MB \(process\) · container 300 MB of 512 MB used \(59%\)$", await Text(h, "admin status"));
+        var body = JsonDocument.Parse(await Text(h, "admin status --json")).RootElement;
+        Assert.Equal(512, body.GetProperty("systemMemoryTotalMb").GetInt64());
+        Assert.Equal(300, body.GetProperty("systemMemoryUsedMb").GetInt64());
+        Assert.True(body.GetProperty("memoryLimited").GetBoolean());
+        // The samples carry it too
+        var sample = (await FirstSampleAsync(h)).Latest!;
+        Assert.Equal((300L, 512L), (sample.SystemMemoryUsedMb, sample.SystemMemoryTotalMb));
+    }
+
+    [Fact]
+    public async Task StatusMemory_Unreadable_IsNull_AndTheLineIsTheProcessAlone()
+    {
+        var h = await StartAsync(memory: Memory(installed: Throws, available: Throws, limit: Throws, usage: Throws));
+        Assert.Matches(@"(?m)^Memory {6}[\d.]+ MB$", await Text(h, "admin status"));
+        var body = JsonDocument.Parse(await Text(h, "admin status --json")).RootElement;
+        foreach (var key in new[] { "systemMemoryTotalMb", "systemMemoryUsedMb", "memoryLimited" })
+            Assert.Equal(JsonValueKind.Null, body.GetProperty(key).ValueKind);
+    }
+
+    [Fact]
+    public void SystemMemory_ReadsLimitsAndNulls()
+    {
+        Assert.Equal(new SystemMemoryInfo(16384, 10240, false), SystemMemory.Read(Memory()));
+        Assert.Equal(new SystemMemoryInfo(512, 300, true), SystemMemory.Read(Memory(limit: () => 512 * Mb, usage: () => 300 * Mb)));
+        // A limit at or above the installed RAM (cgroup v1's "no limit" huge number) is no limit
+        Assert.Equal(new SystemMemoryInfo(16384, 10240, false), SystemMemory.Read(Memory(limit: () => 16 * Gb)));
+        Assert.Equal(new SystemMemoryInfo(16384, 10240, false), SystemMemory.Read(Memory(limit: () => long.MaxValue)));
+        // Limited without a readable usage: not the machine's
+        Assert.Equal(new SystemMemoryInfo(512, null, true), SystemMemory.Read(Memory(limit: () => 512 * Mb)));
+        Assert.Equal(new SystemMemoryInfo(16384, null, false), SystemMemory.Read(Memory(available: Throws)));
+        Assert.Equal(SystemMemoryInfo.Unknown, SystemMemory.Read(Memory(installed: Throws, limit: Throws)));
+        // This machine
+        var here = SystemMemory.Read();
+        Assert.True(here.TotalMb > 0);
+        Assert.NotNull(here.Limited);
+    }
+
+    [Fact]
+    public void MemoryLine_TheProcessThenTheMachineOrContainer()
+    {
+        static string Line(long? total, long? used, bool? limited) => AdminFormat.MemoryLine(new StatusSnapshot
+        {
+            MemoryUsageMb = 146, SystemMemoryTotalMb = total, SystemMemoryUsedMb = used, MemoryLimited = limited,
+            StartedAt = "", Platform = "", PlatformVersion = "", Os = "", EnabledFeatures = [],
+        });
+        Assert.Equal("146 MB (process) · machine 9.8 GB of 16 GB used (61%)", Line(16384, 10035, false));
+        Assert.Equal("146 MB (process) · container 300 MB of 512 MB used (59%)", Line(512, 300, true));
+        Assert.Equal("146 MB (process) · machine 16 GB", Line(16384, null, false));
+        Assert.Equal("146 MB (process) · container limit 512 MB", Line(512, null, true));
+        Assert.Equal("146 MB", Line(null, null, null));
+        Assert.Equal("1023 MB", AdminFormat.MemorySize(1023));
+        Assert.Equal("1 GB", AdminFormat.MemorySize(1024));
+        Assert.Equal("1.5 GB", AdminFormat.MemorySize(1536));
     }
 
     [Fact]

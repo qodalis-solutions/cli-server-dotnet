@@ -698,7 +698,7 @@ public class StatusHistoryTests
         var samples = json.GetProperty("samples").EnumerateArray().ToList();
         Assert.True(string.CompareOrdinal(samples[0].GetProperty("timestamp").GetString(), samples[^1].GetProperty("timestamp").GetString()) < 0);
         var sample = samples[0];
-        foreach (var name in new[] { "timestamp", "memoryMb", "cpuPercent", "activeWsConnections", "activeShellSessions" })
+        foreach (var name in new[] { "timestamp", "memoryMb", "systemMemoryUsedMb", "systemMemoryTotalMb", "cpuPercent", "activeWsConnections", "activeShellSessions" })
             Assert.True(sample.TryGetProperty(name, out _), name);
     }
 
@@ -938,6 +938,8 @@ public class InsightsRoutingTests : IAsyncLifetime
         Assert.Equal(15, json.GetProperty("intervalSeconds").GetInt32());
         var sample = Assert.Single(json.GetProperty("samples").EnumerateArray());
         Assert.True(sample.GetProperty("memoryMb").GetDouble() > 0);
+        Assert.True(sample.GetProperty("systemMemoryTotalMb").GetInt64() > 0);
+        Assert.True(sample.TryGetProperty("systemMemoryUsedMb", out _));
         Assert.Equal(JsonValueKind.Null, sample.GetProperty("cpuPercent").ValueKind);
     }
 

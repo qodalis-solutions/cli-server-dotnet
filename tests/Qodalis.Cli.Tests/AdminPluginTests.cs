@@ -766,6 +766,9 @@ public class AdminStatusControllerTests
 
         Assert.Contains("uptimeSeconds", json);
         Assert.Contains("memoryUsageMb", json);
+        Assert.Contains("systemMemoryTotalMb", json);
+        Assert.Contains("systemMemoryUsedMb", json);
+        Assert.Contains("memoryLimited", json);
         Assert.Contains("platform", json);
         Assert.Contains("dotnet", json);
         Assert.Contains("os", json);
