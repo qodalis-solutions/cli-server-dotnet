@@ -196,7 +196,9 @@ hosts this plugin's scheduler).
 The `jobs` [config provider](../../README.md#config-providers) (section `history`) changes the global limits at runtime
 (`maxAge`, `maxRunsPerJob`, `failedMaxAge`, `failedMaxRunsPerJob`; `pruneInterval` is read-only): the next
 `jobs:prune-history` run applies them, and the job is registered when a first limit is set
-(`CliJobScheduler.SetHistoryDefaults`).
+(`CliJobScheduler.SetHistoryDefaults`). Its changes are kept in the server's default config store unless the plugin
+gets its own, `cli.ConfigureJobs(o => o.ConfigStore = store)`; the host's store for the id
+(`cli.SetConfigStore(store, "jobs")`, e.g. `cli.AddEfCoreConfigStore(..., providerId: "jobs")`) still wins.
 
 ## Interrupted runs
 

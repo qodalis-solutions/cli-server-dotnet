@@ -97,7 +97,7 @@ app.Lifetime.ApplicationStopping.Register(() =>
 - **WebSockets** for server events, log streaming and an opt-in, authenticated PTY shell.
 - **Plugins**: file system (memory, OS, JSON, SQLite, EF Core, S3), data explorer (SQLite, PostgreSQL, MySQL, SQL Server, MongoDB, Redis, Elasticsearch), jobs, users, admin dashboard, AWS.
 - **MCP endpoint** that exposes commands and plugin features as tools to AI clients.
-- **Config providers**: the server's settings, read and changed at runtime from the dashboard, the `config` command and MCP tools, kept in memory, a JSON file or a database.
+- **Config providers**: the server's settings, read and changed at runtime from the dashboard, the `config` command and MCP tools, each provider in its own store or the default one: memory, a JSON file, a section of appsettings.json, a database or Redis.
 - **Version discovery** so clients negotiate the API version.
 
 ## Packages
@@ -425,21 +425,53 @@ cli.AddConfigProvider(new CliStoredConfigProvider(new CliStoredConfigProviderOpt
         },
     ],
 }));
-cli.SetConfigStore(new JsonFileConfigStore("config.json")); // default: in memory
+cli.SetConfigStore(new JsonFileConfigStore("config.json")); // the default store (default: in memory)
+cli.SetAppSettingsConfigStore("billing");                   // billing in appsettings.json, section Qcli:Config
 ```
 
 - **Contract** (`Qodalis.Cli.Abstractions.Config`): `ICliConfigProvider` (`Id`, `Title`, `Order`, `RequiredPermission`, `GetSectionsAsync`) and, for writable providers, `ICliConfigWriter` (`ValidateAsync`, `UpdateAsync`). Entries are typed `string`, `number`, `boolean`, `string[]`, `enum`, `secret`, `json`, `duration` (`500ms`, `30s`, `15m`, `12h`, `7d`) or `url`, with a source (`default`, `file`, `environment`, `database`, `runtime`), `mutable`, `requiresRestart`, `sensitive`, validation (`min`, `max`, `pattern`, `options`, `required`) and an `editor` hint. Each writable section has a version: a change made against an older one gets 409.
-- **`CliStoredConfigProvider`** describes settings in code and keeps changes in the server's store; `Apply` makes the effective value take effect at startup and after every change. `CliCustomConfigProvider.Create()` is the free key/value `custom` provider.
-- **Stores**: `InMemoryConfigStore` (default, source `runtime`), `JsonFileConfigStore` (source `file`, written to a temporary file and renamed, mode 0600) and `cli.AddEfCoreConfigStore(o => o.UseNpgsql(...))` of [`Qodalis.Cli.Plugin.Config.EfCore`](plugins/config-efcore/README.md) (table `QcliConfig`, source `database`). Stored values are applied when the server starts.
-- **Where changes are saved**: every store says where it keeps the settings with `Describe()` (`{ kind: memory|file|database|custom, title, detail, persistent }`), shown as `store` by `GET /config`, on the dashboard's Config page and on the first line of `config list`. `detail` names the file (relative to the working directory, or its name only outside it) or the provider, database name and table (`SQL Server database qcli, table QcliConfig`), never credentials or a connection string. A store returning null from `Describe()` is a `custom` store named after its class, persistent unless its source is `runtime` (`CliConfigStoreHelpers.Describe`).
+- **`CliStoredConfigProvider`** describes settings in code and keeps changes in its config store; `Apply` makes the effective value take effect at startup and after every change. `CliCustomConfigProvider.Create()` is the free key/value `custom` provider.
+- **Stores** (a store keeps only the values changed from their defaults, with a version per section, keyed by provider and section: one store can serve several providers):
+
+| Store | Source | Where |
+|---|---|---|
+| `InMemoryConfigStore` (default) | `runtime` | memory: changes apply at once and are lost on restart |
+| `JsonFileConfigStore(path)` | `file` | one JSON file, rewritten on every change (temp file + rename, mode 0600) |
+| `JsonFileConfigStore(path, new() { Section = "qcli" })` | `file` | a section of a JSON settings file: `qcli`, or nested as `app.qcli` / `App:Qcli`. The file is re-read on every write and only the section replaced: the other keys, their order, the indentation, line endings and the file's mode stay (comments are read but not kept) |
+| `AppSettingsConfigStore` (`cli.SetAppSettingsConfigStore(id?)`) | `file` | the app's `appsettings.json` (or `appsettings.{Environment}.json`, `o.Environment = "Development"`) in the content root, section `Qcli:Config`, each section with its version: `Qcli:Config:<provider>:<section>:values:<key>`. A host reading the file with `reloadOnChange` (ASP.NET Core's default) sees every change in its `IConfiguration` |
+| `EfCoreConfigStore` ([`Qodalis.Cli.Plugin.Config.EfCore`](plugins/config-efcore/README.md), `cli.AddEfCoreConfigStore(o => o.UseNpgsql(...), providerId: "jobs")`) | `database` | table `QcliConfig`, one row per section, the version a concurrency token |
+| `RedisConfigStore` ([`Qodalis.Cli.Plugin.Config.Redis`](plugins/config-redis/README.md), `cli.AddRedisConfigStore(o => o.Url = "redis://cache:6379/0", providerId: "jobs")`) | `database` | one Redis hash per section (`qcli:config:<provider>:<section>`), writes checked against the version by a Lua script |
+
+- **Each provider can have its own store** (some in `appsettings.json`, some in a database, some in Redis). The store a provider gets, first match wins:
+  1. the host's store for its id: `cli.SetConfigStore(store, "jobs")`, `cli.SetConfigStore<TStore>("jobs")` (resolved from the container, one instance for every id and the default given that type), `cli.SetConfigStore(sp => ..., "jobs")`, `cli.ConfigureConfig(o => o.Stores["jobs"] = store)` (`SetConfigStore` wins for the same id), `AddEfCoreConfigStore(..., providerId)`, `AddRedisConfigStore(..., providerId)`, `SetAppSettingsConfigStore(id)`;
+  2. the provider's own: `new CliStoredConfigProviderOptions { Store = store }`, `provider.SetStore(store)` before it is registered, `CliCustomConfigProvider.Create(store: ...)`, or the plugin that adds it: `ConfigureJobs(o => o.ConfigStore = ...)` (`jobs`), `AddUsers(o => o.ConfigStore = ...)` (`users`), `AddPortal(o => o.ConfigStore = ...)` (`portal`), `AddAdmin(o => o.LogsConfigStore = ...)` (`logs`);
+  3. the default store: `cli.SetConfigStore(store)`, `SetConfigStore<TStore>()`, `SetConfigStore(sp => ...)`, `AddEfCoreConfigStore(...)` / `AddRedisConfigStore(...)` without an id, `SetAppSettingsConfigStore()`;
+  4. in memory.
+
+  A store for an id can also be set at runtime with `CliConfigRegistry.SetStore(store, id)`, until that provider is registered; afterwards it throws. Stored values are applied while the server starts; `CliConfigService.ReadyAsync()` waits for every store (`ICliConfigStore.ReadyAsync`, optional: e.g. the Redis store connects) and every provider's values. Versions and conflicts are per store and section. Implement `ICliConfigStore` (`ReadAsync`, `WriteAsync`, optional `Describe()` and `ReadyAsync`) to keep them elsewhere. Secrets are stored as given: keep the file, table or keys readable by the server only.
+- **Where changes are saved**: every store says where it keeps the settings with `Describe()` (`{ kind: memory|file|database|redis|custom, title, detail, persistent }`), shown as each stored provider's `store` and as `defaultStore` by `GET /config`, on the dashboard's Config page and by `config list`. `detail` names the file (relative to the working directory, or its name only outside it) and its section, the provider, database name and table (`SQL Server database qcli, table QcliConfig`), or the Redis host, port, database and key prefix, never credentials or a connection string. A store returning null from `Describe()` is a `custom` store named after its class, persistent unless its source is `runtime` (`CliConfigStoreHelpers.Describe`, `DescribeName`, `DescribeLine`). Every change is audited with the kind of store it was written to (`properties.store` of `config.update`) and published with it (`store` of `config:changed`); a provider that saves itself has neither.
 
 | Store | `Describe()` | `config list` |
 |---|---|---|
-| `InMemoryConfigStore` | `{ "kind": "memory", "title": "In memory", "detail": "", "persistent": false }` | `Store: In memory, changes are lost on restart` |
-| `JsonFileConfigStore` | `{ "kind": "file", "title": "JSON file", "detail": "config.json", "persistent": true }` | `Store: JSON file (config.json), kept across restarts` |
-| `EfCoreConfigStore` | `{ "kind": "database", "title": "Database", "detail": "PostgreSQL database qcli, table QcliConfig", "persistent": true }` | `Store: Database (PostgreSQL database qcli, table QcliConfig), kept across restarts` |
+| `InMemoryConfigStore` | `{ "kind": "memory", "title": "In memory", "detail": "", "persistent": false }` | `In memory` |
+| `JsonFileConfigStore` | `{ "kind": "file", "title": "JSON file", "detail": "config.json", "persistent": true }` | `JSON file (config.json)` |
+| `JsonFileConfigStore` with `Section` | `{ "kind": "file", "title": "JSON file", "detail": "config/app.json, section qcli", "persistent": true }` | `JSON file (config/app.json, section qcli)` |
+| `AppSettingsConfigStore` | `{ "kind": "file", "title": "appsettings.json", "detail": "section Qcli:Config", "persistent": true }` | `appsettings.json (section Qcli:Config)` |
+| `EfCoreConfigStore` | `{ "kind": "database", "title": "Database", "detail": "PostgreSQL database qcli, table QcliConfig", "persistent": true }` | `Database (PostgreSQL database qcli, table QcliConfig)` |
+| `RedisConfigStore` | `{ "kind": "redis", "title": "Redis", "detail": "cache:6379/0, prefix qcli:config", "persistent": true }` | `Redis (cache:6379/0, prefix qcli:config)` |
 
-- **Where settings come from**: every provider view has `storage` (`{ kind, description, sources }`; a provider sets it with its optional `Storage` property): `store` for every `CliStoredConfigProvider` (`cors`, `mcp`, `jobs`, `logs`, `users`, `custom`, ...), `runtime` for `server`, `options` for `auth`, `configuration` for `host` with its sources in the order they apply, file names only (`Server options`, `appsettings.json`, `appsettings.Development.json`, `User secrets`, `Environment variables`, `Command line`, from `IConfigurationRoot.Providers`), and `custom` (`Saved by the provider` or `Read by the provider`) for a provider without it. `config list` shows a read-only provider's sources: `host  Host  (read-only; from Server options, appsettings.json, Environment variables)`.
+`config list` starts with the default store and ends each stored provider's line with its store:
+
+```text
+Default store: JSON file (qcli-demo-config.json), kept across restarts
+server  Server  (read-only)
+cors  CORS  · JSON file (qcli-demo-config.json)
+jobs  Jobs  · Database (SQLite database qcli-demo.sqlite, table QcliConfig)
+demo  Demo app  · appsettings.json (section Qcli:Config)
+custom  Custom  · Redis (cache:6379/0, prefix qcli:config)
+```
+
+- **Where settings come from**: every provider view has `storage` (`{ kind, description, sources }`; a provider sets it with its optional `Storage` property), then, for a stored provider, `store` (fields in this order: `id, title, description, order, writable, storage, store?, sections`): `store` for every `CliStoredConfigProvider` (`cors`, `mcp`, `jobs`, `logs`, `users`, `portal`, `custom`, ...), `runtime` for `server`, `options` for `auth`, `configuration` for `host` with its sources in the order they apply, file names only (`Server options`, `appsettings.json`, `appsettings.Development.json`, `User secrets`, `Environment variables`, `Command line`, from `IConfigurationRoot.Providers`), and `custom` (`Saved by the provider` or `Read by the provider`) for a provider without it. `config list` shows a read-only provider's sources: `host  Host  (read-only; from Server options, appsettings.json, Environment variables)`.
 - **Modules** bring their own providers with `ICliModule.ConfigProviders`.
 - **Built-in providers**: `server` (the process, read-only), `host` (the server options, the allowed environment variables and `IConfiguration` keys, secrets masked; `cli.ConfigureConfig(o => o.Environment.Allow.Add("APP_*"))`), `cors` (allowed origins at runtime), `mcp` (tool lists, instructions, read-only mode), `filesystem` (storage and roots, read-only), `custom`; from plugins `auth` and `logs` (admin), `jobs` (history retention) and `users` (sessions, lockout, passwords). A host provider with a built-in id replaces the built-in.
 - **Secrets** are never returned: `value: null` and `isSet`. `null` resets a setting to its default (clears a secret, removes a free key).
@@ -447,11 +479,11 @@ cli.SetConfigStore(new JsonFileConfigStore("config.json")); // default: in memor
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/qcli/config` | `{ store, providers: [...] }`: where changes are saved, and the providers the caller may see (`config:read`) |
-| GET | `/api/v1/qcli/config/{provider}` | One provider (403, 404) |
+| GET | `/api/v1/qcli/config` | `{ defaultStore, providers: [...] }`: the store providers use unless they have their own, and the providers the caller may see (`config:read`), each stored one with its `store` |
+| GET | `/api/v1/qcli/config/{provider}` | One provider, with its `store` (403, 404) |
 | PATCH | `/api/v1/qcli/config/{provider}/{section}` | `{ changes, version? }` (`config:write`): 200 with the section, applied keys and new version; 400 `{ error, errors }`; 409 `{ error, version }` |
 
-Terminal: `config list`, `config get <provider>[.<section>[.<key>]]`, `config set <provider>.<section>.<key> <value> [--expected-version v]`, `config reset <provider>.<section>.<key>` (left out with `ConfigureConfig(o => o.Command = false)`). MCP: `config_list` (the store, providers with their `storage`, and section summaries), `config_get` (read-only) and `config_set`; `McpOptions.ReadOnly = true` lists and allows only tools annotated read-only.
+Terminal: `config list`, `config get <provider>[.<section>[.<key>]]`, `config set <provider>.<section>.<key> <value> [--expected-version v]`, `config reset <provider>.<section>.<key>` (left out with `ConfigureConfig(o => o.Command = false)`). MCP: `config_list` (the default store, providers with their `storage` and `store`, and section summaries), `config_get` (read-only) and `config_set`; `McpOptions.ReadOnly = true` lists and allows only tools annotated read-only.
 
 ## Use with your app's sign-in
 
@@ -606,6 +638,8 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.Jobs`](plugins/jobs) | Scheduled background jobs (cron or interval, retries, overlap policy, `MaxConcurrentRuns`) | `cli.AddJob<T>(...)` |
 | [`Qodalis.Cli.Plugin.Jobs.EfCore`](plugins/jobs-efcore) | EF Core job history storage | `cli.AddEfCoreJobStorage(...)` |
 | [`Qodalis.Cli.Plugin.Databases`](plugins/databases) | Databases (PostgreSQL, MySQL, SQL Server, SQLite): size, connections, load and largest tables, and migrations applied under a lock, tracked, run from the dashboard, terminal, MCP and API | `cli.AddDatabases(...)` |
+| [`Qodalis.Cli.Plugin.Config.EfCore`](plugins/config-efcore) | The config providers' settings in a database (table `QcliConfig`) | `cli.AddEfCoreConfigStore(..., providerId?)` |
+| [`Qodalis.Cli.Plugin.Config.Redis`](plugins/config-redis) | The config providers' settings in Redis: one hash per section, versioned writes checked atomically | `cli.AddRedisConfigStore(o => o.Url = ..., providerId?)` |
 | [`Qodalis.Cli.Plugin.Databases.EfCore`](plugins/databases-efcore) | A DbContext's EF Core migrations in the databases plugin; the EF Core stores' schemas as sources | `d.AddEfCore<AppDbContext>("main")` |
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |

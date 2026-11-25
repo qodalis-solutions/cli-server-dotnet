@@ -153,7 +153,9 @@ The plugin brings the `portal` config provider (the server's [config providers](
 the branding changes at runtime, through `config set`, the dashboard's Settings page or
 `PATCH /api/v1/qcli/config/portal/branding` (`config:write`). The options' values are the defaults, stored values
 override them, and every change is in the next `/portal.json`, no restart. `null` (`config reset`) brings the options'
-value back.
+value back. The changes are kept in the server's default config store unless the plugin gets its own,
+`cli.AddPortal(o => o.ConfigStore = store)`; the host's store for the id (`cli.SetConfigStore(store, "portal")`) still
+wins.
 
 | Setting | Type | Rules |
 |---|---|---|

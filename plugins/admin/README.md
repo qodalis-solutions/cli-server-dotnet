@@ -55,7 +55,7 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/auth/me` | GET | Get current authenticated user info |
 | `/api/v1/qcli/status` | GET | Server status (uptime, process memory `memoryUsageMb`, the machine's memory `systemMemoryTotalMb`, `systemMemoryUsedMb`, `memoryLimited`, CPU, features) |
 | `/api/v1/qcli/status/history` | GET | The status sampled every 15 seconds (process memory, the machine's used and total memory, CPU % of one core, WebSocket clients, shell sessions), oldest first: `minutes` (default 60, 1..1440). Kept in memory for 24 hours |
-| `/api/v1/qcli/config` | GET | `{ store, providers }`: where changes are saved and the server's [config providers](../../README.md#config-providers) the caller may see (`config:read`) |
+| `/api/v1/qcli/config` | GET | `{ defaultStore, providers }`: the store providers use unless they have their own, and the server's [config providers](../../README.md#config-providers) the caller may see (`config:read`), each stored one with its `store` |
 | `/api/v1/qcli/config/{provider}` | GET | One provider |
 | `/api/v1/qcli/config/{provider}/{section}` | PATCH | `{ changes, version? }` (`config:write`): 200 with the section; 400 per-key errors; 409 with the current version |
 | `/api/v1/qcli/logs` | GET | Query log entries: `level` (comma list), `search`, `service`, `from`, `to`, `limit`, `offset`. The latest 1000 entries of this process, or Seq with [`Qodalis.Cli.Plugin.Logs.Seq`](../logs-seq/README.md) (any `ILogStore`) |
@@ -75,6 +75,9 @@ it cannot be read; register a `SystemMemoryReaders` to read them elsewhere.
 The plugin registers two config providers: `auth` (read-only: the sign-in mode, the static admin's username, whether
 the default credentials or an explicit JWT secret are in use, the token lifetime and the sign-in URL; never a password or
 the secret) and `logs` (the ring buffer's size, 100 to 100000 entries, and its lowest level, changeable at runtime).
+The `logs` changes are kept in the server's default config store unless the plugin gets its own,
+`cli.AddAdmin(o => o.LogsConfigStore = store)`; the host's store for the id (`cli.SetConfigStore(store, "logs")`) still
+wins.
 
 Every log line the ring buffer captures is also published on the server's event bus (`ICliEventBus`) as `log:entry`
 (`timestamp`, `level`, `message`, `source`; audience `logs:read`), which the dashboard's Logs page follows live.

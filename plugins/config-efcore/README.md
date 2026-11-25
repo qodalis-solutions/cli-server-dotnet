@@ -22,6 +22,15 @@ builder.Services
     });
 ```
 
+That is the default store, for every provider without its own. Every provider can have its own store: keep only some
+in the database, the others elsewhere (a JSON file, `appsettings.json`, Redis):
+
+```csharp
+cli.SetAppSettingsConfigStore();                                                   // the default store
+cli.AddEfCoreConfigStore(o => o.UseNpgsql(connectionString), providerId: "jobs");  // jobs in the database
+cli.SetConfigStore<EfCoreConfigStore>("users");                                    // users too, the same store
+```
+
 ## The table
 
 `QcliConfig` holds one row per provider section:
@@ -41,7 +50,7 @@ A change reads the row and writes it back with its version as a concurrency toke
 ## Where changes are saved
 
 The store describes itself as `{ "kind": "database", "title": "Database", "detail": "SQL Server database qcli, table QcliConfig", "persistent": true }`
-(`store` of `GET /api/v1/qcli/config`, the dashboard's Config page, the first line of `config list`): the EF Core
+(the `store` of each provider it keeps, or `defaultStore`, in `GET /api/v1/qcli/config`, the dashboard's Config page and `config list`): the EF Core
 provider, the database's name as the connection reports it (a SQLite file by its name only) and the table. The
 connection string and credentials are never shown.
 

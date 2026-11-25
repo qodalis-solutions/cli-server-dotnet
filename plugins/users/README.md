@@ -64,7 +64,9 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 
 The `users` [config provider](../../README.md#config-providers) changes the session idle timeout and maximum lifetime,
 the failed sign-ins before lockout, the lockout duration and the minimum password length at runtime (sections
-`sessions` and `security`); section `access` shows how the plugin protects the server (read-only).
+`sessions` and `security`); section `access` shows how the plugin protects the server (read-only). Its changes are kept
+in the server's default config store unless the plugin gets its own, `cli.AddUsers(o => o.ConfigStore = store)`; the
+host's store for the id (`cli.SetConfigStore(store, "users")`) still wins.
 
 ## Permissions
 
