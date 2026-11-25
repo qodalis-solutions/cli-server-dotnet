@@ -17,7 +17,7 @@ namespace Qodalis.Cli.Plugin.Admin.Commands;
 
 /// <summary>
 /// <c>admin</c>: <c>status [--history]</c>, <c>plugins [list|enable|disable &lt;id&gt;]</c>, <c>clients</c>,
-/// <c>logs [...]</c>, <c>dashboard [list|search|install|update|remove]</c>. Needs <c>admin:access</c> on a protected
+/// <c>logs [...]</c>, <c>dashboard [list|search|info|install|update|remove]</c>. Needs <c>admin:access</c> on a protected
 /// server; <c>logs</c> also <c>logs:read</c>, <c>dashboard install|update|remove</c> also <c>dashboard:install</c>.
 /// Server settings are the core <c>config</c> command. Reads the services the admin routes use.
 /// </summary>
