@@ -669,6 +669,33 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         StartRunLocked(reg);
     }
 
+    /// <summary>
+    /// Completes once the job has no run holding a slot and none waiting for one: every run ended (retries and their
+    /// delays included), was saved and released its slot. Tests await it instead of polling the store.
+    /// </summary>
+    internal async Task WhenIdleAsync(string jobId)
+    {
+        var reg = GetRegistration(jobId);
+        while (true)
+        {
+            Task[] runs;
+            lock (reg.Gate)
+            {
+                if (reg.Runs.Count == 0 && !reg.Pending) return;
+                runs = [.. reg.Runs.Select(r => r.Task)];
+            }
+            // A run's task never faults (RunAsync observes everything); a queued run starts as one ends, so look again
+            await Task.WhenAll(runs);
+        }
+    }
+
+    /// <summary>Completes once no registered job has a run going or waiting (<see cref="WhenIdleAsync(string)"/>).</summary>
+    internal async Task WhenIdleAsync()
+    {
+        foreach (var id in _jobs.Keys.ToList())
+            await WhenIdleAsync(id);
+    }
+
     /// <summary>Cancels every running run of the job and drops a waiting one; false when there was neither.</summary>
     private bool CancelRuns(JobRegistration reg)
     {
