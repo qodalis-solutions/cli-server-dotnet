@@ -427,14 +427,9 @@ public class JobHistoryRetentionSchedulerTests : IDisposable
         await SeedAsync("a", 7);
 
         await _scheduler.TriggerAsync(PruneHistoryJob.JobId);
-        JobExecution? run = null;
-        for (var i = 0; i < 50 && run?.Status is null or JobExecutionStatus.Running; i++)
-        {
-            await Task.Delay(20);
-            run = (await _storage.GetExecutionsAsync(PruneHistoryJob.JobId)).Items.FirstOrDefault();
-        }
+        await JobTestWaits.IdleAsync(_scheduler, PruneHistoryJob.JobId);
+        var run = Assert.Single((await _storage.GetExecutionsAsync(PruneHistoryJob.JobId)).Items);
 
-        Assert.NotNull(run);
         Assert.Equal(JobExecutionStatus.Completed, run.Status);
         Assert.Equal(4, run.Properties["deleted"]);
         Assert.Contains(run.Logs, l => l.Message == "Deleted 4 execution(s)");

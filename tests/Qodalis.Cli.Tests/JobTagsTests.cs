@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions.Jobs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Jobs;
@@ -63,7 +64,7 @@ public class JobTagsTests
         await using var h = await StartAsync();
         Assert.Equal(HttpStatusCode.OK, (await h.Client.PostAsync($"{Jobs}/ro-bt/trigger", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await h.Client.PostAsync($"{Jobs}/md-maib/trigger", null)).StatusCode);
-        await Task.Delay(200);
+        await JobTestWaits.IdleAsync((CliJobScheduler)h.Host.Services.GetRequiredService<ICliJobScheduler>());
         static List<string> JobIds(JsonElement page) =>
             page.GetProperty("items").EnumerateArray().Select(e => e.GetProperty("jobId").GetString()!).Order().ToList();
         Assert.Equal(["md-maib", "ro-bt"], JobIds(await GetAsync(h.Client, $"{Jobs}/executions?tag=bank")));

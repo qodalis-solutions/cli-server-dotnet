@@ -485,7 +485,8 @@ public class JobConcurrencyTests : IDisposable
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(reg.Id);
         await _scheduler.TriggerAsync(reg.Id);
-        await Until.TrueAsync(() => reg.RunningExecutionIds.Count == 2, "two runs execute");
+        // In the job itself: an attempt has its execution id a moment before the job is called
+        await Until.TrueAsync(() => job.Current == 2, "two runs execute");
 
         await _scheduler.UpdateOptionsAsync(reg.Id, o => o.MaxConcurrentRuns = 1);
         _scheduler.OnTimerFired(reg);

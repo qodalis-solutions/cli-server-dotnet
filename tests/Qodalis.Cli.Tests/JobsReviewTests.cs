@@ -59,17 +59,6 @@ public class JobsReviewTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done)
-    {
-        for (var i = 0; i < 50; i++)
-        {
-            var value = await read();
-            if (done(value)) return value;
-            await Task.Delay(20);
-        }
-        return await read();
-    }
-
     [Fact]
     public async Task AJobTheCodeDisables_StaysStopped_WhateverWasSaved()
     {
@@ -79,8 +68,8 @@ public class JobsReviewTests : IDisposable
         _scheduler.Register(nightly, new CliJobOptions { Name = "nightly", Interval = TimeSpan.FromHours(1), Enabled = false });
         _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "weekly", Interval = TimeSpan.FromHours(1) });
 
+        // A disabled or stopped job gets no timer and no run on start
         await _scheduler.StartAsync(CancellationToken.None);
-        await Task.Delay(200);
 
         Assert.Equal(JobStatus.Stopped, _scheduler.Jobs["nightly"].Status);
         Assert.Equal(0, nightly.CallCount);
@@ -98,7 +87,7 @@ public class JobsReviewTests : IDisposable
         var controller = new CliJobsController(new SchedulerJobManager(_scheduler, _storage));
         await _scheduler.TriggerAsync("a");
         await _scheduler.TriggerAsync("b");
-        await EventuallyAsync(() => _storage.GetExecutionsAsync("b"), r => r.Items.Any(e => e.Status == JobExecutionStatus.Completed));
+        await JobTestWaits.IdleAsync(_scheduler);
 
         var all = Assert.IsType<OkObjectResult>(await controller.GetExecutions());
         var both = Assert.IsType<OkObjectResult>(await controller.GetExecutions(job: ["a,b"]));
@@ -131,8 +120,8 @@ public class JobsReviewTests : IDisposable
         _scheduler.Register(new DummyJob(), new CliJobOptions { Id = "props" });
 
         await _scheduler.TriggerAsync("props");
-        var (items, _) = await EventuallyAsync(() => _storage.GetExecutionsAsync("props"),
-            r => r.Items.Any(e => e.Status != JobExecutionStatus.Running));
+        await JobTestWaits.IdleAsync(_scheduler, "props");
+        var (items, _) = await _storage.GetExecutionsAsync("props");
 
         var execution = Assert.Single(items);
         Assert.Equal(JobExecutionStatus.Completed, execution.Status);

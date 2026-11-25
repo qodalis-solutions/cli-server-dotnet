@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Extensions;
 using Moq;
 using Qodalis.Cli.Abstractions.Jobs;
@@ -54,19 +56,19 @@ public class SlowCancellableJob : ICliJob
 
 #region IntervalParser
 
-/// <summary>Waits for runs to finish instead of a fixed delay, which a busy CI machine can outlast.</summary>
+/// <summary>
+/// Waits for the scheduler's runs to end instead of a fixed delay or polling the store: a run is saved as finished a
+/// moment before it releases its slot, so a store that shows it finished does not mean the job can run again.
+/// </summary>
 internal static class JobTestWaits
 {
-    /// <summary>Until <paramref name="jobId"/> has <paramref name="count"/> finished runs in the store (5 s at most).</summary>
-    public static async Task FinishedRunsAsync(ICliJobStorageProvider storage, string jobId, int count)
-    {
-        for (var waited = 0; waited < 5000; waited += 20)
-        {
-            var (items, _) = await storage.GetExecutionsAsync(jobId);
-            if (items.Count(e => e.Status != JobExecutionStatus.Running) >= count) return;
-            await Task.Delay(20);
-        }
-    }
+    /// <summary>Until the job has no run going or queued (fails after 10 s, which no passing run takes).</summary>
+    public static Task IdleAsync(CliJobScheduler scheduler, string jobId) =>
+        scheduler.WhenIdleAsync(jobId).WaitAsync(TimeSpan.FromSeconds(10));
+
+    /// <summary>Until no job has a run going or queued (fails after 10 s).</summary>
+    public static Task IdleAsync(CliJobScheduler scheduler) =>
+        scheduler.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(10));
 }
 
 public class IntervalParserTests
@@ -273,7 +275,7 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await JobTestWaits.FinishedRunsAsync(_storage, id, 1);
+        await JobTestWaits.IdleAsync(_scheduler, id);
 
         Assert.Equal(1, job.CallCount);
         var (items, total) = await _storage.GetExecutionsAsync(id);
@@ -387,9 +389,9 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(50);
+        // The run holds its slot from the trigger on, so it can be cancelled right away
         await _scheduler.CancelCurrentAsync(id);
-        await JobTestWaits.FinishedRunsAsync(_storage, id, 1);
+        await JobTestWaits.IdleAsync(_scheduler, id);
 
         var (items, _) = await _storage.GetExecutionsAsync(id);
         Assert.NotEmpty(items);
@@ -413,7 +415,8 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(1000);
+        // The run holds its slot across its retries and their delays
+        await JobTestWaits.IdleAsync(_scheduler, id);
 
         Assert.Equal(3, job.CallCount); // 1 original + 2 retries
         var (items, total) = await _storage.GetExecutionsAsync(id);
@@ -436,7 +439,7 @@ public class CliJobSchedulerTests : IDisposable
 
         await _scheduler.StartAsync(CancellationToken.None);
         await _scheduler.TriggerAsync(id);
-        await Task.Delay(1500);
+        await JobTestWaits.IdleAsync(_scheduler, id);
 
         var (items, _) = await _storage.GetExecutionsAsync(id);
         Assert.Single(items);
@@ -561,7 +564,7 @@ public class CliJobsControllerTests : IDisposable
         await _scheduler.StartAsync(CancellationToken.None);
         var result = await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
-        await Task.Delay(100);
+        await JobTestWaits.IdleAsync(_scheduler, _jobIds["quick"]);
         await _scheduler.StopAsync(CancellationToken.None);
     }
 
@@ -705,7 +708,7 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
+        await JobTestWaits.IdleAsync(_scheduler, _jobIds["quick"]);
 
         var result = (await _controller.GetHistory(_jobIds["quick"], ct: CancellationToken.None)) as OkObjectResult;
         Assert.NotNull(result);
@@ -719,9 +722,9 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
+        await JobTestWaits.IdleAsync(_scheduler, _jobIds["quick"]);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 2);
+        await JobTestWaits.IdleAsync(_scheduler, _jobIds["quick"]);
 
         static string Json(IActionResult r) => System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)r).Value);
 
@@ -754,7 +757,7 @@ public class CliJobsControllerTests : IDisposable
     {
         await _scheduler.StartAsync(CancellationToken.None);
         await _controller.TriggerJob(_jobIds["quick"], CancellationToken.None);
-        await JobTestWaits.FinishedRunsAsync(_storage, _jobIds["quick"], 1);
+        await JobTestWaits.IdleAsync(_scheduler, _jobIds["quick"]);
 
         var (items, _) = await _storage.GetExecutionsAsync(_jobIds["quick"]);
         Assert.NotEmpty(items);
@@ -898,13 +901,19 @@ public class JobManagerDefaultQueryTests
 
 public class JobSchedulerIdsAndStartTests : IDisposable
 {
+    private static readonly DateTimeOffset Start = new(2026, 11, 6, 10, 30, 0, TimeSpan.Zero);
+
     private readonly InMemoryJobStorageProvider _storage = new();
+    // Timers fire only when the test moves the clock, so every run below is one the test started
+    private readonly JobTestClock _time = new(Start);
     private readonly CliJobScheduler _scheduler;
 
     public JobSchedulerIdsAndStartTests()
     {
-        _scheduler = new CliJobScheduler(_storage, new Mock<ICliEventSocketManager>().Object, new Mock<ILogger<CliJobScheduler>>().Object);
+        _scheduler = new CliJobScheduler(_storage, new CliEventBus(), NullLogger<CliJobScheduler>.Instance, null, _time);
     }
+
+    private DateTime Now => _time.GetUtcNow().UtcDateTime;
 
     public void Dispose()
     {
@@ -940,18 +949,21 @@ public class JobSchedulerIdsAndStartTests : IDisposable
     [Fact]
     public async Task Interval_KeepsItsRhythmAcrossRestarts_AndRunsAnOverdueJobRightAway()
     {
-        var lastRun = DateTime.UtcNow.AddMinutes(-20);
+        var lastRun = Now.AddMinutes(-20);
         await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = lastRun });
-        await _storage.SaveJobStateAsync("overdue", new JobState { Status = JobStatus.Active, LastRunAt = DateTime.UtcNow.AddHours(-3) });
+        await _storage.SaveJobStateAsync("overdue", new JobState { Status = JobStatus.Active, LastRunAt = Now.AddHours(-3) });
+        var hourly = new DummyJob();
         var overdue = new DummyJob();
-        _scheduler.Register(new DummyJob(), new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1) });
+        _scheduler.Register(hourly, new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1) });
         _scheduler.Register(overdue, new CliJobOptions { Name = "overdue", Interval = TimeSpan.FromHours(1) });
 
         await _scheduler.StartAsync(CancellationToken.None);
-        await ShellSecurityTests.WaitUntilAsync(() => overdue.CallCount >= 1);
-        await Task.Delay(200);
+        // The timers that are due now fire; the time does not move
+        _time.Advance(TimeSpan.Zero);
+        await JobTestWaits.IdleAsync(_scheduler);
 
-        Assert.Equal(lastRun.AddHours(1), _scheduler.Jobs["hourly"].NextRunAt!.Value, TimeSpan.FromSeconds(1));
+        Assert.Equal(lastRun.AddHours(1), _scheduler.Jobs["hourly"].NextRunAt!.Value);
+        Assert.Equal(0, hourly.CallCount);
         Assert.Equal(1, overdue.CallCount);
         await _scheduler.StopAsync(CancellationToken.None);
     }
@@ -960,18 +972,18 @@ public class JobSchedulerIdsAndStartTests : IDisposable
     public async Task RunOnStart_RunsOnDemandJobsOnce_ButNotPausedOnes()
     {
         var onDemand = new DummyJob();
-        var hourly = new DummyJob(TimeSpan.FromMilliseconds(100));
+        var hourly = new DummyJob();
         var paused = new DummyJob();
         await _storage.SaveJobStateAsync("paused", new JobState { Status = JobStatus.Paused });
-        await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = DateTime.UtcNow.AddHours(-2) });
+        await _storage.SaveJobStateAsync("hourly", new JobState { Status = JobStatus.Active, LastRunAt = Now.AddHours(-2) });
         _scheduler.Register(onDemand, new CliJobOptions { Name = "backfill", RunOnStart = true });
         _scheduler.Register(hourly, new CliJobOptions { Name = "hourly", Interval = TimeSpan.FromHours(1), RunOnStart = true });
         _scheduler.Register(paused, new CliJobOptions { Name = "paused", RunOnStart = true });
 
         await _scheduler.StartAsync(CancellationToken.None);
-        // Wait for the runs (a busy CI runner can take longer than a fixed delay), then a while for any extra one
-        await ShellSecurityTests.WaitUntilAsync(() => onDemand.CallCount >= 1 && hourly.CallCount >= 1);
-        await Task.Delay(300);
+        // The overdue interval job's timer is due now: it fires, and its run on start is that same run
+        _time.Advance(TimeSpan.Zero);
+        await JobTestWaits.IdleAsync(_scheduler);
 
         Assert.Equal(1, onDemand.CallCount);
         // Overdue and run on start: still one run
@@ -999,14 +1011,7 @@ public class JobSchedulerIdsAndStartTests : IDisposable
 
         await _scheduler.TriggerAsync("quiet");
         await _scheduler.TriggerAsync("broken");
-        // Both runs finished: the failure is recorded and the quiet job has its last run
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while ((await _storage.GetExecutionsAsync("broken")).Total == 0 || _scheduler.Jobs["quiet"].LastRunAt == null)
-        {
-            Assert.True(DateTime.UtcNow < deadline, "runs not finished in time");
-            await Task.Delay(25);
-        }
-        await Task.Delay(100);
+        await JobTestWaits.IdleAsync(_scheduler);
 
         Assert.Equal(0, (await _storage.GetExecutionsAsync("quiet")).Total);
         Assert.NotNull(_scheduler.Jobs["quiet"].LastRunAt);
@@ -1044,20 +1049,19 @@ public class JobServicesTests
         services.AddScoped<Counter>();
         services.AddControllers().AddCli(cli => cli.AddJob(job, o => o.Name = "scoped"));
         await using var sp = services.BuildServiceProvider();
-        var scheduler = sp.GetRequiredService<ICliJobScheduler>();
-        await ((CliJobScheduler)scheduler).StartAsync(CancellationToken.None);
+        var scheduler = (CliJobScheduler)sp.GetRequiredService<ICliJobScheduler>();
+        await scheduler.StartAsync(CancellationToken.None);
 
         await scheduler.TriggerAsync("scoped");
-        await ShellSecurityTests.WaitUntilAsync(() => job.Seen.Count >= 2);
-        await Task.Delay(100);
+        await JobTestWaits.IdleAsync(scheduler, "scoped");
         await scheduler.TriggerAsync("scoped");
-        await ShellSecurityTests.WaitUntilAsync(() => job.Seen.Count >= 4);
+        await JobTestWaits.IdleAsync(scheduler, "scoped");
 
         // One instance within a run, a new one per run
         Assert.Equal(4, job.Seen.Count);
         Assert.Same(job.Seen[0], job.Seen[1]);
         Assert.NotSame(job.Seen[1], job.Seen[2]);
-        await ((CliJobScheduler)scheduler).StopAsync(CancellationToken.None);
+        await scheduler.StopAsync(CancellationToken.None);
     }
 }
 
