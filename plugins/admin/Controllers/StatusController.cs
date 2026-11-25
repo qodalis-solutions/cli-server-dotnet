@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,11 +17,7 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 [Route("api/v1/qcli/status")]
 public class StatusController : ControllerBase
 {
-    /// <summary>The audit plugin's package id (the admin plugin does not reference it).</summary>
-    private const string AuditPluginId = "Qodalis.Cli.Plugin.Audit";
-
-    private readonly ICliEventSocketManager _eventSocketManager;
-    private readonly ICliCommandRegistry _commandRegistry;
+    private readonly ServerStatus _status;
     private readonly IServiceProvider _serviceProvider;
 
     /// <summary>
@@ -31,38 +25,17 @@ public class StatusController : ControllerBase
     /// </summary>
     public StatusController(ICliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider serviceProvider)
     {
-        _eventSocketManager = eventSocketManager;
-        _commandRegistry = commandRegistry;
+        _status = serviceProvider.GetService<ServerStatus>() ?? new ServerStatus(eventSocketManager, commandRegistry, serviceProvider);
         _serviceProvider = serviceProvider;
     }
 
     /// <summary>
-    /// Returns the current server status including uptime, memory, connections, and enabled features.
+    /// Returns the current server status including uptime, memory, CPU (the latest sample), connections, and enabled
+    /// features (the same as <c>admin status</c>).
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetStatus(CancellationToken cancellationToken = default)
-    {
-        var jobs = _serviceProvider.GetService<ICliJobManager>();
-        var registeredJobs = jobs == null ? 0 : (await jobs.GetJobsAsync(cancellationToken)).Count;
-
-        var process = Process.GetCurrentProcess();
-        var uptime = DateTime.UtcNow - process.StartTime.ToUniversalTime();
-
-        return Ok(new
-        {
-            uptimeSeconds = (long)uptime.TotalSeconds,
-            memoryUsageMb = Math.Round(process.WorkingSet64 / (1024.0 * 1024.0), 2),
-            startedAt = process.StartTime.ToUniversalTime().ToString("o"),
-            platform = "dotnet",
-            platformVersion = RuntimeInformation.FrameworkDescription,
-            os = RuntimeInformation.OSDescription,
-            activeWsConnections = _eventSocketManager.GetClients().Count,
-            activeShellSessions = _serviceProvider.GetService(typeof(ICliShellSessions)) is ICliShellSessions shells ? shells.Count : 0,
-            registeredCommands = _commandRegistry.Processors.Count,
-            registeredJobs,
-            enabledFeatures = DetectEnabledFeatures(jobs != null),
-        });
-    }
+    public async Task<IActionResult> GetStatus(CancellationToken cancellationToken = default) =>
+        Ok(await _status.SnapshotAsync(cancellationToken));
 
     /// <summary>
     /// The status sampled every 15 seconds over the last <paramref name="minutes"/> minutes (default 60, 1..1440),
@@ -72,13 +45,13 @@ public class StatusController : ControllerBase
     [HttpGet("history")]
     public IActionResult GetHistory([FromQuery] string? minutes = null)
     {
-        var span = 60;
+        var span = StatusHistory.DefaultHistoryMinutes;
         if (!string.IsNullOrWhiteSpace(minutes)
             && !int.TryParse(minutes.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out span))
         {
             return BadRequest(new { error = "minutes must be an integer" });
         }
-        span = Math.Clamp(span, 1, 1440);
+        span = Math.Clamp(span, 1, StatusHistory.MaxHistoryMinutes);
 
         var samples = _serviceProvider.GetService<StatusHistory>()?.GetSamples(span) ?? [];
         return Ok(new
@@ -93,23 +66,5 @@ public class StatusController : ControllerBase
                 activeShellSessions = s.ActiveShellSessions,
             }),
         });
-    }
-
-    private List<string> DetectEnabledFeatures(bool hasJobs)
-    {
-        var features = new List<string>();
-
-        // AddFileSystem() registers its options; IFileStorageProvider alone is always there (in-memory fallback).
-        if (_serviceProvider.GetService<FileSystemOptions>() != null)
-            features.Add("filesystem");
-
-        if (hasJobs)
-            features.Add("jobs");
-
-        // The audit plugin serves the audit log (GET /api/v1/qcli/audit); the users plugin adds it.
-        if (_serviceProvider.GetService<CliInstalledPlugins>()?.All.Any(p => p.Id == AuditPluginId) == true)
-            features.Add("audit");
-
-        return features;
     }
 }

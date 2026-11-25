@@ -24,6 +24,12 @@ public sealed class StatusHistory : BackgroundService
     /// <summary>The time between samples.</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
 
+    /// <summary>Default minutes of <c>GET /status/history</c> and <c>admin status --history</c>.</summary>
+    public const int DefaultHistoryMinutes = 60;
+
+    /// <summary>Most minutes of <c>GET /status/history</c> and <c>admin status --history</c>.</summary>
+    public const int MaxHistoryMinutes = 1440;
+
     /// <summary>Samples kept by default: 24 hours of them.</summary>
     public const int DefaultCapacity = 5760;
 
@@ -87,6 +93,15 @@ public sealed class StatusHistory : BackgroundService
         {
             _buffer[_written % Capacity] = sample;
             _written++;
+        }
+    }
+
+    /// <summary>The latest sample, or <c>null</c> before the first.</summary>
+    public StatusSample? Latest
+    {
+        get
+        {
+            lock (_lock) return _written == 0 ? null : _buffer[(_written - 1) % Capacity];
         }
     }
 
@@ -154,4 +169,46 @@ public sealed class StatusHistory : BackgroundService
         using var process = Process.GetCurrentProcess();
         return process.WorkingSet64 / (1024.0 * 1024.0);
     }
+}
+
+/// <summary>Smallest, average and largest of a series (average rounded to 0.01, as memory is).</summary>
+public sealed record StatusRange(double Min, double Avg, double Max);
+
+/// <summary>A summary of status samples (<c>admin status --history</c>).</summary>
+public sealed class StatusHistorySummary
+{
+    public int Count { get; init; }
+
+    /// <summary>First sample time; <c>null</c> without samples.</summary>
+    public string? From { get; init; }
+
+    /// <summary>Last sample time; <c>null</c> without samples.</summary>
+    public string? To { get; init; }
+
+    public StatusRange? MemoryMb { get; init; }
+
+    /// <summary>Over the samples that have a CPU value; <c>null</c> when none has.</summary>
+    public StatusRange? CpuPercent { get; init; }
+
+    /// <summary>Largest number of WebSocket connections seen.</summary>
+    public int MaxWsConnections { get; init; }
+
+    /// <summary>Largest number of shell sessions seen.</summary>
+    public int MaxShellSessions { get; init; }
+
+    /// <summary>Count, time span, min/avg/max memory and CPU, and the peak connections of <paramref name="samples"/>.</summary>
+    public static StatusHistorySummary Of(IReadOnlyList<StatusSample> samples) => new()
+    {
+        Count = samples.Count,
+        From = samples.Count > 0 ? Qodalis.Cli.Abstractions.Insights.TimeBuckets.Format(samples[0].Timestamp) : null,
+        To = samples.Count > 0 ? Qodalis.Cli.Abstractions.Insights.TimeBuckets.Format(samples[^1].Timestamp) : null,
+        MemoryMb = Range(samples.Select(s => s.MemoryMb).ToList()),
+        CpuPercent = Range(samples.Where(s => s.CpuPercent != null).Select(s => s.CpuPercent!.Value).ToList()),
+        MaxWsConnections = samples.Count > 0 ? samples.Max(s => s.ActiveWsConnections) : 0,
+        MaxShellSessions = samples.Count > 0 ? samples.Max(s => s.ActiveShellSessions) : 0,
+    };
+
+    private static StatusRange? Range(List<double> values) => values.Count == 0
+        ? null
+        : new StatusRange(values.Min(), Math.Round(values.Average(), 2, MidpointRounding.AwayFromZero), values.Max());
 }

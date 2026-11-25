@@ -120,6 +120,28 @@ public class ModuleRegistry : ICliProcessorFilter
     }
 
     /// <summary>
+    /// Enables or disables a module (idempotent, unlike <see cref="Toggle"/>): <c>Changed</c> is false when it already
+    /// was. <c>null</c> for an unknown id.
+    /// </summary>
+    /// <param name="id">The module name (case-insensitive).</param>
+    /// <param name="enabled">The state to set.</param>
+    public (PluginInfo Module, bool Changed)? SetEnabled(string id, bool enabled)
+    {
+        if (Find(id) is not { } module) return null;
+        var changed = false;
+        _enabledState.AddOrUpdate(module.Name, _ =>
+        {
+            changed = !enabled;
+            return enabled;
+        }, (_, current) =>
+        {
+            changed = current != enabled;
+            return enabled;
+        });
+        return (Info(module), changed);
+    }
+
+    /// <summary>
     /// Checks whether a plugin module is currently enabled.
     /// </summary>
     /// <param name="id">The module name.</param>
