@@ -75,7 +75,10 @@ public sealed class FakeEventSocketManager : ICliEventSocketManager
 
     public Task CloseEndedSessionsAsync(Func<CliPrincipal, Task<bool>> isSessionActive) => Task.CompletedTask;
 
-    public IReadOnlyList<CliWebSocketClientInfo> GetClients() => [];
+    /// <summary>The clients <see cref="GetClients"/> reports (none unless a test adds some).</summary>
+    public List<CliWebSocketClientInfo> Clients { get; } = [];
+
+    public IReadOnlyList<CliWebSocketClientInfo> GetClients() => Clients;
 
     /// <summary>Parsed <c>session-kicked</c> payloads (<c>data</c> objects), from any channel.</summary>
     public List<JsonElement> SessionKicked() => Messages.Concat(UserMessages.Select(m => m.Message))

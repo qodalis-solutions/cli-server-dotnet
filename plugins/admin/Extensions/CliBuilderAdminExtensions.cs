@@ -11,6 +11,7 @@ using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Logs;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Admin.Auth;
+using Qodalis.Cli.Plugin.Admin.Commands;
 using Qodalis.Cli.Plugin.Admin.Controllers;
 using Qodalis.Cli.Plugin.Admin.Services;
 
@@ -51,6 +52,11 @@ public static class CliBuilderAdminExtensions
         // Samples the server status every 15 seconds for the dashboard's charts (GET /api/v1/qcli/status/history).
         builder.Services.TryAddSingleton<StatusHistory>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<StatusHistory>());
+        builder.Services.TryAddSingleton<ServerStatus>();
+
+        // The admin command (status, plugins, clients, logs): admin:access, logs:read for logs; the module describes it
+        builder.AddModule(new AdminModule());
+        builder.AddProcessor<CliAdminCommandProcessor>();
 
         // Module registry — will be resolved after all modules are registered
         builder.Services.AddSingleton<ModuleRegistry>(sp =>
