@@ -14,8 +14,21 @@ public sealed class StatusSnapshot
 {
     [JsonPropertyName("uptimeSeconds")]
     public long UptimeSeconds { get; init; }
+    /// <summary>The process working set in MB.</summary>
     [JsonPropertyName("memoryUsageMb")]
     public double MemoryUsageMb { get; init; }
+
+    /// <summary>The RAM the server can use in MB (the container limit when one is set below the installed RAM); <c>null</c> when unknown.</summary>
+    [JsonPropertyName("systemMemoryTotalMb")]
+    public long? SystemMemoryTotalMb { get; init; }
+
+    /// <summary>The memory in use in MB (the container's usage when limited, else the machine's); <c>null</c> when unknown.</summary>
+    [JsonPropertyName("systemMemoryUsedMb")]
+    public long? SystemMemoryUsedMb { get; init; }
+
+    /// <summary><c>true</c> when <see cref="SystemMemoryTotalMb"/> is a container limit; <c>null</c> when unknown.</summary>
+    [JsonPropertyName("memoryLimited")]
+    public bool? MemoryLimited { get; init; }
     [JsonPropertyName("startedAt")]
     public required string StartedAt { get; init; }
     [JsonPropertyName("platform")]
@@ -40,7 +53,10 @@ public sealed class StatusSnapshot
     public double? CpuUsagePercent { get; init; }
 }
 
-/// <summary>Reads the server status now: process metrics, the latest CPU sample and the server's counts.</summary>
+/// <summary>
+/// Reads the server status now: process metrics, the machine's (or container's) memory, the latest CPU sample and the
+/// server's counts.
+/// </summary>
 public sealed class ServerStatus(ICliEventSocketManager eventSocketManager, ICliCommandRegistry commandRegistry, IServiceProvider services)
 {
     /// <summary>The audit plugin's package id (the admin plugin does not reference it).</summary>
@@ -54,10 +70,14 @@ public sealed class ServerStatus(ICliEventSocketManager eventSocketManager, ICli
 
         using var process = Process.GetCurrentProcess();
         var started = process.StartTime.ToUniversalTime();
+        var system = SystemMemory.Read(services.GetService<SystemMemoryReaders>());
         return new StatusSnapshot
         {
             UptimeSeconds = (long)(DateTime.UtcNow - started).TotalSeconds,
             MemoryUsageMb = Math.Round(process.WorkingSet64 / (1024.0 * 1024.0), 2),
+            SystemMemoryTotalMb = system.TotalMb,
+            SystemMemoryUsedMb = system.UsedMb,
+            MemoryLimited = system.Limited,
             StartedAt = started.ToString("o"),
             Platform = "dotnet",
             PlatformVersion = RuntimeInformation.FrameworkDescription,

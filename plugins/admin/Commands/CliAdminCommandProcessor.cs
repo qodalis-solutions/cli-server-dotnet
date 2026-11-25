@@ -126,7 +126,10 @@ public sealed class CliAdminCommandProcessor : CliCommandProcessor
                 };
                 foreach (var (key, value) in JsonSerializer.SerializeToNode(status, Json)!.AsObject().ToList())
                     body[key] = value?.DeepClone();
-                if (!body.ContainsKey("cpuUsagePercent")) body["cpuUsagePercent"] = null;
+                foreach (var key in new[] { "cpuUsagePercent", "systemMemoryTotalMb", "systemMemoryUsedMb", "memoryLimited" })
+                {
+                    if (!body.ContainsKey(key)) body[key] = null;
+                }
                 return body.ToJsonString(Json);
             }
             var rows = new (string Key, string Value)[]
@@ -134,7 +137,7 @@ public sealed class CliAdminCommandProcessor : CliCommandProcessor
                 ("Server", server == null ? "unknown" : $"{server.Id}{(server.Version != null ? $" {server.Version}" : "")}"),
                 ("Platform", $"{status.Platform} {status.PlatformVersion} ({status.Os})"),
                 ("Uptime", $"{AdminFormat.Duration(status.UptimeSeconds)} (since {AdminFormat.ShortTime(status.StartedAt)})"),
-                ("Memory", $"{Number(status.MemoryUsageMb)} MB"),
+                ("Memory", AdminFormat.MemoryLine(status)),
                 ("CPU", status.CpuUsagePercent is { } cpu ? $"{Number(cpu)}%" : "n/a"),
                 ("Connections", $"{status.ActiveWsConnections} WebSocket, {status.ActiveShellSessions} shell"),
                 ("Commands", status.RegisteredCommands.ToString(CultureInfo.InvariantCulture)),
@@ -415,6 +418,30 @@ public static partial class AdminFormat
         string Line(IReadOnlyList<string> cells) =>
             string.Join("  ", cells.Select((c, i) => i == cells.Count - 1 ? c : c.PadRight(widths[i]))).TrimEnd();
         return string.Join('\n', new[] { Line(headers) }.Concat(rows.Select(r => Line(r))));
+    }
+
+    /// <summary>512 -> <c>512 MB</c>; from 1024 MB in GB with one decimal: 16384 -> <c>16 GB</c>, 10035 -> <c>9.8 GB</c>.</summary>
+    public static string MemorySize(double megabytes) =>
+        megabytes < 1024
+            ? $"{Math.Round(megabytes, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)} MB"
+            : $"{(Math.Round(megabytes / 1024 * 10, MidpointRounding.AwayFromZero) / 10).ToString(CultureInfo.InvariantCulture)} GB";
+
+    /// <summary>
+    /// The Memory line of <c>admin status</c>: the process, then the machine's (or the container's) use of the RAM the
+    /// server can use: <c>146 MB (process) · machine 9.8 GB of 16 GB used (61%)</c>,
+    /// <c>... · container 300 MB of 512 MB used (59%)</c>. Only the process memory when the total is unknown; the total
+    /// alone when the use is.
+    /// </summary>
+    public static string MemoryLine(StatusSnapshot status)
+    {
+        var process = $"{status.MemoryUsageMb.ToString(CultureInfo.InvariantCulture)} MB";
+        if (status.SystemMemoryTotalMb is not { } total || total <= 0) return process;
+        var limited = status.MemoryLimited == true;
+        var scope = limited ? "container" : "machine";
+        var system = status.SystemMemoryUsedMb is { } used
+            ? $"{scope} {MemorySize(used)} of {MemorySize(total)} used ({Math.Round(used * 100.0 / total, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)}%)"
+            : $"{scope}{(limited ? " limit" : "")} {MemorySize(total)}";
+        return $"{process} (process) · {system}";
     }
 
     /// <summary>One entry as a line of <c>admin logs</c>: time, level, [source], message.</summary>

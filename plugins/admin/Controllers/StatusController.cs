@@ -61,6 +61,8 @@ public class StatusController : ControllerBase
             {
                 timestamp = TimeBuckets.Format(s.Timestamp),
                 memoryMb = s.MemoryMb,
+                systemMemoryUsedMb = s.SystemMemoryUsedMb,
+                systemMemoryTotalMb = s.SystemMemoryTotalMb,
                 cpuPercent = s.CpuPercent,
                 activeWsConnections = s.ActiveWsConnections,
                 activeShellSessions = s.ActiveShellSessions,

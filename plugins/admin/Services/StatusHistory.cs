@@ -11,8 +11,11 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// <param name="CpuPercent">Process CPU over the previous interval as a percentage of one core; null for the first sample or when unknown.</param>
 /// <param name="ActiveWsConnections">Connected event WebSocket clients.</param>
 /// <param name="ActiveShellSessions">Open shell sessions.</param>
+/// <param name="SystemMemoryUsedMb">Memory in use on the machine (or in the container when limited) in MB; null when unknown.</param>
+/// <param name="SystemMemoryTotalMb">The RAM the server can use in MB (the container limit when one applies); null when unknown.</param>
 public sealed record StatusSample(
-    DateTime Timestamp, double MemoryMb, double? CpuPercent, int ActiveWsConnections, int ActiveShellSessions);
+    DateTime Timestamp, double MemoryMb, double? CpuPercent, int ActiveWsConnections, int ActiveShellSessions,
+    long? SystemMemoryUsedMb = null, long? SystemMemoryTotalMb = null);
 
 /// <summary>
 /// Samples the values of <c>GET /api/v1/qcli/status</c> every <see cref="Interval"/> (the first at start) into a ring
@@ -76,12 +79,15 @@ public sealed class StatusHistory : BackgroundService
             _previous = cpu is { } c ? (now, c) : null;
         }
 
+        var system = SystemMemory.Read(_services.GetService<SystemMemoryReaders>());
         var sample = new StatusSample(
             now,
             Math.Round(_memoryMb(), 2),
             cpuPercent,
             _services.GetService<ICliEventSocketManager>()?.GetClients().Count ?? 0,
-            _services.GetService<ICliShellSessions>()?.Count ?? 0);
+            _services.GetService<ICliShellSessions>()?.Count ?? 0,
+            system.UsedMb,
+            system.TotalMb);
         Add(sample);
         return sample;
     }
