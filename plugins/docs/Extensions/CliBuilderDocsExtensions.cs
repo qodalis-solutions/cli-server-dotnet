@@ -33,6 +33,9 @@ public static class CliBuilderDocsExtensions
 
         builder.AddInstalledPlugin(typeof(DocsOptions).Assembly);
         builder.Services.AddSingleton(options);
+        builder.Services.AddSingleton(sp => new DocsPages(options, sp.GetService<IHostEnvironment>()));
+        // The docs command (docs list, docs read <slug>): the same pages and views as the routes
+        builder.AddProcessor<CliDocsCommandProcessor>();
         builder.Services.AddSingleton(new CliPortalSection(CliPortalSection.Docs, options.Title, options.BasePath));
         return builder;
     }
@@ -48,9 +51,8 @@ public static class CliBuilderDocsExtensions
         var services = app.ApplicationServices;
         var options = services.GetService<DocsOptions>()
                       ?? throw new InvalidOperationException("docs: call cli.AddDocs() before UseQodalisDocs()");
-        var contentRoot = services.GetService<IHostEnvironment>()?.ContentRootPath ?? Directory.GetCurrentDirectory();
-        var pages = DocsPageLoader.Load(options, contentRoot);
-        var bySlug = pages.ToDictionary(p => p.Slug, StringComparer.Ordinal);
+        var docs = services.GetRequiredService<DocsPages>();
+        _ = docs.All; // read now, so a page error stops the startup
         var listPath = options.BasePath + "/pages";
         var pagePrefix = listPath + "/";
 
@@ -74,17 +76,16 @@ public static class CliBuilderDocsExtensions
                 return;
             }
 
-            var variables = Variables(options, context.Request);
+            var variables = docs.Variables($"{context.Request.Scheme}://{context.Request.Host.Value}{context.Request.PathBase.Value}");
             object body;
             var status = StatusCodes.Status200OK;
             if (path == listPath)
             {
-                body = pages.Select(p => new PageSummary(p.Slug, DocsVariables.Replace(p.Title, variables), p.Group, p.Order)).ToList();
+                body = docs.List(variables);
             }
-            else if (bySlug.TryGetValue(path[pagePrefix.Length..], out var page))
+            else if (docs.Find(path[pagePrefix.Length..]) is { } page)
             {
-                body = new PageView(page.Slug, DocsVariables.Replace(page.Title, variables), page.Group, page.Order,
-                    DocsVariables.Replace(page.Markdown, variables));
+                body = DocsPages.View(page, variables);
             }
             else
             {
@@ -101,23 +102,9 @@ public static class CliBuilderDocsExtensions
         return app;
     }
 
-    private static Dictionary<string, string> Variables(DocsOptions options, HttpRequest request)
-    {
-        var values = new Dictionary<string, string>(options.Variables, StringComparer.Ordinal)
-        {
-            [DocsVariables.BaseUrl] = (options.BaseUrl ?? $"{request.Scheme}://{request.Host.Value}{request.PathBase.Value}").TrimEnd('/'),
-            [DocsVariables.Name] = options.Name,
-        };
-        return values;
-    }
-
     private static bool IsValidBasePath(string? path) =>
         !string.IsNullOrEmpty(path) && path[0] == '/' && path.Length > 1 && path[^1] != '/' &&
         !path.Contains("//", StringComparison.Ordinal) && !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\');
-
-    private sealed record PageSummary(string Slug, string Title, string Group, int Order);
-
-    private sealed record PageView(string Slug, string Title, string Group, int Order, string Markdown);
 
     private sealed record ErrorBody(string Error);
 }
