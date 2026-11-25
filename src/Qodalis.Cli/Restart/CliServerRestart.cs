@@ -209,6 +209,7 @@ public sealed partial class CliServerRestart : ICliServerRestart
     public const int MaxReasonLength = 500;
 
     private static readonly TimeSpan HookTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SocketCloseTimeout = TimeSpan.FromSeconds(5);
 
     private readonly CliServerRestartOptions _options;
     private readonly ICliServerRestartRuntime _runtime;
@@ -508,8 +509,9 @@ public sealed partial class CliServerRestart : ICliServerRestart
         var args = runtime.CommandLineArgs;
         var executable = runtime.ProcessPath ?? (args.Count > 0 ? args[0] : throw new InvalidOperationException("no process path"));
         var arguments = args.Skip(1).ToList();
-        var host = Path.GetFileNameWithoutExtension(executable);
-        if (string.Equals(host, "dotnet", StringComparison.OrdinalIgnoreCase))
+        // The file name on either kind of path (a Windows path read on any OS)
+        var host = executable.Split('/', '\\')[^1];
+        if (host.Equals("dotnet", StringComparison.OrdinalIgnoreCase) || host.Equals("dotnet.exe", StringComparison.OrdinalIgnoreCase))
         {
             var entry = runtime.EntryAssemblyPath ?? (args.Count > 0 ? args[0] : null)
                 ?? throw new InvalidOperationException("no entry assembly");
@@ -526,7 +528,8 @@ public sealed partial class CliServerRestart : ICliServerRestart
     {
         try
         {
-            await CloseSocketsAsync();
+            // A client that never answers the close does not hold the restart up
+            await CloseSocketsAsync().WaitAsync(SocketCloseTimeout);
         }
         catch (Exception ex)
         {
