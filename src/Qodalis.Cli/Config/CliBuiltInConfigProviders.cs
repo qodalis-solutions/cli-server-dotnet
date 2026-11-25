@@ -81,10 +81,26 @@ public sealed class CliServerConfigProvider : ICliConfigProvider
 /// <summary>Which environment variables and configuration keys the <c>host</c> provider shows (<c>cli.ConfigureConfig</c>).</summary>
 public sealed class CliHostEnvironmentOptions
 {
-    /// <summary>Names to show; <c>*</c> matches any run of characters (default every one).</summary>
-    public List<string> Include { get; set; } = ["*"];
+    /// <summary>
+    /// The names shown by default: the server's own (<c>QCLI_*</c>, <c>Qcli:*</c>) and a few harmless ones. Everything
+    /// else (PATH, session ids, socket paths, cloud credentials, connection strings, ...) stays out unless allowed.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultAllow =
+    [
+        "QCLI_*", "Qcli:*", "ASPNETCORE_ENVIRONMENT", "DOTNET_ENVIRONMENT", "ASPNETCORE_URLS", "ASPNETCORE_HTTP_PORTS",
+        "ASPNETCORE_HTTPS_PORTS", "PORT", "HOST", "TZ", "LANG", "Urls", "AllowedHosts", "Logging:*",
+    ];
 
-    /// <summary>Names to leave out, applied after <see cref="Include"/>.</summary>
+    /// <summary>Further names to show, besides <see cref="DefaultAllow"/>; <c>*</c> matches any run of characters.</summary>
+    public List<string> Allow { get; set; } = [];
+
+    /// <summary>
+    /// Names to show instead of <see cref="DefaultAllow"/> (and <see cref="Allow"/>): replaces it entirely, so
+    /// <c>["*"]</c> shows every variable and key. Values that look secret are masked either way.
+    /// </summary>
+    public List<string>? Include { get; set; }
+
+    /// <summary>Names to leave out, applied after the allowed ones.</summary>
     public List<string> Exclude { get; set; } = [];
 
     /// <summary>Further names whose values are secrets (masked), besides the built-in rule.</summary>
@@ -96,18 +112,21 @@ public sealed record CliHostOption(string Key, string? Label, string? Descriptio
 
 /// <summary>
 /// <c>host</c> (read-only): the host's configuration. Section <c>options</c>: the options the server was created with;
-/// <c>environment</c>: the process environment variables; <c>configuration</c>: the host's <see cref="IConfiguration"/>
-/// (appsettings, user secrets, command line, ...; the keys of environment variables are in <c>environment</c>). Secrets
+/// <c>environment</c>: the allowed process environment variables; <c>configuration</c>: the allowed keys of the host's
+/// <see cref="IConfiguration"/> (appsettings, user secrets, command line, ...; the keys of environment variables are in
+/// <c>environment</c>). Only <see cref="CliHostEnvironmentOptions.DefaultAllow"/> plus
+/// <see cref="CliHostEnvironmentOptions.Allow"/> are listed, or <see cref="CliHostEnvironmentOptions.Include"/>. Secrets
 /// are masked (<c>value: null</c>, <c>isSet: true</c>; see <see cref="IsSecret"/>).
 /// </summary>
 public sealed class CliHostConfigProvider : ICliConfigProvider
 {
     /// <summary>
-    /// Names treated as secrets: anything with SECRET, PASSWORD/PASSWD/PWD_, TOKEN, KEY (API_KEY, _KEY, KEY_, :Key),
-    /// PRIVATE, CREDENTIAL, AUTH, DSN, CONNECTION STRING, COOKIE, SALT, SIGNATURE or CERT in it.
+    /// Names treated as secrets: anything with SECRET, PASS (PASSWORD, PASSWD, PASSPHRASE), PWD_, TOKEN, KEY, SESSION,
+    /// CREDENTIAL, AUTH, PRIVATE, CONN (CONNECTION, ConnectionStrings:*), DSN, COOKIE, SALT, SIGNATURE or CERT in it,
+    /// anywhere and in any case. Broad on purpose: a harmless variable masked costs less than a secret shown.
     /// </summary>
     private static readonly Regex SecretName = new(
-        @"(SECRET|PASSWORD|PASSWD|PWD_|TOKEN|APIKEY|API_KEY|(^|_)KEY($|_)|PRIVATE|CREDENTIAL|AUTH|DSN|CONN(ECTION)?_?STR(ING)?|COOKIE|SALT|SIGNATURE|CERT)",
+        "(SECRET|PASS|PWD_|TOKEN|KEY|SESSION|CREDENTIAL|AUTH|PRIVATE|CONN|DSN|COOKIE|SALT|SIGNATURE|CERT)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary><c>scheme://user:password@host</c>: a URL carrying credentials.</summary>
@@ -129,7 +148,7 @@ public sealed class CliHostConfigProvider : ICliConfigProvider
         _options = options;
         _configuration = configuration;
         var env = environment ?? new CliHostEnvironmentOptions();
-        _include = env.Include.Select(GlobToRegex).ToList();
+        _include = (env.Include ?? [.. CliHostEnvironmentOptions.DefaultAllow, .. env.Allow]).Select(GlobToRegex).ToList();
         _exclude = env.Exclude.Select(GlobToRegex).ToList();
         _secrets = env.Secrets.ToList();
         _environment = variables ?? (() => Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
@@ -147,7 +166,7 @@ public sealed class CliHostConfigProvider : ICliConfigProvider
     /// <summary>True when a variable or configuration key holds a secret: by its name, a configured name, or its value (a URL with credentials, a connection string with a password).</summary>
     public static bool IsSecret(string name, string? value, IEnumerable<string>? extra = null)
     {
-        if (SecretName.IsMatch(name.Replace(':', '_').Replace("__", "_"))) return true;
+        if (SecretName.IsMatch(name)) return true;
         if (extra?.Any(pattern => GlobToRegex(pattern).IsMatch(name)) == true) return true;
         return value != null && (UrlWithCredentials.IsMatch(value) || ConnectionStringPassword.IsMatch(value));
     }
@@ -221,11 +240,8 @@ public sealed class CliHostConfigProvider : ICliConfigProvider
 /// <summary>How CORS headers are decided.</summary>
 public static class CliCorsMode
 {
-    /// <summary>CORS headers for the allowed origins (<c>SetAllowedOrigins</c>).</summary>
+    /// <summary>CORS headers for the allowed origins (the default policy, applied by <c>app.UseCors()</c>) and same-origin.</summary>
     public const string Origins = "origins";
-
-    /// <summary>No CORS policy from the library (no allowed origins at startup: the host configures CORS, if any).</summary>
-    public const string Disabled = "disabled";
 }
 
 /// <summary>The runtime providers of the core: <c>cors</c>, <c>mcp</c> and <c>filesystem</c>.</summary>
@@ -274,11 +290,11 @@ public static class CliRuntimeConfigProviders
                         {
                             Key = "mode",
                             Label = "Mode",
-                            Description = "origins: CORS headers for the allowed origins (set at startup); disabled: the library registers no CORS policy (WebSocket and CSRF checks still use the allowed origins)",
+                            Description = "origins: CORS headers for the allowed origins (the default policy, applied where the host calls app.UseCors())",
                             Type = CliConfigEntryTypes.Enum,
                             Mutable = false,
                             Default = mode,
-                            Validation = new CliConfigValidation { Options = [CliCorsMode.Origins, CliCorsMode.Disabled] },
+                            Validation = new CliConfigValidation { Options = [CliCorsMode.Origins] },
                         },
                         new CliConfigSettingDefinition
                         {
