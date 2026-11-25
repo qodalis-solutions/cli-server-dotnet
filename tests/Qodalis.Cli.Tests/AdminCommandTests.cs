@@ -95,12 +95,12 @@ public sealed class AdminCommandTests : IAsyncLifetime
     // ---- registration ----
 
     [Fact]
-    public async Task IsTheAdminModule_WithStatusPluginsClientsLogsAndDashboard_AdminAccessOnTheRoot_LogsReadOnLogs()
+    public async Task IsTheAdminModule_WithStatusPluginsClientsLogsRestartAndDashboard_AdminAccessOnTheRoot_LogsReadOnLogs()
     {
         var h = await StartAsync();
         var root = h.Service<ICliCommandRegistry>().FindProcessor("admin")!;
         Assert.Equal(["admin:access"], root.RequiredPermissions!);
-        Assert.Equal(["status -", "plugins -", "clients -", "logs logs:read", "dashboard -"],
+        Assert.Equal(["status -", "plugins -", "clients -", "logs logs:read", "restart -", "dashboard -"],
             root.Processors!.Select(p => $"{p.Command} {(p.RequiredPermissions == null ? "-" : string.Join(",", p.RequiredPermissions))}"));
         Assert.Contains(h.Service<ModuleRegistry>().List(), m => m.Id == "admin" && m.Processors.SequenceEqual(["admin"]));
         var plugins = root.Processors!.Single(p => p.Command == "plugins");

@@ -36,7 +36,7 @@ public class PermissionsEndpointTests : IAsyncLifetime
     {
         var entries = await GetEntriesAsync(_root);
 
-        Assert.Equal(28, entries.Count);
+        Assert.Equal(29, entries.Count);
         Assert.Equal("commands:execute", entries[0].GetProperty("name").GetString());
         var last = entries[^1];
         Assert.Equal("rates:read", last.GetProperty("name").GetString());
@@ -58,7 +58,7 @@ public class PermissionsEndpointTests : IAsyncLifetime
                 "groups:read", "groups:create", "groups:update", "groups:delete",
                 "sessions:read", "sessions:revoke", "tokens:read", "tokens:revoke",
             ],
-            names.Skip(15).Take(12));
+            names.Skip(16).Take(12));
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class PermissionsEndpointTests : IAsyncLifetime
         Assert.Equal(403, (int)res.StatusCode);
         Assert.Equal("""{"error":"permission denied: users:read"}""", await res.Content.ReadAsStringAsync());
 
-        Assert.Equal(28, (await GetEntriesAsync(_root, "?all=true")).Count);
+        Assert.Equal(29, (await GetEntriesAsync(_root, "?all=true")).Count);
     }
 
     [Theory]
