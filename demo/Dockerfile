@@ -22,6 +22,10 @@ COPY plugins/data-explorer-mysql/Qodalis.Cli.Plugin.DataExplorer.Mysql.csproj pl
 COPY plugins/data-explorer-mssql/Qodalis.Cli.Plugin.DataExplorer.Mssql.csproj plugins/data-explorer-mssql/
 COPY plugins/data-explorer-redis/Qodalis.Cli.Plugin.DataExplorer.Redis.csproj plugins/data-explorer-redis/
 COPY plugins/data-explorer-elasticsearch/Qodalis.Cli.Plugin.DataExplorer.Elasticsearch.csproj plugins/data-explorer-elasticsearch/
+COPY plugins/databases/Qodalis.Cli.Plugin.Databases.csproj plugins/databases/
+COPY plugins/databases-efcore/Qodalis.Cli.Plugin.Databases.EfCore.csproj plugins/databases-efcore/
+COPY plugins/config-efcore/Qodalis.Cli.Plugin.Config.EfCore.csproj plugins/config-efcore/
+COPY plugins/config-redis/Qodalis.Cli.Plugin.Config.Redis.csproj plugins/config-redis/
 COPY demo/Demo.csproj demo/
 RUN dotnet restore demo/Demo.csproj
 

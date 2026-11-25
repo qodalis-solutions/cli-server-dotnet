@@ -21,6 +21,9 @@ using Qodalis.Cli.Plugin.Users.Extensions;
 using Qodalis.Cli.Plugin.PublicApi;
 using Qodalis.Cli.Plugin.Docs;
 using Qodalis.Cli.Plugin.Portal;
+using Qodalis.Cli.Plugin.Config.EfCore;
+using Qodalis.Cli.Plugin.Config.Redis;
+using Microsoft.EntityFrameworkCore;
 // Uncomment the using directive for the storage provider you want to use:
 // using Qodalis.Cli.Plugin.FileSystem.Json;
 // using Qodalis.Cli.Plugin.FileSystem.Sqlite;
@@ -274,10 +277,26 @@ builder.Services
         cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
 
-        // Config providers: settings changed from the dashboard's Settings page, `config set` or MCP `config_set` are
-        // kept in a JSON file (QCLI_DEMO_CONFIG) and applied again at the next start.
+        // ---------------------------------------------------------------
+        // Config stores: settings changed from the dashboard's Config page, `config set` or MCP `config_set` are kept
+        // and applied again at the next start. Each provider may keep its settings in a store of its own:
+        //
+        //   - the default store, for every provider without one: a JSON file (QCLI_DEMO_CONFIG)
+        //   - `demo` (the app's own settings below): the app's appsettings.json, section Qcli:Config, next to the rest
+        //     of its configuration (IConfiguration sees the change: Qcli:Config:demo:greeting:values:text)
+        //   - `jobs` (history retention): the demo's SQLite database (QCLI_DEMO_DB), table QcliConfig, through EF Core
+        //   - `custom` (free settings): Redis when QCLI_DEMO_REDIS_URL is set (redis://localhost:6379/0)
+        //
+        // `config list` and GET /api/v1/qcli/config show the store of every provider; the host's store for an id
+        // wins over the provider's own (cli.SetConfigStore(store, id), ConfigureConfig(o => o.Stores[id] = store)).
+        // ---------------------------------------------------------------
         cli.SetConfigStore(new JsonFileConfigStore(Environment.GetEnvironmentVariable("QCLI_DEMO_CONFIG")
             ?? Path.Combine(Path.GetTempPath(), "qcli-demo-config.json")));
+        cli.SetAppSettingsConfigStore("demo");
+        cli.AddEfCoreConfigStore(o => o.UseSqlite($"Data Source={Environment.GetEnvironmentVariable("QCLI_DEMO_DB")
+            ?? Path.Combine(Path.GetTempPath(), "qcli-demo.sqlite")}"), providerId: "jobs");
+        if (Environment.GetEnvironmentVariable("QCLI_DEMO_REDIS_URL") is { Length: > 0 } redisUrl)
+            cli.AddRedisConfigStore(o => o.Url = redisUrl, providerId: "custom");
         // A host app's own settings: what the demo's greeting says, and a secret it never shows
         cli.AddConfigProvider(new CliStoredConfigProvider(new CliStoredConfigProviderOptions
         {

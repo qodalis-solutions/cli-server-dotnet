@@ -11,6 +11,7 @@
         <!-- 10.x: Microsoft.OpenApi 2, as Microsoft.AspNetCore.OpenApi (public-api plugin) -->
         <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     </ItemGroup>
 
     <ItemGroup>
@@ -35,6 +36,8 @@
         <ProjectReference Include="../plugins/public-api/Qodalis.Cli.Plugin.PublicApi.csproj" />
         <ProjectReference Include="../plugins/docs/Qodalis.Cli.Plugin.Docs.csproj" />
         <ProjectReference Include="../plugins/portal/Qodalis.Cli.Plugin.Portal.csproj" />
+        <ProjectReference Include="../plugins/config-efcore/Qodalis.Cli.Plugin.Config.EfCore.csproj" />
+        <ProjectReference Include="../plugins/config-redis/Qodalis.Cli.Plugin.Config.Redis.csproj" />
     </ItemGroup>
 
     <ItemGroup>
