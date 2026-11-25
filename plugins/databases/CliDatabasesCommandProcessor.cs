@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Qodalis.Cli.Abstractions;
@@ -10,7 +13,7 @@ namespace Qodalis.Cli.Plugin.Databases;
 /// <summary>
 /// <c>databases</c> (alias <c>db</c>): <c>databases list</c>, <c>databases stats &lt;db&gt;</c>,
 /// <c>databases migrations &lt;db&gt;</c>, <c>databases up &lt;db&gt; [--to] [--dry-run] [--force]</c>,
-/// <c>databases down &lt;db&gt; --to &lt;id&gt; [--dry-run]</c>.
+/// <c>databases down &lt;db&gt; --to &lt;id&gt; [--dry-run]</c>, <c>databases runs [&lt;db&gt;] [-n N] [--json]</c>.
 /// </summary>
 public class CliDatabasesCommandProcessor : CliCommandProcessor
 {
@@ -26,6 +29,15 @@ public class CliDatabasesCommandProcessor : CliCommandProcessor
             new Sub(this, "migrations", "A database's migrations and their status", DatabasesPermissions.Read, StatusAsync),
             new Sub(this, "up", "Apply pending migrations", DatabasesPermissions.Migrate, (c, ct) => RunAsync(c, "up", ct), Flags(false)),
             new Sub(this, "down", "Roll back migrations", DatabasesPermissions.Migrate, (c, ct) => RunAsync(c, "down", ct), Flags(true)),
+            new Sub(this, "runs", "Shows the migration run history of a database: time, direction, status, count, who ran it, error",
+                DatabasesPermissions.Read, RunsAsync, RunsFlags())
+            {
+                Examples =
+                [
+                    new("databases runs main", "The last 20 runs of the database main"),
+                    new("databases runs main -n 5 --json", "The last 5 runs as JSON"),
+                ],
+            },
         ];
     }
 
@@ -43,7 +55,10 @@ public class CliDatabasesCommandProcessor : CliCommandProcessor
         new("databases migrations main", "The migrations of main and their status"),
         new("databases up main --dry-run", "The SQL the pending migrations would run"),
         new("databases down main --to 0003", "Roll back what was applied after 0003"),
+        new("databases runs main", "The migration run history of main"),
     ];
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private CliDatabases Databases => _services.GetRequiredService<CliDatabases>();
 
@@ -137,6 +152,71 @@ public class CliDatabasesCommandProcessor : CliCommandProcessor
             return ex.Message;
         }
     }
+
+    private async Task<string> RunsAsync(CliProcessCommand command, CancellationToken ct)
+    {
+        try
+        {
+            var limit = LimitOf(command, 20, 100);
+            if (limit.Error != null) return limit.Error;
+            var name = DatabaseOf(command);
+            if (name == null) return $"Error: name the database: {string.Join(", ", Databases.Databases.Select(d => d.Name))}";
+            var db = Databases.Database(name);
+            if (db == null) return $"Error: unknown database: {name}";
+            var page = await db.RunsAsync(limit.Value, 0, ct);
+            if (Flag(command, "json")) return JsonSerializer.Serialize(new { database = db.Name, items = page.Items, total = page.Total }, Json);
+            if (page.Items.Count == 0) return $"{db.Name}: no migration runs yet";
+            return string.Join('\n', new[]
+            {
+                $"{db.Name} ({db.Dialect}): {page.Items.Count} of {page.Total} run(s)",
+                $"{"Started",-19} Dir  Status    Count Trigger",
+            }.Concat(page.Items.Select(FormatRunLine)));
+        }
+        catch (CliMigrationException ex)
+        {
+            return $"Error: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// <c>--limit</c> / <c>-n</c>: a whole number from 1 to <paramref name="max"/>; <paramref name="fallback"/> when not
+    /// given; an error text when invalid.
+    /// </summary>
+    internal static (int Value, string? Error) LimitOf(CliProcessCommand command, int fallback, int max)
+    {
+        if (!command.Args.TryGetValue("limit", out var raw) && !command.Args.TryGetValue("n", out raw)) return (fallback, null);
+        var text = raw?.ToString();
+        if (raw == null || text is "True" or "true") return (fallback, null);
+        return int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n) && n >= 1 && n <= max
+            ? (n, null)
+            : (0, $"Error: --limit must be a whole number from 1 to {max}");
+    }
+
+    /// <summary><c>2026-11-25T10:04:05.123Z</c> -> <c>2026-11-25 10:04:05</c>.</summary>
+    private static string ShortTime(string? iso) =>
+        string.IsNullOrEmpty(iso) ? string.Empty : Regex.Replace(iso.Replace('T', ' '), @"\.\d+Z$|Z$", string.Empty);
+
+    /// <summary>One run as a line of <c>databases runs</c>: time, direction, status, count, trigger/actor, target, error.</summary>
+    public static string FormatRunLine(CliMigrationRun run)
+    {
+        var who = run.Actor != null ? $"{run.Trigger} ({run.Actor})" : run.Trigger;
+        var columns = string.Join(' ', ShortTime(run.StartedAt).PadRight(19), run.Direction.PadRight(4), run.Status.PadRight(9),
+            run.Applied.Count.ToString(CultureInfo.InvariantCulture).PadLeft(5), who);
+        return string.Join("  ", new[] { columns, run.Target != null ? $"to {run.Target}" : "", run.Error ?? "" }.Where(s => s.Length > 0));
+    }
+
+    private static List<ICliCommandParameterDescriptor> RunsFlags() =>
+    [
+        new CliCommandParameterDescriptor
+        {
+            Name = "limit",
+            Aliases = ["n"],
+            Description = "How many runs to show (1-100, default 20)",
+            Type = CommandParameterType.Number,
+            DefaultValue = 20,
+        },
+        new CliCommandParameterDescriptor { Name = "json", Description = "Print the runs as JSON", Type = CommandParameterType.Boolean },
+    ];
 
     private static List<ICliCommandParameterDescriptor> Flags(bool down) =>
     [

@@ -38,18 +38,64 @@ internal static class ConfigCommands
         return new { command = words[0], chainCommands = chain, value = string.Join(' ', positionals), positionals, args, rawCommand = line };
     }
 
-    public static async Task<(int Status, string Text, JsonElement Body)> RunAsync(HttpClient client, string line, string? token = null)
+    /// <summary>
+    /// The body of <c>/execute</c> for <paramref name="line"/> as the web terminal sends it for any command: the
+    /// sub-commands the registry knows (by command or alias) become <c>chainCommands</c>, the other words positionals,
+    /// <c>--name value</c> / <c>-n value</c> args, a lone <c>--flag</c> true.
+    /// </summary>
+    public static object Body(string line, ICliCommandRegistry registry)
+    {
+        var words = CliValueHelpers.SplitShellWords(line);
+        var processor = registry.FindProcessor(words[0]);
+        var chain = new List<string>();
+        var args = new Dictionary<string, object>();
+        var positionals = new List<string>();
+        for (var index = 1; index < words.Count; index++)
+        {
+            var word = words[index];
+            var flag = System.Text.RegularExpressions.Regex.Match(word, @"^--?([A-Za-z][\w-]*)$");
+            if (flag.Success)
+            {
+                var next = index + 1 < words.Count ? words[index + 1] : null;
+                if (next != null && !System.Text.RegularExpressions.Regex.IsMatch(next, "^--?[A-Za-z]")) args[flag.Groups[1].Value] = words[++index];
+                else args[flag.Groups[1].Value] = true;
+                continue;
+            }
+            var sub = positionals.Count == 0 ? Qodalis.Cli.Abstractions.CliCommandNames.Find(processor?.Processors, word) : null;
+            if (sub != null)
+            {
+                chain.Add(word);
+                processor = sub;
+            }
+            else positionals.Add(word);
+        }
+        return new { command = words[0], chainCommands = chain, value = positionals.Count > 0 ? string.Join(' ', positionals) : null, positionals, args, rawCommand = line };
+    }
+
+    public static Task<(int Status, string Text, JsonElement Body)> RunAsync(HttpClient client, string line, string? token = null) =>
+        SendAsync(client, Body(line), token, structured: false);
+
+    /// <summary>
+    /// Runs <paramref name="line"/> with the chain found through <paramref name="registry"/>; the text joins the text
+    /// outputs as they are and structured ones (tables, key-value, json) as JSON.
+    /// </summary>
+    public static Task<(int Status, string Text, JsonElement Body)> RunAsync(HttpClient client, ICliCommandRegistry registry, string line, string? token = null) =>
+        SendAsync(client, Body(line, registry), token, structured: true);
+
+    private static async Task<(int Status, string Text, JsonElement Body)> SendAsync(HttpClient client, object payload, string? token, bool structured)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/qcli/execute")
         {
-            Content = new StringContent(JsonSerializer.Serialize(Body(line)), Encoding.UTF8, "application/json"),
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"),
         };
         if (token != null) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var res = await client.SendAsync(req);
-        var body = JsonSerializer.Deserialize<JsonElement>(await res.Content.ReadAsStringAsync());
+        var raw = await res.Content.ReadAsStringAsync();
+        var body = raw.Length == 0 ? default : JsonSerializer.Deserialize<JsonElement>(raw);
         var text = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("outputs", out var outputs)
-            ? string.Join('\n', outputs.EnumerateArray().Where(o => o.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String)
-                .Select(o => o.GetProperty("value").GetString()))
+            ? string.Join('\n', outputs.EnumerateArray()
+                .Where(o => structured || (o.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String))
+                .Select(o => o.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : o.GetRawText()))
             : string.Empty;
         return ((int)res.StatusCode, text, body);
     }
