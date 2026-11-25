@@ -66,10 +66,12 @@ public sealed class ConfigMcpTests : IAsyncLifetime
     {
         var res = await Call("config_list", new { });
         Assert.False(res.GetProperty("isError").GetBoolean());
+        Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}",
+            res.GetProperty("structuredContent").GetProperty("store").GetRawText());
         var providers = res.GetProperty("structuredContent").GetProperty("providers");
         Assert.Equal(["server", "host", "cors", "mcp", "app", "custom"], providers.EnumerateArray().Select(p => p.GetProperty("id").GetString()));
         Assert.Equal(
-            "{\"id\":\"app\",\"title\":\"App\",\"description\":\"\",\"writable\":true,\"sections\":[{\"id\":\"main\",\"title\":\"main\",\"mutable\":true,\"version\":\"0\",\"keys\":2}]}",
+            "{\"id\":\"app\",\"title\":\"App\",\"description\":\"\",\"writable\":true,\"storage\":{\"kind\":\"store\",\"description\":\"Changes are saved to the config store\",\"sources\":[]},\"sections\":[{\"id\":\"main\",\"title\":\"main\",\"mutable\":true,\"version\":\"0\",\"keys\":2}]}",
             ConfigApi.Find(providers, "id", "app").GetRawText());
     }
 

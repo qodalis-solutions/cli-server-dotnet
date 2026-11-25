@@ -85,11 +85,22 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
         var res = await Client.GetAsync($"{ConfigApi.V1}/config");
         Assert.Equal(200, (int)res.StatusCode);
         Assert.Equal("no-store", res.Headers.CacheControl?.ToString());
-        var providers = (await ConfigApi.JsonOf(res)).GetProperty("providers");
+        var body = await ConfigApi.JsonOf(res);
+        Assert.Equal(["providers", "store"], body.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}", body.GetProperty("store").GetRawText());
+        var providers = body.GetProperty("providers");
         Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "billing", "custom"],
             providers.EnumerateArray().Select(p => p.GetProperty("id").GetString()));
         var billing = ConfigApi.Find(providers, "id", "billing");
-        Assert.Equal(["description", "id", "order", "sections", "title", "writable"], billing.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(["description", "id", "order", "sections", "storage", "title", "writable"], billing.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("{\"kind\":\"store\",\"description\":\"Changes are saved to the config store\",\"sources\":[]}",
+            billing.GetProperty("storage").GetRawText());
+        var storage = providers.EnumerateArray().ToDictionary(p => p.GetProperty("id").GetString()!, p => p.GetProperty("storage"));
+        Assert.Equal("{\"kind\":\"runtime\",\"description\":\"Read from the running server process\",\"sources\":[]}", storage["server"].GetRawText());
+        Assert.Equal("configuration", storage["host"].GetProperty("kind").GetString());
+        Assert.Equal("Server options", storage["host"].GetProperty("sources")[0].GetString());
+        Assert.Equal(("options", 0), (storage["auth"].GetProperty("kind").GetString(), storage["auth"].GetProperty("sources").GetArrayLength()));
+        foreach (var id in new[] { "cors", "mcp", "jobs", "logs", "custom" }) Assert.Equal("store", storage[id].GetProperty("kind").GetString());
         Assert.Equal(("Billing", "", 100, true),
             (billing.GetProperty("title").GetString(), billing.GetProperty("description").GetString(), billing.GetProperty("order").GetInt32(), billing.GetProperty("writable").GetBoolean()));
         var section = billing.GetProperty("sections")[0];
@@ -110,6 +121,8 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
     {
         var server = await ConfigApi.JsonOf(await Client.GetAsync($"{ConfigApi.V1}/config/server"));
         Assert.Equal(("server", false), (server.GetProperty("id").GetString(), server.GetProperty("writable").GetBoolean()));
+        Assert.Equal("runtime", server.GetProperty("storage").GetProperty("kind").GetString());
+        Assert.False(server.TryGetProperty("store", out _));
         Assert.Equal("dotnet", ConfigApi.Find(server.GetProperty("sections")[0].GetProperty("entries"), "key", "platform").GetProperty("value").GetString());
         var missing = await Client.GetAsync($"{ConfigApi.V1}/config/nope");
         Assert.Equal(404, (int)missing.StatusCode);
