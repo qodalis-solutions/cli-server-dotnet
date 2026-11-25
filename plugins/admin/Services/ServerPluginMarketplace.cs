@@ -52,6 +52,11 @@ public sealed class InstalledServerPlugin
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
 
+    /// <summary>While <c>needs-configuration</c>: the required settings without a value (<c>&lt;provider&gt;.&lt;section&gt;.&lt;key&gt;</c>).</summary>
+    [JsonPropertyName("missing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Missing { get; init; }
+
     [JsonPropertyName("updateAvailable")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? UpdateAvailable { get; init; }
@@ -74,7 +79,7 @@ public sealed class InstalledServerPlugin
         string? status = null, bool? updateAvailable = null) => new()
     {
         Name = Name, Package = Package, Version = Version, Title = Title, Icon = Icon, Description = Description,
-        InstalledAt = InstalledAt, InstalledBy = InstalledBy, Status = status ?? Status, LoadedVersion = LoadedVersion, Error = Error,
+        InstalledAt = InstalledAt, InstalledBy = InstalledBy, Status = status ?? Status, LoadedVersion = LoadedVersion, Error = Error, Missing = Missing,
         UpdateAvailable = updateAvailable ?? UpdateAvailable, RestartRequired = restartRequired ?? RestartRequired,
         Changed = changed ?? Changed, PreviousVersion = previousVersion ?? PreviousVersion,
     };
@@ -140,6 +145,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         Url = (options.Url ?? DashboardMarketplaceOptions.DefaultUrl).Trim().TrimEnd('/');
         Install = options.Install;
         NuGetFeed = (options.NuGetFeed ?? DefaultNuGetFeed).Trim().TrimEnd('/');
+        TrustedDependencies = (options.TrustedDependencies ?? []).Select(t => t.Trim()).Where(t => t.Length > 0).ToArray();
         _plugins = plugins;
         _installed = installed;
         _restart = restart ?? (() => null);
@@ -164,6 +170,38 @@ public sealed partial class ServerPluginMarketplace : IDisposable
 
     /// <summary>The NuGet flat container packages are downloaded from.</summary>
     public string NuGetFeed { get; }
+
+    /// <summary>Dependencies installed without a hash in the marketplace record (ids or <c>Prefix.*</c>).</summary>
+    public IReadOnlyList<string> TrustedDependencies { get; }
+
+    private bool Trusted(string id) => TrustedDependencies.Any(t => t.EndsWith(".*", StringComparison.Ordinal)
+        ? id.StartsWith(t[..^1], StringComparison.OrdinalIgnoreCase)
+        : string.Equals(t, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The dependencies the marketplace pins for a version, by id: <c>dependencies: [{ id, version, integrity }]</c>
+    /// (or <c>package</c> for <c>id</c>), or <c>{ id: { version, integrity } }</c>; entries without a sha512 are left out.
+    /// </summary>
+    internal static Dictionary<string, (string Version, string Integrity)> PinnedDependencies(JsonObject version)
+    {
+        var pinned = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? id, JsonNode? node)
+        {
+            var v = Str(node, "version");
+            var integrity = Str(node, "integrity");
+            if (id != null && NuGetPackage.IsVersion(v) && integrity != null && Sha512().IsMatch(integrity)) pinned[id] = (v!, integrity);
+        }
+        switch (version["dependencies"])
+        {
+            case JsonArray list:
+                foreach (var d in list.OfType<JsonObject>()) Add(Str(d, "id") ?? Str(d, "package"), d);
+                break;
+            case JsonObject map:
+                foreach (var (id, d) in map) Add(id, d);
+                break;
+        }
+        return pinned;
+    }
 
     /// <summary>The server's runtime plugins.</summary>
     public CliServerPlugins Plugins => _plugins;
@@ -489,12 +527,15 @@ public sealed partial class ServerPluginMarketplace : IDisposable
 
     private static bool Running(CliServerPluginState s) => s.Status is CliServerPluginStatuses.Loaded or CliServerPluginStatuses.NeedsConfiguration;
 
-    private CliServerPluginState? LoadedOf(string name) => _plugins.States().FirstOrDefault(s => s.Name == name && Running(s));
+    /// <summary>This process's states of installed plugins (not those added in code).</summary>
+    private IEnumerable<CliServerPluginState> MarketplaceStates() => _plugins.States().Where(s => s.Source == CliServerPluginSources.Marketplace);
+
+    private CliServerPluginState? LoadedOf(string name) => MarketplaceStates().FirstOrDefault(s => s.Name == name && Running(s));
 
     /// <summary>One installed plugin with how it runs in this process.</summary>
     public InstalledServerPlugin View(CliServerPluginRecord record)
     {
-        var state = _plugins.States().FirstOrDefault(s => s.Name == record.Name);
+        var state = MarketplaceStates().FirstOrDefault(s => s.Name == record.Name);
         var loaded = state != null && Running(state) ? state.Version : null;
         string status;
         var error = record.Error;
@@ -520,6 +561,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
             Status = status,
             LoadedVersion = loaded,
             Error = status is CliServerPluginStatuses.Loaded or "pending" ? null : error,
+            Missing = status == CliServerPluginStatuses.NeedsConfiguration ? state?.Missing : null,
         };
     }
 
@@ -529,7 +571,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         await _plugins.CheckSettingsAsync();
         var records = _plugins.Records();
         var views = records.Select(View).ToList();
-        foreach (var s in _plugins.States())
+        foreach (var s in MarketplaceStates())
         {
             if (!Running(s) || records.Any(r => r.Name == s.Name)) continue;
             views.Add(new InstalledServerPlugin
@@ -804,16 +846,38 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 seen.Add(package);
             }
 
-            // The dependencies the server does not have, from the same feed (the lowest version of each range, as NuGet resolves)
+            // The dependencies the server does not have, from the same feed: the version the marketplace pins with its
+            // sha512 (checked), else, for a dependency the host trusts, the lowest version of the range (as NuGet resolves)
+            var pinned = PinnedDependencies(target);
             while (queue.Count > 0)
             {
                 var dependency = queue.Dequeue();
                 if (!seen.Add(dependency.Id) || IsFramework(dependency.Id) || CliPluginLoadContext.HostHas(dependency.Id)) continue;
                 if (seen.Count > MaxPackages) throw new DashboardMarketplaceException(502, $"too many dependencies: {package}");
                 if (!CliServerPlugins.IsValidPackage(dependency.Id)) throw new DashboardMarketplaceException(502, $"invalid dependency: {dependency.Id}");
-                var resolved = await ResolveAsync(dependency.Id, dependency.Range, cancellationToken)
-                    ?? throw new DashboardMarketplaceException(502, $"dependency not found: {dependency.Id} {dependency.Range}");
+                string resolved;
+                string? expected = null;
+                if (pinned.TryGetValue(dependency.Id, out var pin))
+                {
+                    if (!NuGetPackage.SatisfiesNuGetRange(pin.Version, dependency.Range))
+                        throw new DashboardMarketplaceException(502, $"the marketplace pins {dependency.Id} {pin.Version}, outside {dependency.Range}");
+                    resolved = pin.Version;
+                    expected = pin.Integrity;
+                }
+                else if (Trusted(dependency.Id))
+                {
+                    resolved = await ResolveAsync(dependency.Id, dependency.Range, cancellationToken)
+                        ?? throw new DashboardMarketplaceException(502, $"dependency not found: {dependency.Id} {dependency.Range}");
+                }
+                else
+                {
+                    throw new DashboardMarketplaceException(400,
+                        $"untrusted dependency: {dependency.Id} (the marketplace gives no sha512 for it; a host can allow it with TrustedDependencies)");
+                }
                 var depBytes = await DownloadAsync(dependency.Id, resolved, cancellationToken);
+                if (expected != null && !CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(Sha512Integrity(depBytes)),
+                        System.Text.Encoding.ASCII.GetBytes(expected)))
+                    throw new DashboardMarketplaceException(502, $"integrity mismatch: {dependency.Id}@{resolved}");
                 using var zip = OpenPackage(depBytes, dependency.Id);
                 NuGetPackage.Nuspec nuspec;
                 try
@@ -824,6 +888,8 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 {
                     throw new DashboardMarketplaceException(502, $"invalid package: {dependency.Id} ({ex.Message})");
                 }
+                if (!string.Equals(nuspec.Id, dependency.Id, StringComparison.OrdinalIgnoreCase))
+                    throw new DashboardMarketplaceException(502, $"the package is {nuspec.Id}, not {dependency.Id}");
                 foreach (var next in nuspec.Dependencies) queue.Enqueue(next);
                 if (NuGetPackage.LibFolder(zip) is { } folder) Extract(zip, folder, staging);
             }
@@ -872,7 +938,10 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         }
     }
 
-    /// <summary>Extracts the folder's files into <paramref name="dir"/> (a file already there, from the plugin or an earlier dependency, wins).</summary>
+    /// <summary>
+    /// Extracts the folder's files into <paramref name="dir"/>: a file already there (from the plugin or an earlier
+    /// dependency) wins, and an assembly the host has is never written (the plugin uses the host's: one copy).
+    /// </summary>
     private static void Extract(ZipArchive zip, string folder, string dir)
     {
         long total = 0;
@@ -880,6 +949,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         {
             var name = Path.GetFileName(entry.FullName);
             if (string.IsNullOrEmpty(name) || name.Contains("..", StringComparison.Ordinal)) continue;
+            if (CliPluginLoadContext.HostHas(Path.GetFileNameWithoutExtension(name))) continue;
             total += entry.Length;
             if (total > 4 * MaxPackageBytes) throw new DashboardMarketplaceException(502, "package too large unpacked");
             var path = Path.Combine(dir, name);

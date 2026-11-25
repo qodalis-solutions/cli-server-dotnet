@@ -55,6 +55,13 @@ public sealed class DashboardMarketplaceOptions
     /// </summary>
     public string NuGetFeed { get; set; } = ServerPluginMarketplace.DefaultNuGetFeed;
 
+    /// <summary>
+    /// NuGet packages a server plugin may depend on without a hash in the marketplace record (ids, or prefixes as
+    /// <c>Acme.*</c>), downloaded from <see cref="NuGetFeed"/> unchecked. Any other dependency the server lacks must
+    /// be listed with its sha512 in the marketplace's version record (<c>dependencies</c>), or the install is refused.
+    /// </summary>
+    public IList<string> TrustedDependencies { get; set; } = [];
+
     /// <summary>Throws <see cref="ArgumentException"/> <c>invalid marketplace url</c> or <c>invalid marketplace install policy</c>.</summary>
     public void Validate()
     {
