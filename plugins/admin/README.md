@@ -53,8 +53,8 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/auth/mode` | GET | Public. Which sign-in the dashboard shows: `{ "mode": "password" \| "external", "signInUrl": string \| null }` |
 | `/api/v1/qcli/auth/login` | POST | Authenticate and receive a JWT token (501 in external mode) |
 | `/api/v1/qcli/auth/me` | GET | Get current authenticated user info |
-| `/api/v1/qcli/status` | GET | Server status (uptime, memory, features) |
-| `/api/v1/qcli/status/history` | GET | The status sampled every 15 seconds (memory, CPU % of one core, WebSocket clients, shell sessions), oldest first: `minutes` (default 60, 1..1440). Kept in memory for 24 hours |
+| `/api/v1/qcli/status` | GET | Server status (uptime, process memory `memoryUsageMb`, the machine's memory `systemMemoryTotalMb`, `systemMemoryUsedMb`, `memoryLimited`, CPU, features) |
+| `/api/v1/qcli/status/history` | GET | The status sampled every 15 seconds (process memory, the machine's used and total memory, CPU % of one core, WebSocket clients, shell sessions), oldest first: `minutes` (default 60, 1..1440). Kept in memory for 24 hours |
 | `/api/v1/qcli/config` | GET | `{ providers }`: the server's [config providers](../../README.md#config-providers) the caller may see (`config:read`) |
 | `/api/v1/qcli/config/{provider}` | GET | One provider |
 | `/api/v1/qcli/config/{provider}/{section}` | PATCH | `{ changes, version? }` (`config:write`): 200 with the section; 400 per-key errors; 409 with the current version |
@@ -64,6 +64,13 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/plugins/installed` | GET | List the installed server plugin packages (`id`, `name`, `version`, `description`) |
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |
 | `/api/v1/qcli/ws/clients` | GET | List active WebSocket connections |
+
+`systemMemoryTotalMb` is the RAM the server can use: the container (cgroup) limit when one is set below the installed RAM
+(`memory.max`, v1 `memory.limit_in_bytes`, else the GC's container-aware `TotalAvailableMemoryBytes`; then `memoryLimited`
+is true), otherwise the installed RAM. `systemMemoryUsedMb` is the memory in use: the container's usage when limited
+(`memory.current`, v1 `memory.usage_in_bytes`), otherwise total minus available (`MemAvailable` of `/proc/meminfo` on
+Linux, `GlobalMemoryStatusEx` on Windows, free, file-backed, purgeable and speculative pages on macOS). Each is null when
+it cannot be read; register a `SystemMemoryReaders` to read them elsewhere.
 
 The plugin registers two config providers: `auth` (read-only: the sign-in mode, the static admin's username, whether
 the default credentials or an explicit JWT secret are in use, the token lifetime and the sign-in URL; never a password or
@@ -290,7 +297,7 @@ $ admin status
 Server      Qodalis.Cli 1.0.0-beta.31
 Platform    dotnet .NET 10.0.14 (Ubuntu 24.04.1 LTS)
 Uptime      2 h 5 min (since 2026-11-25 08:00:00)
-Memory      153.19 MB
+Memory      153.19 MB (process) · machine 9.8 GB of 16 GB used (61%)
 CPU         1.3%
 Connections 2 WebSocket, 0 shell
 Commands    15
