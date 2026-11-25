@@ -485,6 +485,76 @@ custom  Custom  · Redis (cache:6379/0, prefix qcli:config)
 
 Terminal: `config list`, `config get <provider>[.<section>[.<key>]]`, `config set <provider>.<section>.<key> <value> [--expected-version v]`, `config reset <provider>.<section>.<key>` (left out with `ConfigureConfig(o => o.Command = false)`). MCP: `config_list` (the default store, providers with their `storage` and `store`, and section summaries), `config_get` (read-only) and `config_set`; `McpOptions.ReadOnly = true` lists and allows only tools annotated read-only.
 
+## Restart
+
+Some changes take effect only after a restart: a setting with `RequiresRestart`, a plugin installed later. The server
+keeps the list of them and can restart itself, from the dashboard, `admin restart --yes` (admin plugin) or the API.
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    // auto (default): exit under a detected supervisor, else not supported
+    // exit: stop the host, exit code ExitCode (default 75) for Docker, systemd, PM2, Kubernetes or IIS to start it again
+    // self: once the host stopped, start the same command again (same arguments, environment, working directory)
+    // handler: your function, once the host stopped
+    cli.ConfigureRestart(o => o.Mode = CliServerRestartModes.Self);
+});
+
+var restart = app.Services.GetRequiredService<CliServerRestart>();   // or ICliServerRestart
+restart.MarkRequired(new("plugin:tickets", "tickets", "Tickets plugin installed"));
+restart.ClearRequired("plugin:tickets");
+restart.OnShutdown("pool", () => pool.CloseAsync());                 // your own clean-up, in registration order
+```
+
+- **Pending list**: `MarkRequired(new(id, source, description))` (once per id), `ClearRequired(id)`; empty after every
+  start. The config service marks a changed entry with `RequiresRestart` as `config:<provider>.<section>.<key>` (source
+  `config`, `CORS: Mode changed`) and clears it when the value is set back to what it was at start (a secret stays
+  marked: its value is never seen).
+- **Supervisor detection** (`auto`): PM2 (`pm_id`), systemd (`INVOCATION_ID`), IIS (an `ASPNETCORE_IIS_*` variable, or
+  the in-process host `w3wp` / `iisexpress`: IIS starts the app pool again), Kubernetes (`KUBERNETES_SERVICE_HOST`,
+  `kubepods` in `/proc/1/cgroup`), Docker (`/.dockerenv`, `docker` in `/proc/1/cgroup`). Without one, restarting is not
+  supported until `Mode` is set.
+- **Graceful shutdown**: every WebSocket (events, logs, shells) closed with **1012** (service restart; a client that
+  never answers the close is left after 5 s), the `OnShutdown` hooks, then the host's stop
+  (`IHostApplicationLifetime.StopApplication()` with the host's shutdown timeout set to `ShutdownTimeout`, 10 s):
+  Kestrel stops accepting and lets in-flight requests finish, hosted services such as the job scheduler stop, the
+  container disposes the plugins' services.
+- **`exit`** sets `Environment.ExitCode` (75) and stops the host: `app.Run()` returns and the process exits with it.
+- **`self`** starts `Environment.ProcessPath` with the original arguments once the host stopped (the port is free); under
+  the `dotnet` host (`dotnet app.dll`, `dotnet run` without an apphost) `dotnet <entry dll> <arguments>`. Same
+  environment and working directory, the output where this process writes. Exit code 1 when it cannot be started.
+- **`handler`**: `o.Handler = async context => ...` (`context.Reason`, `Pending`, `By`) runs once the host stopped.
+- **Sign-in**: on a server without an auth provider protecting it, restarting is refused (403) unless
+  `AllowAnonymous` is set.
+- **Tests**: `o.Runtime` (`ICliServerRestartRuntime`: the environment and files the detection reads, stopping the host,
+  starting a process) replaces what the process does, so tests never stop their host or start processes.
+
+| Route | Permission | Does |
+|---|---|---|
+| `GET /api/v1/qcli/server/restart` | `admin:access` | The status below |
+| `POST /api/v1/qcli/server/restart` `{ reason? }` | `server:restart` | 202 `{ restarting: true, pending: [ids] }`, then the restart; 409 `{ error: 'restart not supported: no supervisor detected; set restart.mode' }` or `restart already in progress`; 403 without sign-in; 400 `reason must be a string`, `reason must be at most 500 characters` |
+
+```json
+{
+  "supported": true,
+  "mode": "self",
+  "supervisor": null,
+  "startedAt": "2026-11-25T10:00:00.000Z",
+  "pending": [
+    { "id": "config:cors.cors.mode", "source": "config", "description": "CORS: Mode changed", "since": "2026-11-25T10:04:05.000Z" }
+  ]
+}
+```
+
+`mode` is the mode in effect (`auto` shows `exit`), null when not supported, with `reason`
+(`no supervisor detected; set restart.mode`). `startedAt` changes once the server is back: poll it (or
+`GET /api/qcli/versions`) to know when.
+
+- **Permission** `server:restart` (core catalog, group `Server`, `CliRoutePolicy.ServerRestart`).
+- **Audit** `server.restart`: `target` `server`, `details` the reason, `properties` `{ reason, by, pending, mode, supervisor, via }`.
+- **Events** (audience `admin:access`): `server:restart-required` `{ pending }` whenever the list changes,
+  `server:restarting` `{ reason, by, pending, mode }` before the shutdown.
+
 ## Use with your app's sign-in
 
 When your application already signs users in (cookies, JWT, an identity provider), the users plugin can take its users from your app instead of its own logins. The browser terminal, the MCP endpoint and the admin dashboard then all use your session.
