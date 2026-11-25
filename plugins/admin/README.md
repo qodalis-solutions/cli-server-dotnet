@@ -37,6 +37,7 @@ cli.AddAdmin(config =>
     config.DashboardPath = "/path/to/dashboard/dist";
     config.Theme.Mode = AdminThemeMode.System; // see "Color scheme" below
     config.SignInUrl = "https://app.example.com/sign-in"; // see "Sign in with the host app's session"
+    config.Marketplace.Install = "verified"; // see "Dashboard plugins from the marketplace"
 });
 ```
 
@@ -64,6 +65,8 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/plugins/installed` | GET | List the installed server plugin packages (`id`, `name`, `version`, `description`) |
 | `/api/v1/qcli/plugins/{name}/toggle` | POST | Enable or disable a plugin module |
 | `/api/v1/qcli/ws/clients` | GET | List active WebSocket connections |
+| `/api/v1/qcli/dashboard/extensions` | GET | The dashboard's pages (`{ extensions }`), read on every request; the marketplace's plugins carry `source: "marketplace"` |
+| `/api/v1/qcli/dashboard/marketplace/*` | * | Dashboard plugins from the marketplace (see [Marketplace API](#marketplace-api)) |
 
 `systemMemoryTotalMb` is the RAM the server can use: the container (cgroup) limit when one is set below the installed RAM
 (`memory.max`, v1 `memory.limit_in_bytes`, else the GC's container-aware `TotalAvailableMemoryBytes`; then `memoryLimited`
@@ -271,6 +274,139 @@ cli.AddAdmin(o =>
 Anything left unset keeps the Qodalis default. The terminal's copyright line, docs link and `version` stay Qodalis
 CLI's. The values are served with the color scheme at `/qcli/admin/theme.json` and validated at startup.
 
+## Dashboard plugins from the marketplace
+
+A *dashboard plugin* is an npm package whose bundle is a dashboard extension (`extension.js`, optional
+`extension.css`, built with `@qodalis/cli-server-dashboard-kit`'s `defineExtension`), listed in the
+[plugin marketplace](https://plugins.qodalis.com) with `kind: "dashboard"`. The admin plugin lists them, installs,
+updates and removes them at runtime, and serves them from the server's own origin. A plugin runs inside the dashboard
+with the signed-in user's rights, so by default only verified publishers' plugins can be installed. The marketplace is
+on by default.
+
+```csharp
+cli.AddAdmin(config =>
+{
+    config.Marketplace.Url = "https://plugins.qodalis.com"; // default
+    config.Marketplace.Install = "verified"; // default; "listed": any listed version; "off": browse only
+    config.Marketplace.Dir = "/var/lib/myapp/dashboard-plugins"; // default: <content root>/qcli-data/dashboard-plugins
+});
+```
+
+| `AdminConfig.Marketplace` | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | `false` serves none of the routes below, leaves out `admin dashboard` and loads no installed plugin |
+| `Url` | `https://plugins.qodalis.com` | The marketplace (its public API at `/api/v1/qcli/marketplace`) |
+| `Install` | `verified` | `verified`: listed versions of verified publishers only; `listed`: any listed version; `off`: browse only |
+| `Dir` | `<content root>/qcli-data/dashboard-plugins` | Where installed plugins are kept (add `qcli-data/` to your `.gitignore`) |
+| `HttpHandler` | a `SocketsHttpHandler` | The `HttpMessageHandler` for the marketplace and the CDNs (a proxy, or a fake in tests) |
+| `Cdns` | jsDelivr, unpkg | Where bundles are downloaded from, in order |
+| `Timeout` | 15 s | Timeout of each request |
+
+An invalid `Url` or `Install` throws `ArgumentException` (`invalid marketplace url: ...`,
+`invalid marketplace install policy: ...`) when the server starts.
+
+**Installing** reads the plugin from the marketplace (`GET /plugins/{name}`) and takes the newest listed version this
+dashboard runs (`dashboardApi` 1) unless one is given, checks the trust policy, downloads each file of the version
+record (`files: [{ path, integrity, size }]`) from jsDelivr, then unpkg (5 MB at most each), and checks its bytes
+against the marketplace's `sha384-` integrity before anything is written: a mismatch on every CDN is a 502 and stores
+nothing. The files are stored as `<dir>/<name>/<version>/extension.js|css` (a scoped name `@scope/name` as the
+directory `@scope+name`; names and versions are validated, so nothing leaves `Dir`) and listed in
+`<dir>/installed.json`, written atomically (a temporary file moved over it, mode 0600):
+
+```json
+{
+  "plugins": [
+    {
+      "name": "@qodalis/cli-dashboard-module-jobs",
+      "version": "1.1.0",
+      "id": "jobs",
+      "title": "Jobs",
+      "icon": "⏱️",
+      "files": [
+        { "file": "extension.js", "path": "dist/extension.js", "integrity": "sha384-…", "size": 48211 },
+        { "file": "extension.css", "path": "dist/extension.css", "integrity": "sha384-…", "size": 5120 }
+      ],
+      "installedAt": "2026-11-25T10:04:05.123Z",
+      "installedBy": "admin"
+    }
+  ]
+}
+```
+
+The plugin is then registered as a dashboard extension at once (no restart; `CliDashboardExtensions.Add` and `Remove`
+change the pages at runtime): its page id is the package's suffix for `@qodalis/cli-dashboard-module-<id>`, else the
+extension's own id (`extension.id` of the version record, then of the plugin), else the package name without its scope
+and `cli-dashboard-` prefix. An id another extension already has is a 409. Its files are served at
+`/qcli/modules/<id>/extension.js|css` (no sign-in, `Cache-Control: no-cache` with an ETag, the entry carrying
+`?v=<hash>`), and `GET /dashboard/extensions` lists it with `source: "marketplace"`. An update keeps the page id and
+deletes the previous version's files (a `PUT` to the installed version answers 200 and changes nothing); a removal
+unregisters the page and deletes the files. Changes run one at a time; `installedBy` is the signed-in user, or
+`anonymous` for a terminal command on a server without sign-in.
+
+At startup the plugin registers what `installed.json` lists, without the marketplace; a plugin whose files are missing
+or no longer match their integrity, or whose id another extension took, is skipped with a warning.
+
+Every change is audited (`dashboard.plugin.install`, `dashboard.plugin.update`, `dashboard.plugin.remove`: target the
+package, `properties: { name, version, id, previousVersion? }`) in the server's `IAuditStore` (the audit or users
+plugin) and published on the event bus as `dashboard:extensions-changed` (`{ action, name, version, id,
+previousVersion? }`, audience `admin:access`), so open dashboards reload their pages.
+
+### Marketplace API
+
+Mounted at `/api/v1/qcli/dashboard/marketplace` (`DashboardMarketplaceController`). Reading needs `admin:access`;
+`POST`, `PUT` and `DELETE` need `dashboard:install` (core catalog, group Server; the static admin of password sign-in
+holds every permission). Responses are `Cache-Control: no-store`; errors are `{ "error": "..." }`.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/` | `{ "marketplaceUrl": "https://plugins.qodalis.com", "install": "verified", "dashboardApi": 1 }` |
+| GET | `/plugins?query=&page=&pageSize=` | The marketplace's list fetched with `kind=dashboard&dashboardApi=1` (`{ items, total, page, pageSize }`), plugins of another kind dropped (then `total` counts the items shown), each item annotated (below); 400 `invalid page` (1..1000000), `invalid pageSize` (1..100); 502 `{ "error": "marketplace unreachable" }` |
+| GET | `/plugins/{name}` | One plugin with its `versions`, annotated; each version also `allowed` and `blockedReason`; 404 when not listed |
+| GET | `/installed` | The installed plugins (below); `updateAvailable` when the marketplace answers |
+| POST | `/installed` | `{ name, version? }`: 201 with the installed plugin; 400 invalid name or version, `needs dashboard API 2`, `not a dashboard plugin: <name>`; 403 `publisher not verified`, `install disabled`; 404 unknown plugin or version; 409 already installed, id taken; 502 `marketplace unreachable`, `integrity mismatch: <path>`, `download failed: <path>`, `file too large: <path>` |
+| PUT | `/installed/{name}` | `{ version? }`: updates (default: the newest fitting version), same checks; 404 when not installed |
+| DELETE | `/installed/{name}` | Removes the plugin; 404 when not installed |
+
+Scoped names go in the path raw (`/installed/@acme/tickets`) or encoded (`/installed/%40acme%2Ftickets`).
+
+A `GET /plugins` item is the marketplace's item plus:
+
+```json
+{
+  "name": "@qodalis/cli-dashboard-module-jobs",
+  "kind": "dashboard",
+  "publisher": { "name": "@qodalis", "verified": true },
+  "version": "1.1.0",
+  "installed": { "version": "1.0.0" },
+  "updateAvailable": true,
+  "allowed": true,
+  "requires": { "serverPackage": "Qodalis.Cli.Plugin.Jobs", "installed": true }
+}
+```
+
+`installed` is null when not installed; `blockedReason` (only when `allowed` is false) is `install disabled`,
+`unverified publisher` or `needs dashboard API <n>` (a version of the details may also be `version flagged` or
+`not a dashboard plugin`); `requires` is null when the plugin names no .NET server package (`serverPackages.dotnet`, or
+the `nuget` entry of the marketplace's list form `[{ ecosystem, name }]`), else whether the server has it
+(`GET /plugins/installed`).
+
+`GET /installed`:
+
+```json
+[
+  {
+    "name": "@qodalis/cli-dashboard-module-jobs",
+    "version": "1.1.0",
+    "title": "Jobs",
+    "icon": "⏱️",
+    "id": "jobs",
+    "installedAt": "2026-11-25T10:04:05.123Z",
+    "installedBy": "admin",
+    "updateAvailable": false
+  }
+]
+```
+
 ## Without CLI routes
 
 On a service built with `cli.WithoutCliRoutes()` the dashboard's API does not exist, so `UseQodalisAdmin()` serves
@@ -279,8 +415,8 @@ nothing and logs `[qcli] the CLI routes are turned off (WithoutCliRoutes); the a
 ## Terminal commands
 
 The plugin brings the `admin` command (registered by `cli.AddAdmin()`). It reads the same services as the admin
-routes. On a protected server every sub-command needs `admin:access`; `admin logs` also needs `logs:read`. Server
-settings are the core [`config`](../../README.md#config-providers) command. Lists take `--json` (the payload of the
+routes. On a protected server every sub-command needs `admin:access`; `admin logs` also needs `logs:read`,
+`admin dashboard install|update|remove` also `dashboard:install`. Server settings are the core [`config`](../../README.md#config-providers) command. Lists take `--json` (the payload of the
 matching route).
 
 | Command | Permission | Does |
@@ -291,6 +427,13 @@ matching route).
 | `admin plugins enable <id>`, `admin plugins disable <id>` | `admin:access` | Turns a module's commands on or off, like `POST /plugins/{id}/toggle` but idempotent (`... is already enabled.`); the `admin` module itself cannot be disabled from the terminal |
 | `admin clients [--json]` | `admin:access` | Connected WebSocket clients: id, type, connected since, address (`GET /ws/clients`) |
 | `admin logs [--level warn,error] [--search <text>] [--service <name>] [--since 5m\|1h\|7d\|<ISO date>] [-n 50] [--json]` | `admin:access`, `logs:read` | The newest matching log entries (1-1000), oldest first, from the log store `GET /logs` reads: the in-memory history, or Seq with `Qodalis.Cli.Plugin.Logs.Seq` (`--service` filters by the service that wrote the entries, which only a persistent store such as Seq records) |
+| `admin dashboard`, `admin dashboard list [--json]` | `admin:access` | The dashboard plugins installed from the marketplace: page id, package, version (and whether an update is available), when and by whom (`GET /dashboard/marketplace/installed`) |
+| `admin dashboard search [<query>] [--json]` | `admin:access` | The marketplace's dashboard plugins: package, version, publisher, installed / installable / blocked and why, a missing server plugin (`GET /dashboard/marketplace/plugins`) |
+| `admin dashboard install <name>[@version]` | `admin:access`, `dashboard:install` | Installs the newest version this dashboard runs, or the one given, with the API's checks (`POST /dashboard/marketplace/installed`) |
+| `admin dashboard update <name>` | `admin:access`, `dashboard:install` | Updates to the newest version (`PUT /dashboard/marketplace/installed/{name}`) |
+| `admin dashboard remove <name>` | `admin:access`, `dashboard:install` | Removes the page and its files (`DELETE /dashboard/marketplace/installed/{name}`) |
+
+`admin dashboard` is left out when the marketplace is turned off (`config.Marketplace.Enabled = false`).
 
 On a server without the users plugin, `/execute` is open, and so are these commands. To follow the log live, use
 `server logs` of the web CLI plugin `@qodalis/cli-server-logs` (the `/ws/v1/qcli/logs` socket, `logs:read`).
@@ -326,6 +469,28 @@ $ admin logs --level warn,error -n 2
 Last 2 of 7 entries
 2026-11-25 10:01:12 WARN  [Qodalis.Cli.Plugin.Jobs.CliJobScheduler] cleanup took 12 s
 2026-11-25 10:03:40 ERROR [Microsoft.EntityFrameworkCore.Database.Command] connection timeout
+
+$ admin dashboard search
+Package                             Version  Publisher            Status
+@qodalis/cli-dashboard-module-jobs  1.1.0    @qodalis (verified)  installable
+@acme/cli-dashboard-tickets         2.0.0    @acme                blocked: unverified publisher
+
+$ admin dashboard install @qodalis/cli-dashboard-module-jobs@1.0.0
+Installed @qodalis/cli-dashboard-module-jobs@1.0.0: the dashboard page "Jobs" (/x/jobs).
+
+$ admin dashboard
+1 dashboard plugin(s) from https://plugins.qodalis.com (install: verified)
+ID    Package                             Version                   Installed            By
+jobs  @qodalis/cli-dashboard-module-jobs  1.0.0 (update available)  2026-11-25 10:04:05  admin
+
+$ admin dashboard update @qodalis/cli-dashboard-module-jobs
+Updated @qodalis/cli-dashboard-module-jobs from 1.0.0 to 1.1.0.
+
+$ admin dashboard remove @qodalis/cli-dashboard-module-jobs
+Removed @qodalis/cli-dashboard-module-jobs@1.1.0 (the page jobs).
+
+$ admin dashboard install @acme/cli-dashboard-tickets
+Error: publisher not verified
 ```
 
 ## License
