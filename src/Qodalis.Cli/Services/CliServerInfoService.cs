@@ -96,7 +96,10 @@ public class CliServerInfoService : ICliServerInfoService
                 ? processor.Examples.Select(e => new CliCommandExampleDto { Command = e.Command, Description = e.Description }).ToList()
                 : null,
             Documentation = string.IsNullOrEmpty(processor.Documentation) ? null : processor.Documentation,
-            Module = string.IsNullOrEmpty(processor.Module) ? null : processor.Module,
+            // A command added by a module is listed under the module's name unless it names a module itself
+            Module = string.IsNullOrEmpty(processor.Module)
+                ? _services?.GetService<CliProcessorModules>()?.Of(processor)
+                : processor.Module,
             Icon = string.IsNullOrEmpty(processor.Icon) ? null : processor.Icon,
         };
     }

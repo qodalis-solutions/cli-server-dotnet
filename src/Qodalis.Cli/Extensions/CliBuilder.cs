@@ -20,6 +20,7 @@ public partial class CliBuilder
     private readonly List<CliInstalledPlugin> _installedPlugins = [];
     private readonly List<CliDashboardExtension> _dashboardExtensions = [];
     private readonly CliPermissionCatalog _permissions = new();
+    private readonly CliProcessorModules _processorModules = new();
     private readonly HashSet<string> _permissionSources = new(StringComparer.Ordinal);
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
@@ -175,6 +176,7 @@ public partial class CliBuilder
         AddInstalledPlugin(typeof(CliBuilder).Assembly);
         AddPermissions(CliPermissionCatalog.AddCoreEntries, CliPermissionSurface.Cli);
         Services.AddSingleton<ICliPermissionCatalog>(_ => _permissions.Freeze());
+        Services.AddSingleton(_processorModules);
     }
 
     /// <summary>
@@ -283,6 +285,7 @@ public partial class CliBuilder
         foreach (var processor in module.Processors)
         {
             Services.AddSingleton<ICliCommandProcessor>(processor);
+            _processorModules.Add(processor, module.Name);
         }
 
         foreach (var provider in module.ConfigProviders ?? [])
