@@ -4,7 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
@@ -74,6 +76,22 @@ public static class CliBuilderAdminExtensions
         }));
         builder.AddConfigProvider(sp => AdminConfigProviders.Logs(logBuffer).SetStore(sp.GetRequiredService<AdminConfig>().LogsConfigStore));
         builder.AddRoutePermission("/api/v1/qcli/config", CliConfigPermissions.Read, CliConfigPermissions.Write);
+
+        // Dashboard plugins from the marketplace: pages added and removed at runtime, loaded from installed.json at
+        // startup, their files served at /qcli/modules/<id>/; changes need dashboard:install
+        builder.Services.AddSingleton(sp => new DashboardMarketplace(
+            sp.GetRequiredService<AdminConfig>().Marketplace,
+            sp.GetService<IHostEnvironment>()?.ContentRootPath ?? Directory.GetCurrentDirectory(),
+            sp.GetRequiredService<Qodalis.Cli.Models.CliDashboardExtensions>(),
+            () => sp.GetService<Qodalis.Cli.Models.CliInstalledPlugins>()?.All ?? [],
+            () => sp.GetService<IAuditStore>(),
+            () => sp.GetService<ICliEventBus>(),
+            sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin"),
+            sp.GetService<TimeProvider>()));
+        builder.Services.AddHostedService(sp => new DashboardMarketplaceStartup(sp.GetRequiredService<DashboardMarketplace>()));
+        builder.Services.AddTransient<IStartupFilter, DashboardMarketplaceAssets>();
+        builder.AddRoutePermission("/api/v1/qcli/dashboard/marketplace", Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
+            Qodalis.Cli.Security.CliRoutePolicy.DashboardInstall);
 
         // Register the admin plugin controller assembly
         builder.AddApplicationPart(typeof(StatusController).Assembly);

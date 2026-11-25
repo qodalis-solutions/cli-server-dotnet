@@ -17,6 +17,13 @@ public class AdminConfig
     /// </summary>
     public Qodalis.Cli.Abstractions.Config.ICliConfigStore? LogsConfigStore { get; set; }
 
+    /// <summary>
+    /// Dashboard plugins from the marketplace (on by default): the marketplace's URL, who may install
+    /// (<c>verified</c>, <c>listed</c>, <c>off</c>), where installed plugins are kept (default
+    /// <c>&lt;content root&gt;/qcli-data/dashboard-plugins</c>) and the HTTP handler. <c>Enabled = false</c> turns it off.
+    /// </summary>
+    public DashboardMarketplaceOptions Marketplace { get; set; } = new();
+
     private readonly ILogger<AdminConfig> _logger;
 
     /// <summary>
@@ -68,10 +75,11 @@ public class AdminConfig
 
     /// <summary>
     /// Validates the options set by the host. Throws <see cref="ArgumentException"/> on an invalid
-    /// <see cref="SignInUrl"/>.
+    /// <see cref="SignInUrl"/> or <see cref="Marketplace"/> option.
     /// </summary>
     internal void Validate()
     {
+        (Marketplace ?? throw new ArgumentException("AdminConfig.Marketplace must be set", nameof(Marketplace))).Validate();
         if (SignInUrl != null && !IsValidSignInUrl(SignInUrl))
         {
             throw new ArgumentException(

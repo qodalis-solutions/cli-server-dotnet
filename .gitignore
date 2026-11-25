@@ -36,3 +36,6 @@ node_modules/
 
 # Dashboard pages copied at build (build/Qcli.DashboardModules.targets), the admin dashboard, the portal
 wwwroot/
+
+# Dashboard plugins installed from the marketplace (admin plugin, default directory)
+qcli-data/

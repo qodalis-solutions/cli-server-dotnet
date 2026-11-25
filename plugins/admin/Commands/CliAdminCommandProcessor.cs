@@ -17,10 +17,11 @@ namespace Qodalis.Cli.Plugin.Admin.Commands;
 
 /// <summary>
 /// <c>admin</c>: <c>status [--history]</c>, <c>plugins [list|enable|disable &lt;id&gt;]</c>, <c>clients</c>,
-/// <c>logs [...]</c>. Needs <c>admin:access</c> on a protected server; <c>logs</c> also <c>logs:read</c>. Server
-/// settings are the core <c>config</c> command. Reads the services the admin routes use.
+/// <c>logs [...]</c>, <c>dashboard [list|search|install|update|remove]</c>. Needs <c>admin:access</c> on a protected
+/// server; <c>logs</c> also <c>logs:read</c>, <c>dashboard install|update|remove</c> also <c>dashboard:install</c>.
+/// Server settings are the core <c>config</c> command. Reads the services the admin routes use.
 /// </summary>
-public sealed class CliAdminCommandProcessor : CliCommandProcessor
+public sealed partial class CliAdminCommandProcessor : CliCommandProcessor
 {
     /// <summary>The module of the <c>admin</c> command (<c>admin plugins disable</c> refuses it: that would disable this command).</summary>
     public const string ModuleName = "admin";
@@ -37,10 +38,13 @@ public sealed class CliAdminCommandProcessor : CliCommandProcessor
             new ClientsProcessor(services),
             new LogsProcessor(services),
         ];
+        // Dashboard plugins from the marketplace, unless it is turned off
+        if (services.GetService<DashboardMarketplace>() is { Enabled: true } marketplace)
+            Processors = [.. Processors, new DashboardProcessor(marketplace, services)];
     }
 
     public override string Command { get; set; } = "admin";
-    public override string Description { get; set; } = "Server administration: status, command modules, WebSocket clients, logs";
+    public override string Description { get; set; } = "Server administration: status, command modules, WebSocket clients, logs, dashboard plugins";
     public override string? Module { get; set; } = ModuleName;
     public override string? Icon { get; set; } = "🛠️";
     public override IEnumerable<string>? RequiredPermissions { get; set; } = [CliRoutePolicy.AdminAccess];
