@@ -1,0 +1,207 @@
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Config;
+using Qodalis.Cli.Abstractions.Restart;
+using Qodalis.Cli.Extensions;
+
+namespace Qodalis.Cli.Plugins;
+
+// Server plugins installed at runtime (from the marketplace): the entry point a plugin package declares and the context
+// the server hands it. The same contract on every platform: Node (qodalis.entry exporting createPlugin(context)),
+// Python (entry point group qodalis_cli.plugins) and .NET:
+//
+//     [assembly: CliPlugin(typeof(WeatherPluginEntry))]
+//
+//     public sealed class WeatherPluginEntry : ICliPluginEntry
+//     {
+//         public void Register(CliPluginContext context)
+//         {
+//             var settings = context.Settings(new() { Title = "Weather", Settings = [new() { Key = "defaultLocation", Type = "string", Default = "London" }] });
+//             context.Builder.AddModule(new WeatherModule(() => settings.GetValue("settings", "defaultLocation")?.ToString()));
+//         }
+//     }
+
+/// <summary>When a plugin registers among the others (ascending; then in the installed order).</summary>
+public static class CliPluginOrder
+{
+    /// <summary>Authentication (users and its stores): first, the others may need the principal.</summary>
+    public const int Auth = 100;
+
+    /// <summary>Config stores: before the providers whose settings they keep.</summary>
+    public const int ConfigStore = 200;
+
+    /// <summary>Core services other plugins extend (data explorer, filesystem storage).</summary>
+    public const int Core = 300;
+
+    /// <summary>Most plugins.</summary>
+    public const int Default = 500;
+
+    /// <summary>What plugs into another plugin (data explorer sources).</summary>
+    public const int Source = 700;
+}
+
+/// <summary>
+/// Declares an assembly's entry point for installs from the marketplace: <c>[assembly: CliPlugin(typeof(MyPluginEntry))]</c>,
+/// the type implementing <see cref="ICliPluginEntry"/> with a public parameterless constructor.
+/// </summary>
+[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
+public sealed class CliPluginAttribute(Type entryType) : Attribute
+{
+    public Type EntryType { get; } = entryType;
+
+    /// <summary>When it registers among the installed plugins (<see cref="CliPluginOrder"/>; default <see cref="CliPluginOrder.Default"/>).</summary>
+    public int Order { get; set; } = CliPluginOrder.Default;
+}
+
+/// <summary>The entry point of a server plugin installed at runtime.</summary>
+public interface ICliPluginEntry
+{
+    /// <summary>
+    /// Registers the plugin as the host would in code (<c>context.Builder.AddModule(...)</c>, services, config providers),
+    /// while the server's services are being registered. Read settings lazily (their stored values are loaded once the
+    /// server starts). Throwing leaves the plugin out (its services removed); the server starts all the same.
+    /// </summary>
+    void Register(CliPluginContext context);
+}
+
+/// <summary>The settings of a plugin: one <see cref="CliStoredConfigProvider"/>, registered with the server's config providers.</summary>
+public sealed class CliPluginSettingsOptions
+{
+    /// <summary>The provider id (default: the plugin's id).</summary>
+    public string? Id { get; init; }
+
+    /// <summary>The provider's title (default: the plugin's title).</summary>
+    public string? Title { get; init; }
+
+    public string? Description { get; init; }
+
+    /// <summary>One section <c>settings</c> with these settings.</summary>
+    public List<CliConfigSettingDefinition>? Settings { get; init; }
+
+    /// <summary>Several sections instead.</summary>
+    public List<CliConfigSectionDefinition>? Sections { get; init; }
+
+    /// <summary>Its own store (the host's store for the provider id still wins, else the server's default store).</summary>
+    public ICliConfigStore? Store { get; init; }
+}
+
+/// <summary>What the server hands a plugin's <see cref="ICliPluginEntry.Register"/>.</summary>
+public sealed class CliPluginContext
+{
+    private readonly Func<CliPluginSettingsOptions, CliStoredConfigProvider> _settings;
+
+    internal CliPluginContext(string pluginId, string packageName, string version, CliBuilder builder, ILogger logger, string dataDir,
+        string serverDataDir, ICliServerRestart restart, Func<CliPluginSettingsOptions, CliStoredConfigProvider> settings)
+    {
+        PluginId = pluginId;
+        PackageName = packageName;
+        Version = version;
+        Builder = builder;
+        Logger = logger;
+        DataDir = dataDir;
+        ServerDataDir = serverDataDir;
+        Restart = restart;
+        _settings = settings;
+    }
+
+    /// <summary>The marketplace entry's id (<c>weather</c>).</summary>
+    public string PluginId { get; }
+
+    /// <summary>The NuGet package (<c>Qodalis.Cli.Plugin.Weather</c>).</summary>
+    public string PackageName { get; }
+
+    /// <summary>The installed version.</summary>
+    public string Version { get; }
+
+    /// <summary>The server's builder: everything is registered as if the host had done it in code.</summary>
+    public CliBuilder Builder { get; }
+
+    /// <summary>The server's services (<see cref="CliBuilder.Services"/>).</summary>
+    public IServiceCollection Services => Builder.Services;
+
+    /// <summary>Logs under the category <c>Qodalis.Cli.Plugin:&lt;id&gt;</c> (kept until the server's logging starts).</summary>
+    public ILogger Logger { get; }
+
+    /// <summary>A directory of the plugin's own (<c>&lt;data dir&gt;/plugin-data/&lt;id&gt;</c>), created; kept across updates.</summary>
+    public string DataDir { get; }
+
+    /// <summary>The server's data directory (<c>qcli-data</c> in the working directory by default).</summary>
+    public string ServerDataDir { get; }
+
+    /// <summary>The server's restart service (usable once the server started; a setting that needs a restart marks it).</summary>
+    public ICliServerRestart Restart { get; }
+
+    /// <summary>
+    /// Registers the plugin's settings as a config provider (defaults, validation, values kept in the config store),
+    /// edited from the dashboard's Config page and <c>config set &lt;id&gt;.&lt;section&gt;.&lt;key&gt;</c>. Read a value
+    /// with <c>provider.GetValue(section, key)</c> once the server started. A setting whose validation is
+    /// <c>required</c> and that has no value marks the plugin <c>needs-configuration</c>.
+    /// </summary>
+    public CliStoredConfigProvider Settings(CliPluginSettingsOptions options) => _settings(options ?? new CliPluginSettingsOptions());
+}
+
+/// <summary>The statuses of a runtime-installed plugin in this process.</summary>
+public static class CliServerPluginStatuses
+{
+    public const string Loaded = "loaded";
+    public const string Failed = "failed";
+    public const string Skipped = "skipped";
+
+    /// <summary>Loaded, but a required setting has no value: it waits for its settings.</summary>
+    public const string NeedsConfiguration = "needs-configuration";
+}
+
+/// <summary>A plugin installed at runtime, as <c>&lt;data dir&gt;/server-plugins/installed.json</c> keeps it.</summary>
+public sealed class CliServerPluginRecord
+{
+    /// <summary>The marketplace entry's id (<c>weather</c>).</summary>
+    [JsonPropertyName("name")] public required string Name { get; init; }
+
+    /// <summary>The NuGet package id.</summary>
+    [JsonPropertyName("package")] public required string Package { get; init; }
+
+    [JsonPropertyName("version")] public required string Version { get; init; }
+
+    /// <summary><c>sha512-…</c> of the .nupkg, checked before it was installed.</summary>
+    [JsonPropertyName("integrity")] public required string Integrity { get; init; }
+
+    [JsonPropertyName("title")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; init; }
+
+    [JsonPropertyName("icon")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; init; }
+
+    [JsonPropertyName("description")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
+
+    /// <summary>ISO 8601 UTC.</summary>
+    [JsonPropertyName("installedAt")] public required string InstalledAt { get; init; }
+
+    [JsonPropertyName("installedBy")] public required string InstalledBy { get; init; }
+
+    /// <summary>Why the last start could not load it (cleared once it loads).</summary>
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+}
+
+/// <summary>A plugin the server tried to load at startup.</summary>
+public sealed class CliServerPluginState
+{
+    [JsonPropertyName("name")] public required string Name { get; init; }
+    [JsonPropertyName("package")] public required string Package { get; init; }
+    [JsonPropertyName("version")] public required string Version { get; init; }
+
+    /// <summary><see cref="CliServerPluginStatuses"/>.</summary>
+    [JsonPropertyName("status")] public required string Status { get; set; }
+
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+
+    internal CliServerPluginState Clone() => new() { Name = Name, Package = Package, Version = Version, Status = Status, Error = Error };
+}

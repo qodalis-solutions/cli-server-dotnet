@@ -42,6 +42,8 @@ public static class CliRoutePolicy
     public const string DashboardInstall = "dashboard:install";
     /// <summary>Restart the server (<c>POST /api/v1/qcli/server/restart</c>, <c>admin restart</c>).</summary>
     public const string ServerRestart = "server:restart";
+    /// <summary>Install, update and remove server plugins from the marketplace (the admin plugin; a restart loads them).</summary>
+    public const string PluginsInstall = "plugins:install";
 
     /// <summary>The MCP endpoint (Streamable HTTP, stateless).</summary>
     public const string McpPath = "/api/qcli/mcp";

@@ -136,6 +136,7 @@ internal sealed class CliPermissionCatalog : ICliPermissionCatalog
         .Add(CliRoutePolicy.AdminAccess, "Open the admin dashboard and its server pages")
         .Add(CliRoutePolicy.DashboardInstall, "Install, update and remove dashboard plugins from the marketplace")
         .Add(CliRoutePolicy.ServerRestart, "Restart the server")
+        .Add(CliRoutePolicy.PluginsInstall, "Install, update and remove server plugins from the marketplace")
         .Group("Config")
         .Add(Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Read, "See the server's configuration (secrets stay hidden)")
         .Add(Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Write, "Change the server's configuration")

@@ -18,6 +18,7 @@ using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Restart;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.FileSystem;
+using Qodalis.Cli.Plugins;
 using Qodalis.Cli.Security;
 using Qodalis.Cli.Services;
 
@@ -38,6 +39,13 @@ public static class MvcBuilderExtensions
     {
         var cliBuilder = new CliBuilder(builder.Services);
         configure?.Invoke(cliBuilder);
+
+        // The plugins installed at runtime from the marketplace, after the host's own registrations (a failing one is
+        // left out and its error kept; the server starts all the same)
+        var serverPlugins = cliBuilder.ServerPlugins;
+        serverPlugins.Load(cliBuilder);
+        builder.Services.AddSingleton(serverPlugins);
+        builder.Services.AddHostedService(sp => new CliServerPluginsStartup(serverPlugins, sp));
 
         // Without CLI routes neither core's controllers nor any plugin's are added, and those MVC discovers on its own
         // (a Web SDK host lists every referenced MVC assembly as an application part) are removed.

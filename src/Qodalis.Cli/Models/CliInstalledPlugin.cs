@@ -37,6 +37,17 @@ public class CliInstalledPlugin
     [JsonPropertyName("icon")]
     public string? Icon { get; init; }
 
+    /// <summary>
+    /// How it was installed: null when the host added it in code, <see cref="MarketplaceSource"/> when it was installed
+    /// at runtime from the marketplace.
+    /// </summary>
+    [JsonPropertyName("source")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Source { get; init; }
+
+    /// <summary>The <see cref="Source"/> of a plugin installed from the marketplace.</summary>
+    public const string MarketplaceSource = "marketplace";
+
     /// <summary>Describes the package an assembly belongs to.</summary>
     public static CliInstalledPlugin FromAssembly(Assembly assembly)
     {
