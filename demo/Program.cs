@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Demo.Processors;
@@ -278,6 +279,39 @@ builder.Services
 
         cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
+
+        // Config providers: settings changed from the dashboard's Settings page, `config set` or MCP `config_set` are
+        // kept in a JSON file (QCLI_DEMO_CONFIG) and applied again at the next start.
+        cli.SetConfigStore(new JsonFileConfigStore(Environment.GetEnvironmentVariable("QCLI_DEMO_CONFIG")
+            ?? Path.Combine(Path.GetTempPath(), "qcli-demo-config.json")));
+        // A host app's own settings: what the demo's greeting says, and a secret it never shows
+        cli.AddConfigProvider(new CliStoredConfigProvider(new CliStoredConfigProviderOptions
+        {
+            Id = "demo",
+            Title = "Demo app",
+            Description = "The demo host application's own settings",
+            Sections =
+            [
+                new CliConfigSectionDefinition
+                {
+                    Id = "greeting",
+                    Title = "Greeting",
+                    Settings =
+                    [
+                        new CliConfigSettingDefinition
+                        {
+                            Key = "text", Label = "Greeting", Type = CliConfigEntryTypes.String,
+                            Default = "Hello from the Qodalis CLI demo", Validation = new CliConfigValidation { Required = true, Max = 120 },
+                        },
+                        new CliConfigSettingDefinition
+                        {
+                            Key = "apiKey", Label = "Partner API key", Description = "Never shown, only whether it is set",
+                            Type = CliConfigEntryTypes.Secret,
+                        },
+                    ],
+                },
+            ],
+        }));
 
         // ---------------------------------------------------------------
         // Public API, guides and the portal site
