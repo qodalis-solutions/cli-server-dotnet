@@ -41,6 +41,7 @@
     <ProjectReference Include="..\..\plugins\filesystem-sqlite\Qodalis.Cli.Plugin.FileSystem.Sqlite.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-efcore\Qodalis.Cli.Plugin.FileSystem.EfCore.csproj" />
     <ProjectReference Include="..\..\plugins\config-efcore\Qodalis.Cli.Plugin.Config.EfCore.csproj" />
+    <ProjectReference Include="..\..\plugins\config-redis\Qodalis.Cli.Plugin.Config.Redis.csproj" />
     <ProjectReference Include="..\..\plugins\filesystem-s3\Qodalis.Cli.Plugin.FileSystem.S3.csproj" />
     <ProjectReference Include="..\..\plugins\jobs\Qodalis.Cli.Plugin.Jobs.csproj" />
     <ProjectReference Include="..\..\plugins\jobs-efcore\Qodalis.Cli.Plugin.Jobs.EfCore.csproj" />

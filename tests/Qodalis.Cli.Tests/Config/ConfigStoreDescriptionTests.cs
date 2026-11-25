@@ -29,7 +29,7 @@ internal sealed class VaultConfigStore(string source = CliConfigSources.Database
 }
 
 /// <summary>A store with its own description.</summary>
-internal sealed class RedisConfigStore : ICliConfigStore
+internal sealed class RedisLikeConfigStore : ICliConfigStore
 {
     private readonly InMemoryConfigStore _inner = new();
 
@@ -83,7 +83,7 @@ public sealed class ConfigStoreDescriptionTests : IDisposable
     [Fact]
     public void ACustomDescription_IsUsedAsGiven()
     {
-        Assert.Equal("Redis (db 3), kept across restarts", CliConfigStoreHelpers.DescribeLine(CliConfigStoreHelpers.Describe(new RedisConfigStore())));
+        Assert.Equal("Redis (db 3), kept across restarts", CliConfigStoreHelpers.DescribeLine(CliConfigStoreHelpers.Describe(new RedisLikeConfigStore())));
     }
 
     [Fact]
