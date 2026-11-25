@@ -312,6 +312,30 @@ as the one running run. `StopAsync`, `CancelAsync` and `UpdateAsync` default to 
 
 The admin dashboard's Jobs page (`@qodalis/cli-dashboard-module-jobs`, `jobs:read`) comes with this package, with its cards on the dashboard's Overview (active jobs, runs of the last 24 hours, failing jobs), the command palette's entries (jump to a job) and its job search. It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/jobs` outside the API; `cli.ConfigureDashboardModule("jobs", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
 
+## Terminal commands
+
+The plugin has no server-side command: the web CLI plugin [`@qodalis/cli-server-jobs`](https://www.npmjs.com/package/@qodalis/cli-server-jobs)
+drives its REST API as `server jobs`. Permissions on a protected server: `jobs:read` for reading, `jobs:manage` for
+changes.
+
+| Command | Permission | Does |
+|---|---|---|
+| `server jobs list` (`ls`) | `jobs:read` | Jobs of every connected server (`--group`, `--tag`) |
+| `server jobs info <name\|id>` | `jobs:read` | Schedule, retries, timeout, overlap policy, current and last run |
+| `server jobs history <name\|id>` | `jobs:read` | Past runs: status, start, duration, attempt, error |
+| `server jobs runs [--job <id>] [--status failed] [-n 20]` | `jobs:read` | The latest runs of every job, newest first (`GET /executions`) |
+| `server jobs stats` | `jobs:read` | Runs of the last 24 hours: outcomes, success rate, average and p95 duration, per job (`GET /stats`) |
+| `server jobs logs <name\|id>` | `jobs:read` | Log entries of the latest run, or of one run |
+| `server jobs watch` | `jobs:read` | Job events live (Ctrl+C stops) |
+| `server jobs trigger <name\|id>` | `jobs:manage` | Runs a job now |
+| `server jobs pause <name\|id>`, `server jobs resume <name\|id>` | `jobs:manage` | Takes a job off its schedule, puts it back |
+| `server jobs stop <name\|id>`, `server jobs cancel <name\|id>` | `jobs:manage` | Stops the job (schedule off, run cancelled), or cancels only the run in progress |
+| `server jobs edit <name\|id>` | `jobs:manage` | Edits description, group, tags, schedule, retries, timeout, overlap policy |
+| `server jobs history clear <name\|id> [--status failed] [--yes]` | `jobs:manage` | Deletes the finished runs of a job (`DELETE /{id}/history`); asks unless `--yes` |
+| `server jobs history rm <name\|id> <run-id> [--yes]` | `jobs:manage` | Deletes one run (`DELETE /{id}/history/{execId}`); asks unless `--yes` |
+
+History retention is also a setting: `config get jobs` / `config set jobs.history.<key> <value>` (core `config` command).
+
 ## License
 
 MIT

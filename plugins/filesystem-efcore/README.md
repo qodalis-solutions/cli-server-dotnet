@@ -39,6 +39,11 @@ name, `TablePrefix`, `Tables["Files"]` and `Schema` set others.
 - `Microsoft.EntityFrameworkCore` 8.0
 - `Microsoft.EntityFrameworkCore.Relational` 8.0
 
+## Terminal commands
+
+None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
+(`scp` in the web CLI).
+
 ## License
 
 MIT

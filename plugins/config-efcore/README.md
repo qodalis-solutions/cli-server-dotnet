@@ -41,3 +41,10 @@ A change reads the row and writes it back with its version as a concurrency toke
 ## Migrations and the databases plugin
 
 A host whose own migrations create the table adds the model with `modelBuilder.ApplyConfigStorageModel()`. With the databases plugin, `AddConfigStoreSchema("main")` lists the table as the source `qcli-config` of that database.
+
+## Terminal commands
+
+None of its own: it keeps the writable settings of the config providers, managed with the core `config` command
+(`config list`, `config get`, `config set`, `config reset`; `config:read` for reading, `config:write` for changes). Its
+migrations show in `databases runs` when the [databases plugin](../databases/README.md#terminal-commands) runs them
+(`AddConfigStoreSchema`).

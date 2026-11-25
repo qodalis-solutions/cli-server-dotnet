@@ -42,6 +42,11 @@ When `ServiceURL` is set, path-style addressing is automatically enabled for com
 - `Qodalis.Cli.Plugin.FileSystem`
 - `AWSSDK.S3`
 
+## Terminal commands
+
+None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
+(`scp` in the web CLI).
+
 ## License
 
 MIT

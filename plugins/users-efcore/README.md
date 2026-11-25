@@ -98,6 +98,12 @@ By default the store adds the nullable `Audience` column to an existing token ta
 
 Existing rows keep `NULL`, which reads as `cli`.
 
+## Terminal commands
+
+None of its own: it stores the API tokens of the [users plugin](../users/README.md#terminal-commands), managed with that
+plugin's `token` commands. Its migrations show in `databases runs` when the
+[databases plugin](../databases/README.md#terminal-commands) runs them (`AddApiTokenStoreSchema`).
+
 ## License
 
 MIT

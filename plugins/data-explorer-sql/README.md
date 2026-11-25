@@ -31,6 +31,11 @@ The provider retrieves all tables and views from `sqlite_master` (excluding inte
 
 - `Microsoft.Data.Sqlite`
 
+## Terminal commands
+
+None of its own: the provider is queried through the [data explorer](../../README.md#data-explorer-sources)
+(`data-explorer` in the web CLI).
+
 ## License
 
 MIT

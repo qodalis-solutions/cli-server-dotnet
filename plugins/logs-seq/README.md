@@ -95,3 +95,10 @@ volumes:
 
 Create an API key with Ingest and Read in Seq (Settings > API keys) for the services. Set a retention policy (Settings >
 Retention) so the disk does not fill up.
+
+## Terminal commands
+
+No command of its own. With this plugin installed, `admin logs` of the [admin plugin](../admin/README.md) (`admin:access`
+and `logs:read`) reads the history from Seq, and `server logs` (web CLI plugin
+[`@qodalis/cli-server-logs`](https://www.npmjs.com/package/@qodalis/cli-server-logs)) follows the live log
+(`/ws/v1/qcli/logs`, `logs:read`).

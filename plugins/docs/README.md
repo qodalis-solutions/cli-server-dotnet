@@ -52,6 +52,33 @@ app.MapControllers();
 
 `HEAD` too. No sign-in; credentials are ignored. Page order: `order`, then `title` (case-insensitive), then `slug`.
 
+## Terminal commands
+
+`docs`, registered by `cli.AddDocs(...)`. The pages are public, so the command needs no permission beyond
+`commands:execute` on a protected server. `{{ baseUrl }}` is `DocsOptions.BaseUrl`, else empty (links relative to the
+server root): a command has no request to take the host from. The routes and the command share the pages and their
+views (`DocsPages`).
+
+| Command | Permission | Does |
+|---|---|---|
+| `docs`, `docs list [--group <group>] [--json]` | none | Slug and title of every page, by group, in page order (`GET /pages`) |
+| `docs read <slug> [--json]` (`show`, `cat`) | none | The page's markdown with the variables replaced, its title as a heading unless the page starts with one (`GET /pages/{slug}`) |
+
+```text
+$ docs
+Guides
+  getting-started  Getting started with RateBell API
+  auth             Authentication
+
+Reference
+  errors           Errors
+
+$ docs read auth
+# Authentication
+
+Send `Authorization: Bearer <token>` with every request.
+```
+
 ## Pages
 
 - **Folders**: every `*.md` file directly in the folder (no subfolders; names starting with `.` or `_` are ignored).

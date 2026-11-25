@@ -98,6 +98,11 @@ npm package `@qodalis/cli-server-portal` (`npm install` in this folder). At run 
 Without a site it logs `[qcli] portal site not found; the portal is not served` once and serves nothing,
 `portal.json` included.
 
+## Terminal commands
+
+None: the portal is a site. Its content comes from the [docs plugin](../docs/README.md#terminal-commands) (`docs list`,
+`docs read`) and the [public-api plugin](../public-api/README.md#terminal-commands) (`api usage`).
+
 ## License
 
 MIT

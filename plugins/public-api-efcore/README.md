@@ -78,6 +78,12 @@ one `DELETE` that scans the table (fine at this size: about 31 rows per token pl
 Tokens themselves must be created and revoked from one service only (the users plugin checks token names and the
 20-token limit in the process that creates them); every service may validate them over the shared token store.
 
+## Terminal commands
+
+None of its own: it stores the usage counters of the [public-api plugin](../public-api/README.md#terminal-commands),
+shown by that plugin's `api usage`. Its migrations show in `databases runs` when the
+[databases plugin](../databases/README.md#terminal-commands) runs them (`AddPublicApiUsageSchema`).
+
 ## License
 
 MIT

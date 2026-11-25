@@ -255,7 +255,9 @@ public class WeatherModule : CliModule
 }
 ```
 
-`plugins/weather/` is a complete reference module.
+`plugins/weather/` is a complete reference module. A module can bring the permissions its commands require to the
+[permission catalog](#permission-catalog): `Permissions` (`CliModulePermission(name, description, group)`), added by
+`cli.AddModule` with surface `cli`; a name already in the catalog stays as registered (see `AwsModule`).
 
 ## Configuration
 
@@ -577,14 +579,33 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.Users.EfCore`](plugins/users-efcore) | EF Core API token storage | `cli.AddEfCoreApiTokenStore(...)` |
 | [`Qodalis.Cli.Plugin.PublicApi`](plugins/public-api) | Public API: host routes guarded by host tokens with per-account quotas, usage per token, the public OpenAPI document and Swagger UI | `cli.AddPublicApi(...)` + `app.UseQodalisPublicApi()` + `.RequirePublicApi("rates:read")` |
 | [`Qodalis.Cli.Plugin.PublicApi.EfCore`](plugins/public-api-efcore) | EF Core usage counters, shared by every process | `cli.AddEfCorePublicApiUsageStore(...)` |
-| [`Qodalis.Cli.Plugin.Docs`](plugins/docs) | Markdown guides from folders or code, served as JSON | `cli.AddDocs(...)` + `app.UseQodalisDocs()` |
+| [`Qodalis.Cli.Plugin.Docs`](plugins/docs) | Markdown guides from folders or code, served as JSON and read with `docs` | `cli.AddDocs(...)` + `app.UseQodalisDocs()` |
 | [`Qodalis.Cli.Plugin.Portal`](plugins/portal) | The documentation site (guides, API reference) at one mount | `cli.AddPortal(...)` + `app.UseQodalisPortal()` |
 | [`Qodalis.Cli.Plugin.Logs.Seq`](plugins/logs-seq) | Logs in Seq: persistent, shared by several services, the dashboard's log history | `cli.AddSeqLogs(...)` |
-| [`Qodalis.Cli.Plugin.Admin`](plugins/admin) | Admin dashboard at `/qcli/admin` | `cli.AddAdmin(...)` + `app.UseQodalisAdmin()` |
+| [`Qodalis.Cli.Plugin.Admin`](plugins/admin) | Admin dashboard at `/qcli/admin` and the `admin` command | `cli.AddAdmin(...)` + `app.UseQodalisAdmin()` |
 | [`Qodalis.Cli.Plugin.Weather`](plugins/weather) | Example module (`weather current`, `weather forecast`) | `cli.AddModule(new WeatherModule())` |
 | [`plugins/aws`](plugins/aws) | AWS commands (S3, EC2, Lambda, CloudWatch, SNS, SQS, IAM, DynamoDB, ECS) | `cli.AddModule(new AwsModule())` |
 
 Each plugin folder has a README with its options and namespaces (for example, the `UseOsFileSystem` / `UseInMemory` helpers come from `using Qodalis.Cli.Plugin.FileSystem;`). Custom file storage implements `IFileStorageProvider` (`o.Provider = new MyProvider()`); custom data sources implement `IDataExplorerProvider`.
+
+### Plugin commands
+
+Every plugin README has a `Terminal commands` section. Commands served by this server (registered by the plugin's
+`Add*` method or `cli.AddModule`; permissions enforced on a protected server, along the command chain):
+
+| Plugin | Commands | Permission |
+|---|---|---|
+| [admin](plugins/admin/README.md#terminal-commands) | `admin status [--history]`, `admin plugins [list\|enable\|disable <id>]`, `admin clients`, `admin logs [--level] [--search] [--service] [--since] [-n]` | `admin:access`; `logs` also `logs:read` |
+| [databases](plugins/databases/README.md#terminal-commands) | `databases list\|stats\|migrations\|runs\|up\|down` | `databases:read`; `up`/`down` `databases:migrate` |
+| [docs](plugins/docs/README.md#terminal-commands) | `docs list [--group]`, `docs read <slug>` | none |
+| [public-api](plugins/public-api/README.md#terminal-commands) | `api usage [--user <name\|id>] [--days N]` | none for your own; `tokens:read` for another account |
+| [aws](plugins/aws/README.md#terminal-commands) | `aws configure\|status\|s3\|ec2\|lambda\|cloudwatch\|sns\|sqs\|iam\|ecs\|dynamodb ...` | `aws:read`; changes also `aws:write` |
+| [weather](plugins/weather/README.md#terminal-commands) | `weather [current\|forecast] [location]` | none |
+
+Lists take `--json`. Server settings are the core `config` command ([Config providers](#config-providers)). Plugins
+driven by web CLI plugins: jobs (`server jobs ...`, `@qodalis/cli-server-jobs`), users and audit (`adduser`, `token`,
+`link approve`, `audit`, ..., `@qodalis/cli-users`), data explorer (`data-explorer`, `@qodalis/cli-data-explorer`),
+filesystem (`scp`, `@qodalis/cli-scp`), live logs (`server logs`, `@qodalis/cli-server-logs`).
 
 ### Data explorer sources
 

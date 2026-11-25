@@ -72,6 +72,17 @@ the rest). Keep the log in a database with [Qodalis.Cli.Plugin.Audit.EfCore](../
 
 The admin dashboard's Audit page (`@qodalis/cli-dashboard-module-audit`, `audit:read`) comes with this package, with the command palette's audit search. It is embedded in the package at build (from the sibling cli-server-dashboard repo, else the npm package) and served at `/qcli/modules/audit` outside the API; `cli.ConfigureDashboardModule("audit", files)` serves another build, `null` leaves it out (see the root README's [Dashboard modules](../../README.md#dashboard-modules)).
 
+## Terminal commands
+
+No server-side command: the web CLI plugin [`@qodalis/cli-users`](https://www.npmjs.com/package/@qodalis/cli-users)
+reads the log through `GET/DELETE /api/v1/qcli/audit`.
+
+| Command | Permission | Does |
+|---|---|---|
+| `audit` | `audit:read` | The audit log, newest first |
+| `last [user]` | `audit:read` | Sign-in history (logins, logouts, failures) |
+| `audit clear` | `audit:clear` | Clears the audit log (asks first) |
+
 ## License
 
 MIT

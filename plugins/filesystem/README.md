@@ -73,6 +73,21 @@ Implement `IFileStorageProvider` and assign it to the options:
 cli.AddFileSystem(o => o.Provider = new MyCustomProvider());
 ```
 
+## Terminal commands
+
+No server-side command: the web CLI drives `/api/qcli/fs/*` (`files:read` for reading, `files:write` for changes on a
+protected server) through [`@qodalis/cli-scp`](https://www.npmjs.com/package/@qodalis/cli-scp):
+
+| Command | Permission | Does |
+|---|---|---|
+| `scp ls <server> <path>`, `scp cat <server> <path>`, `scp stat <server> <path>` | `files:read` | Lists a directory, prints a file, shows its details |
+| `scp download <server> <remote> [local]` (`get`), `scp <server>:<remote> [local]` | `files:read` | Downloads into the virtual file system (`--save`: through the browser) |
+| `scp upload <server> <local> <remote>` (`put`), `scp <local> <server>:<remote>` | `files:write` | Uploads from the virtual file system (`--local`: a file you pick) |
+| `scp mkdir <server> <path>`, `scp rm <server> <path>` | `files:write` | Creates a directory, deletes a file |
+
+The `ls`, `cat`, `cd`, ... commands of `@qodalis/cli-files` work on the browser's own file system, not the server's.
+Allowed paths are a setting too: `config get filesystem` (core `config` command).
+
 ## License
 
 MIT

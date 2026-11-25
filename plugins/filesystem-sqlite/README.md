@@ -37,6 +37,11 @@ keeps the old names; `TablePrefix` and `Tables["Files"]` set others. To show the
 - `Qodalis.Cli.Plugin.Databases`
 - `Microsoft.Data.Sqlite` 10.0
 
+## Terminal commands
+
+None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
+(`scp` in the web CLI).
+
 ## License
 
 MIT

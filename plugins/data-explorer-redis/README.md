@@ -41,6 +41,11 @@ Only the following Redis commands are permitted:
 
 - `StackExchange.Redis`
 
+## Terminal commands
+
+None of its own: the provider is queried through the [data explorer](../../README.md#data-explorer-sources)
+(`data-explorer` in the web CLI).
+
 ## License
 
 MIT

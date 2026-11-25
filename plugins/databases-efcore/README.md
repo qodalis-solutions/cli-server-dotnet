@@ -27,6 +27,12 @@ apply once. The context comes from `IDbContextFactory<TContext>`, or from a scop
 - Dry runs show `GenerateScript(from, to)`.
 - The source is named `ef` (`AddEfCore<T>("main", sourceName: "app")` names it).
 
+## Terminal commands
+
+None of its own: a DbContext's migrations and the stores' schemas are databases of the
+[databases plugin](../databases/README.md#terminal-commands), so `databases migrations <db>`, `databases runs <db>`,
+`databases up <db>` and `databases down <db> --to <id>` work on them (`databases:read`, `databases:migrate`).
+
 ## The CLI's EF Core stores
 
 The stores (users-efcore, jobs-efcore, audit-efcore, public-api-efcore, filesystem-efcore) name their tables `Qcli` +

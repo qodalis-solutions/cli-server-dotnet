@@ -103,6 +103,12 @@ The history is kept until pruned. Set the jobs plugin's [history retention](../j
 (`cli.ConfigureJobs(o => o.History.MaxAge = TimeSpan.FromDays(30))` or `Jobs:History` in configuration); this store
 prunes with set-based deletes (the runs and their log entries), without loading the runs.
 
+## Terminal commands
+
+None of its own: it stores the history of the [jobs plugin](../jobs/README.md#terminal-commands), managed with that
+plugin's `server jobs` commands (`server jobs history`, `server jobs runs`, ...). Its migrations show in `databases runs`
+when the [databases plugin](../databases/README.md#terminal-commands) runs them (`AddJobStorageSchema`).
+
 ## License
 
 MIT

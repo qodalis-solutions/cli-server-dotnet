@@ -33,6 +33,11 @@ The provider retrieves all tables and views in the `public` schema along with th
 
 - `Npgsql`
 
+## Terminal commands
+
+None of its own: the provider is queried through the [data explorer](../../README.md#data-explorer-sources)
+(`data-explorer` in the web CLI).
+
 ## License
 
 MIT

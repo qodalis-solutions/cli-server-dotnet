@@ -73,6 +73,12 @@ cli.AddJob(new PruneAuditJob(), o => { o.Id = "prune-audit"; o.Interval = TimeSp
 `GET /api/v1/qcli/audit` returns 100 entries when the request names no `limit`, and at most 1000. Its `from`/`to` time
 range is filtered in the database query.
 
+## Terminal commands
+
+None of its own: it stores the log of the [audit plugin](../audit/README.md#terminal-commands), managed with that
+plugin's commands (`audit`, `last`, `audit clear`). Its migrations show in `databases runs` when the
+[databases plugin](../databases/README.md#terminal-commands) runs them (`AddAuditStoreSchema`).
+
 ## License
 
 MIT
