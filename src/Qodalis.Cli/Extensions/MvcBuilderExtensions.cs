@@ -78,7 +78,8 @@ public static class MvcBuilderExtensions
         AddConfigServices(builder.Services, cliBuilder);
 
         builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
-        builder.Services.AddSingleton(new CliDashboardExtensions(cliBuilder.DashboardExtensions));
+        // The runtime registry: the builder's extensions when first resolved, then pages added and removed at runtime
+        builder.Services.AddSingleton(_ => new CliDashboardExtensions(cliBuilder.DashboardExtensions));
 
         var serverOptions = cliBuilder.ServerOptions;
         builder.Services.AddSingleton(serverOptions);

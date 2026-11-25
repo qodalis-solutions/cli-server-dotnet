@@ -38,6 +38,8 @@ public static class CliRoutePolicy
     public const string AuditClear = "audit:clear";
     public const string ShellExecute = "shell:execute";
     public const string AdminAccess = "admin:access";
+    /// <summary>Install, update and remove dashboard plugins from the marketplace (the admin plugin).</summary>
+    public const string DashboardInstall = "dashboard:install";
 
     /// <summary>The MCP endpoint (Streamable HTTP, stateless).</summary>
     public const string McpPath = "/api/qcli/mcp";

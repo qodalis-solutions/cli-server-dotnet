@@ -159,9 +159,66 @@ public partial class CliDashboardExtension
     }
 }
 
-/// <summary>The dashboard extensions registered on this host, in registration order (see <c>CliBuilder.AddDashboardExtension</c>).</summary>
-public class CliDashboardExtensions(IReadOnlyList<CliDashboardExtension> extensions)
+/// <summary>
+/// The dashboard extensions of this host, in registration order: the ones registered with
+/// <c>CliBuilder.AddDashboardExtension</c>, then those added and removed at runtime (the admin plugin's marketplace
+/// plugins). <c>GET /api/v1/qcli/dashboard/extensions</c> reads <see cref="All"/> on every request.
+/// </summary>
+public class CliDashboardExtensions
 {
-    /// <summary>Every registered extension.</summary>
-    public IReadOnlyList<CliDashboardExtension> All { get; } = extensions;
+    private readonly object _lock = new();
+    private readonly List<CliDashboardExtension> _extensions;
+    private CliDashboardExtension[]? _snapshot;
+
+    public CliDashboardExtensions(IEnumerable<CliDashboardExtension> extensions)
+    {
+        _extensions = extensions.ToList();
+    }
+
+    /// <summary>Every extension now, in registration order (a snapshot).</summary>
+    public IReadOnlyList<CliDashboardExtension> All
+    {
+        get
+        {
+            lock (_lock) return _snapshot ??= _extensions.ToArray();
+        }
+    }
+
+    /// <summary>True when an extension has this id.</summary>
+    public bool Contains(string id)
+    {
+        lock (_lock) return _extensions.Any(e => e.Id == id);
+    }
+
+    /// <summary>
+    /// Adds an extension at runtime, validated (see <see cref="CliDashboardExtension.Validate"/>). Throws
+    /// <see cref="ArgumentException"/> for an invalid one, <see cref="InvalidOperationException"/>
+    /// <c>dashboard extension already registered: &lt;id&gt;</c> when the id is taken.
+    /// </summary>
+    public CliDashboardExtension Add(CliDashboardExtension extension)
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        var valid = extension.Validate();
+        lock (_lock)
+        {
+            if (_extensions.Any(e => e.Id == valid.Id))
+                throw new InvalidOperationException($"dashboard extension already registered: {valid.Id}");
+            _extensions.Add(valid);
+            _snapshot = null;
+        }
+        return valid;
+    }
+
+    /// <summary>Removes the extension with this id at runtime; false when there is none.</summary>
+    public bool Remove(string id)
+    {
+        lock (_lock)
+        {
+            var index = _extensions.FindIndex(e => e.Id == id);
+            if (index < 0) return false;
+            _extensions.RemoveAt(index);
+            _snapshot = null;
+            return true;
+        }
+    }
 }
