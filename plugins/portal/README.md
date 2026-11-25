@@ -100,8 +100,78 @@ Without a site it logs `[qcli] portal site not found; the portal is not served` 
 
 ## Terminal commands
 
-None: the portal is a site. Its content comes from the [docs plugin](../docs/README.md#terminal-commands) (`docs list`,
-`docs read`) and the [public-api plugin](../public-api/README.md#terminal-commands) (`api usage`).
+`portal`, registered by `AddPortal` (with a `portal` module that describes it). It needs `config:read` on a protected
+server: it shows the portal's settings, as `config get portal` does (the portal itself stays public). The site's content
+comes from the [docs plugin](../docs/README.md#terminal-commands) (`docs list`, `docs read`) and the
+[public-api plugin](../public-api/README.md#terminal-commands) (`api usage`).
+
+| Command | Permission | Does |
+|---|---|---|
+| `portal`, `portal status [--json]` | `config:read` | The mount, whether the site was found and where from, the sections (docs with its page count, the API's title and OpenAPI URL) and the current branding |
+
+```text
+$ portal
+Portal: /qcli/portal
+Site: found, @qodalis/cli-server-portal (/app/node_modules/@qodalis/cli-server-portal/dist)
+Sections:
+  docs  Guides, 12 pages (/qcli/docs/pages)
+  api   API reference (/qcli/api/openapi.json)
+Branding:
+  name         RateBell API
+  logoUrl      /logo.svg
+  themeMode    system
+  footerLinks  Terms (https://example.com/terms)
+
+Change the branding with config set portal.branding.<key> <value> (name, logoUrl, themeMode, footerLinks).
+```
+
+Where the site came from: `SitePath`, `@qodalis/cli-server-portal`, `cli-server-dashboard/portal/dist` or
+`bundled with the plugin` (the embedded copy, shown without a folder); without one,
+`Site: not found, the portal is not served (install @qodalis/cli-server-portal or set SitePath)`. Without sections:
+`Sections: none (the site shows "Nothing published yet")`.
+
+`--json` prints `portal.json` (with the current branding; `docs` adds `pageCount`) and the site:
+
+```json
+{
+  "name": "RateBell API",
+  "logo": "/logo.svg",
+  "theme": { "mode": "system", "dark": {}, "light": {} },
+  "footerLinks": [{ "label": "Terms", "url": "https://example.com/terms" }],
+  "docs": { "title": "Guides", "pages": "/qcli/docs/pages", "pageCount": 12 },
+  "api": { "title": "API reference", "openapi": "/qcli/api/openapi.json", "swagger": "/qcli/api/swagger" },
+  "site": { "path": "/qcli/portal", "found": true, "source": "package", "dir": "/app/node_modules/@qodalis/cli-server-portal/dist" }
+}
+```
+
+`site.source` is `siteDir`, `package`, `checkout`, `bundled`, or `null` when the site was not found; `site.dir` is
+`null` for the embedded copy.
+
+## Configuration
+
+The plugin brings the `portal` config provider (the server's [config providers](../../README.md#config-providers)):
+the branding changes at runtime, through `config set`, the dashboard's Settings page or
+`PATCH /api/v1/qcli/config/portal/branding` (`config:write`). The options' values are the defaults, stored values
+override them, and every change is in the next `/portal.json`, no restart. `null` (`config reset`) brings the options'
+value back.
+
+| Setting | Type | Rules |
+|---|---|---|
+| `portal.branding.name` | string | 1-80 characters without control characters |
+| `portal.branding.logoUrl` | string | An http(s) URL, a root-relative path or a base64 `data:image/…` URL (up to 200 000 characters), as `LogoUrl` is checked; `''` for no logo. A `string` rather than a `url`: a `url` setting must be absolute |
+| `portal.branding.themeMode` | enum | `system`, `light` or `dark` |
+| `portal.branding.footerLinks` | json | A list of at most 20 `{ "label", "url" }` links, as `FooterLinks` are checked |
+| `portal.site.path`, `.siteFound`, `.sections` | read-only | The mount, whether the site was found, the sections added (`docs`, `api`) |
+
+```text
+$ config set portal.branding.name "RateBell API"
+$ config set portal.branding.themeMode dark
+$ config set portal.branding.footerLinks '[{"label":"Terms","url":"https://example.com/terms"}]'
+$ config reset portal.branding.logoUrl
+```
+
+The theme's colour tokens (`Theme.Dark`, `Theme.Light`) stay in code: 21 tokens per scheme would make a long settings
+page, and a wrong colour is easier to catch in review.
 
 ## License
 
