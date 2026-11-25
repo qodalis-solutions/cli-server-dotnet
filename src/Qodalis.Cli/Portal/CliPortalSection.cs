@@ -15,4 +15,13 @@ public sealed record CliPortalSection(string Kind, string Title, string BasePath
 
     /// <summary>The public-api plugin's OpenAPI document and Swagger UI.</summary>
     public const string Api = "api";
+
+    /// <summary>The number of pages of a docs section (the docs plugin sets it), shown by the <c>portal</c> command; null when unknown.</summary>
+    public Func<int>? PageCount { get; init; }
+
+    /// <summary>Equal when kind, title and base path are (the page count is not compared).</summary>
+    public bool Equals(CliPortalSection? other) =>
+        other is not null && Kind == other.Kind && Title == other.Title && BasePath == other.BasePath;
+
+    public override int GetHashCode() => HashCode.Combine(Kind, Title, BasePath);
 }

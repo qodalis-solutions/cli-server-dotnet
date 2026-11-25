@@ -36,7 +36,11 @@ public static class CliBuilderDocsExtensions
         builder.Services.AddSingleton(sp => new DocsPages(options, sp.GetService<IHostEnvironment>()));
         // The docs command (docs list, docs read <slug>): the same pages and views as the routes
         builder.AddProcessor<CliDocsCommandProcessor>();
-        builder.Services.AddSingleton(new CliPortalSection(CliPortalSection.Docs, options.Title, options.BasePath));
+        builder.Services.AddSingleton(sp => new CliPortalSection(CliPortalSection.Docs, options.Title, options.BasePath)
+        {
+            // the page count, shown by the portal command
+            PageCount = () => sp.GetRequiredService<DocsPages>().All.Count,
+        });
         return builder;
     }
 

@@ -18,12 +18,6 @@ namespace Qodalis.Cli.Plugin.Portal;
 public static partial class CliBuilderPortalExtensions
 {
     internal const string SiteNotFoundMessage = "[qcli] portal site not found; the portal is not served";
-    private const int MaxNameLength = 80;
-    private const int MaxLogoLength = 200_000;
-    private const int MaxFooterLinks = 20;
-
-    [GeneratedRegex(@"^data:image/(?:png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/]+={0,2}$", RegexOptions.CultureInvariant)]
-    private static partial Regex DataImage();
 
     [GeneratedRegex("<base\\s+href=\"/\"\\s*/?>")]
     private static partial Regex BaseTag();
@@ -50,6 +44,12 @@ public static partial class CliBuilderPortalExtensions
         configure?.Invoke(options);
         builder.AddInstalledPlugin(typeof(PortalOptions).Assembly);
         builder.Services.AddSingleton(options);
+        builder.Services.AddSingleton(sp => new PortalState(options, sp));
+        // The portal config provider: the branding changeable at runtime (config set portal.branding.<key>), the site read-only
+        builder.AddConfigProvider(sp => sp.GetRequiredService<PortalState>().ConfigProvider);
+        // The portal command (portal [status] [--json], config:read); the module describes it
+        builder.AddModule(new PortalModule());
+        builder.AddProcessor<CliPortalCommandProcessor>();
         return builder;
     }
 
@@ -67,11 +67,11 @@ public static partial class CliBuilderPortalExtensions
         var options = services.GetService<PortalOptions>()
                       ?? throw new InvalidOperationException("portal: call cli.AddPortal() before UseQodalisPortal()");
         var mount = ValidatePath(options.Path);
-        var sections = Sections(services.GetServices<CliPortalSection>());
-        var portalJson = PortalJson(options, sections);
+        var state = services.GetRequiredService<PortalState>();
+        Sections(state.Sections);
+        state.Validate();
 
-        var contentRoot = services.GetService<IHostEnvironment>()?.ContentRootPath ?? Directory.GetCurrentDirectory();
-        var site = PortalSiteResolver.Resolve(options.SitePath, contentRoot);
+        var site = state.Site?.Files;
         var index = site == null ? null : ReadIndex(site);
         if (site == null || index == null)
         {
@@ -112,7 +112,7 @@ public static partial class CliBuilderPortalExtensions
             }
             if (relative == "/portal.json")
             {
-                await WriteAsync(context, "application/json; charset=utf-8", portalJson(pathBase));
+                await WriteAsync(context, "application/json; charset=utf-8", state.Document(pathBase).ToJsonString(PortalState.JsonOptions));
                 return;
             }
             if (AssetPath(relative) is { } assetPath && site.GetFileInfo(assetPath) is { Exists: true, IsDirectory: false } file)
@@ -188,7 +188,7 @@ public static partial class CliBuilderPortalExtensions
         BaseTag().Replace(index, $"<base href=\"{System.Net.WebUtility.HtmlEncode(href)}\" />", 1);
 
     // -------------------------------------------------------------------------
-    // portal.json and validation
+    // validation
     // -------------------------------------------------------------------------
 
     private static string ValidatePath(string? path)
@@ -202,126 +202,14 @@ public static partial class CliBuilderPortalExtensions
         return path!;
     }
 
-    private static Dictionary<string, CliPortalSection> Sections(IEnumerable<CliPortalSection> sections)
+    /// <summary>One section of each kind: <see cref="InvalidOperationException"/> for a second one.</summary>
+    private static void Sections(IEnumerable<CliPortalSection> sections)
     {
-        var result = new Dictionary<string, CliPortalSection>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var section in sections)
         {
-            if (!result.TryAdd(section.Kind, section))
+            if (!seen.Add(section.Kind))
                 throw new InvalidOperationException($"portal section already registered: {section.Kind}");
         }
-        return result;
-    }
-
-    /// <summary>Validates the options and returns <c>portal.json</c> for a request's path base.</summary>
-    private static Func<string, string> PortalJson(PortalOptions options, IReadOnlyDictionary<string, CliPortalSection> sections)
-    {
-        var name = options.Name;
-        if (string.IsNullOrEmpty(name) || name.Length > MaxNameLength || name.Any(char.IsControl))
-            throw new ArgumentException("portal name must be 1-80 characters without control characters");
-
-        var logo = options.LogoUrl;
-        if (logo != null && !(logo.Length <= MaxLogoLength && (IsWebOrRootRelative(logo) || DataImage().IsMatch(logo))))
-            throw new ArgumentException("portal logo must be an http(s) URL, a root-relative path or a data:image URL");
-
-        var theme = options.Theme ?? new PortalTheme();
-        if (!Enum.IsDefined(theme.Mode))
-            throw new ArgumentException($"invalid portal theme mode: {theme.Mode}");
-        var dark = Colours(theme.Dark, "dark");
-        var light = Colours(theme.Light, "light");
-
-        if (options.FooterLinks.Count > MaxFooterLinks)
-            throw new ArgumentException($"invalid portal footer link: {options.FooterLinks[MaxFooterLinks].Label}");
-        foreach (var link in options.FooterLinks)
-        {
-            var label = link?.Label ?? string.Empty;
-            if (link == null || label.Length is < 1 or > MaxNameLength || label.Any(char.IsControl) ||
-                link.Url == null || !IsWebOrRootRelative(link.Url))
-                throw new ArgumentException($"invalid portal footer link: {label}");
-        }
-
-        sections.TryGetValue(CliPortalSection.Docs, out var docs);
-        sections.TryGetValue(CliPortalSection.Api, out var api);
-
-        return pathBase =>
-        {
-            using var stream = new MemoryStream();
-            using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions
-                   {
-                       Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                   }))
-            {
-                json.WriteStartObject();
-                json.WriteString("name", name);
-                if (logo == null) json.WriteNull("logo");
-                else json.WriteString("logo", logo);
-
-                json.WriteStartObject("theme");
-                json.WriteString("mode", theme.Mode.ToString().ToLowerInvariant());
-                WriteColours(json, "dark", dark);
-                WriteColours(json, "light", light);
-                json.WriteEndObject();
-
-                json.WriteStartArray("footerLinks");
-                foreach (var link in options.FooterLinks)
-                {
-                    json.WriteStartObject();
-                    json.WriteString("label", link.Label);
-                    json.WriteString("url", link.Url);
-                    json.WriteEndObject();
-                }
-                json.WriteEndArray();
-
-                if (docs == null) json.WriteNull("docs");
-                else
-                {
-                    json.WriteStartObject("docs");
-                    json.WriteString("title", docs.Title);
-                    json.WriteString("pages", pathBase + docs.BasePath + "/pages");
-                    json.WriteEndObject();
-                }
-
-                if (api == null) json.WriteNull("api");
-                else
-                {
-                    json.WriteStartObject("api");
-                    json.WriteString("title", api.Title);
-                    json.WriteString("openapi", pathBase + api.BasePath + "/openapi.json");
-                    json.WriteString("swagger", pathBase + api.BasePath + "/swagger");
-                    json.WriteEndObject();
-                }
-                json.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(stream.ToArray());
-        };
-    }
-
-    private static List<(string Token, string Value)> Colours(PortalThemeColors? colours, string scheme)
-    {
-        var result = new List<(string, string)>();
-        if (colours == null) return result;
-        foreach (var (token, value) in colours.Entries())
-        {
-            if (value == null) continue;
-            if (!CliColor.IsValid(value)) throw new ArgumentException($"invalid portal colour {scheme}.{token}: {value}");
-            result.Add((token, value.Trim()));
-        }
-        return result;
-    }
-
-    private static void WriteColours(Utf8JsonWriter json, string scheme, List<(string Token, string Value)> colours)
-    {
-        json.WriteStartObject(scheme);
-        foreach (var (token, value) in colours) json.WriteString(token, value);
-        json.WriteEndObject();
-    }
-
-    /// <summary>An absolute http(s) URL, or a root-relative path (not <c>//host</c>), without whitespace.</summary>
-    private static bool IsWebOrRootRelative(string value)
-    {
-        if (value.Length == 0 || value.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return false;
-        if (value[0] == '/') return value.Length == 1 || (value[1] != '/' && value[1] != '\\');
-        return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
     }
 }
