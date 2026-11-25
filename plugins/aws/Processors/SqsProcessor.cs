@@ -88,6 +88,9 @@ internal class SqsSendProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "send";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Send a message to an SQS queue";
 
     /// <inheritdoc />
@@ -291,6 +294,9 @@ internal class SqsPurgeProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "purge";
+
+    /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
 
     /// <inheritdoc />
     public override string Description { get; set; } = "Purge all messages from an SQS queue";

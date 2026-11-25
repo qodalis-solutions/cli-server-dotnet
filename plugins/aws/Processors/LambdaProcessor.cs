@@ -99,6 +99,9 @@ internal class LambdaInvokeProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "invoke";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Invoke a Lambda function";
 
     /// <inheritdoc />

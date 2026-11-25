@@ -89,6 +89,9 @@ internal class SnsPublishProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "publish";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Publish a message to an SNS topic";
 
     /// <inheritdoc />

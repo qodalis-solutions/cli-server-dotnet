@@ -180,6 +180,9 @@ internal class S3CpProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "cp";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Copy objects between S3 locations (S3-to-S3 only)";
 
     /// <inheritdoc />
@@ -295,6 +298,9 @@ internal class S3RmProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "rm";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Delete an S3 object";
 
     /// <inheritdoc />
@@ -396,6 +402,9 @@ internal class S3MbProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "mb";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Create an S3 bucket";
 
     /// <inheritdoc />
@@ -470,6 +479,9 @@ internal class S3RbProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "rb";
+
+    /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
 
     /// <inheritdoc />
     public override string Description { get; set; } = "Delete an S3 bucket";

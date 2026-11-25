@@ -15,6 +15,9 @@ internal class AwsConfigureSetProcessor : CliCommandProcessor, ICliCommandProces
     public override string Command { get; set; } = "set";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Set AWS credentials and region";
 
     /// <inheritdoc />
@@ -302,6 +305,9 @@ public class AwsCommandProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "aws";
+
+    /// <summary>Every sub-command; the changing ones also need <c>aws:write</c>.</summary>
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Read];
 
     /// <inheritdoc />
     public override string Description { get; set; } = "AWS cloud resource management";

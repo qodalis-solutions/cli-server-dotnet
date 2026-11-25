@@ -20,6 +20,9 @@ public class AwsModule : Cli.CliModule
     /// <inheritdoc />
     public override string? Icon => "☁️";
 
+    /// <summary><c>aws:read</c> and <c>aws:write</c>, added to the server's permission catalog (group AWS).</summary>
+    public override IEnumerable<CliModulePermission> Permissions => AwsPermissions.Entries;
+
     /// <inheritdoc />
     public override IEnumerable<ICliCommandProcessor> Processors { get; } =
     [

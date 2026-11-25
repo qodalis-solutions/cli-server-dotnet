@@ -210,6 +210,9 @@ internal class Ec2StartProcessor : CliCommandProcessor, ICliCommandProcessor
     public override string Command { get; set; } = "start";
 
     /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
+
+    /// <inheritdoc />
     public override string Description { get; set; } = "Start an EC2 instance";
 
     /// <inheritdoc />
@@ -288,6 +291,9 @@ internal class Ec2StopProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "stop";
+
+    /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
 
     /// <inheritdoc />
     public override string Description { get; set; } = "Stop an EC2 instance";
@@ -380,6 +386,9 @@ internal class Ec2RebootProcessor : CliCommandProcessor, ICliCommandProcessor
 {
     /// <inheritdoc />
     public override string Command { get; set; } = "reboot";
+
+    /// <inheritdoc />
+    public override IEnumerable<string>? RequiredPermissions { get; set; } = [AwsPermissions.Write];
 
     /// <inheritdoc />
     public override string Description { get; set; } = "Reboot an EC2 instance";
