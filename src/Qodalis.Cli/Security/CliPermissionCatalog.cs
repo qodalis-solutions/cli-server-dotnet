@@ -122,6 +122,7 @@ internal sealed class CliPermissionCatalog : ICliPermissionCatalog
         .Group("Commands")
         .Add(CliRoutePolicy.CommandsExecute, "Run commands on the server")
         .Add(CliRoutePolicy.ShellExecute, "Open an interactive shell on the server")
+        .Add(Processors.CliHttpCommandProcessor.Permission, "Make HTTP requests from the server")
         .Group("Files")
         .Add(CliRoutePolicy.FilesRead, "List, read and download files")
         .Add(CliRoutePolicy.FilesWrite, "Upload, create and delete files")
