@@ -38,6 +38,13 @@ It is created on first use, also inside a database that already has other tables
 
 A change reads the row and writes it back with its version as a concurrency token: when another server changed the section meanwhile, the write is retried on the new row, and a change made against a stale version (`version` in the request, `--expected-version`) is refused with 409. Secrets are stored as given: keep the database where only the server can read it.
 
+## Where changes are saved
+
+The store describes itself as `{ "kind": "database", "title": "Database", "detail": "SQL Server database qcli, table QcliConfig", "persistent": true }`
+(`store` of `GET /api/v1/qcli/config`, the dashboard's Config page, the first line of `config list`): the EF Core
+provider, the database's name as the connection reports it (a SQLite file by its name only) and the table. The
+connection string and credentials are never shown.
+
 ## Migrations and the databases plugin
 
 A host whose own migrations create the table adds the model with `modelBuilder.ApplyConfigStorageModel()`. With the databases plugin, `AddConfigStoreSchema("main")` lists the table as the source `qcli-config` of that database.
