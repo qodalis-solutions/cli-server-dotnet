@@ -83,13 +83,12 @@ public static class MvcBuilderExtensions
         var serverOptions = cliBuilder.ServerOptions;
         builder.Services.AddSingleton(serverOptions);
         builder.Services.Configure<MvcOptions>(o => o.Filters.Add(new CliAuthenticationGuardFilter()));
-        if (serverOptions.AllowedOrigins.Count > 0)
-        {
-            builder.Services.AddCors(o => o.AddDefaultPolicy(policy => policy
-                .SetIsOriginAllowed(serverOptions.IsOriginAllowed)
-                .AllowAnyMethod()
-                .AllowAnyHeader()));
-        }
+        // The default CORS policy follows the live list of allowed origins (the cors config provider changes it at
+        // runtime): an empty list sends no CORS headers. Applied where the host calls app.UseCors().
+        builder.Services.AddCors(o => o.AddDefaultPolicy(policy => policy
+            .SetIsOriginAllowed(serverOptions.IsOriginAllowed)
+            .AllowAnyMethod()
+            .AllowAnyHeader()));
 
         builder.Services.TryAddSingleton<CliCommandUsage>();
         builder.Services.AddSingleton<ICliCommandExecutorService, CliCommandExecutorService>();
@@ -164,8 +163,7 @@ public static class MvcBuilderExtensions
             BuiltIn(new CliServerConfigProvider(environment: () => sp.GetService<IHostEnvironment>()?.EnvironmentName));
             BuiltIn(new CliHostConfigProvider(() => HostOptions(serverOptions), sp.GetService<IConfiguration>(),
                 cliBuilder.ConfigOptions.Environment));
-            BuiltIn(CliRuntimeConfigProviders.Cors(serverOptions.AllowedOrigins,
-                serverOptions.AllowedOrigins.Count > 0 ? CliCorsMode.Origins : CliCorsMode.Disabled));
+            BuiltIn(CliRuntimeConfigProviders.Cors(serverOptions.AllowedOrigins, CliCorsMode.Origins));
             BuiltIn(CliRuntimeConfigProviders.Mcp(serverOptions.Mcp, CliRoutePolicy.McpPath));
             if (serverOptions.CliRoutes && sp.GetService<FileSystemOptions>() is { } fileSystem)
             {

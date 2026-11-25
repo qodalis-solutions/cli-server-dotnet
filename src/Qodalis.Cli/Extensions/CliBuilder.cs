@@ -136,8 +136,8 @@ public partial class CliBuilder
 
     /// <summary>
     /// Restricts CORS and WebSocket upgrades to the given origins (e.g. <c>http://localhost:4300</c>,
-    /// <c>http://127.0.0.1:*</c>). Registers the default CORS policy for <c>app.UseCors()</c>.
-    /// Without it the library configures no CORS.
+    /// <c>http://127.0.0.1:*</c>). The library's default CORS policy (applied by <c>app.UseCors()</c>) answers these
+    /// origins; without any it sends no CORS headers. Changeable at runtime through the <c>cors</c> config provider.
     /// </summary>
     public CliBuilder SetAllowedOrigins(params string[] origins)
     {
