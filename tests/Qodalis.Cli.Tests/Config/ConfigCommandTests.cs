@@ -128,6 +128,7 @@ internal static class ConfigCommands
 }
 
 /// <summary>The <c>config</c> command on an open server.</summary>
+[Collection(ProcessEnvironment.Collection)]
 public sealed class ConfigCommandTests : IAsyncLifetime
 {
     private ConfigTestHost _host = null!;

@@ -17,6 +17,7 @@ namespace Qodalis.Cli.Tests.Config;
 /// The built-in config providers and their runtime effect: server, host (secrets masked), cors (live origins), mcp (tool
 /// lists, read-only), filesystem, jobs (history retention), logs (buffer), users, custom; persistence through the stores.
 /// </summary>
+[Collection(Helpers.ProcessEnvironment.Collection)]
 public class ConfigProvidersTests
 {
     private static readonly CliConfigContext All = ConfigTestHost.All;

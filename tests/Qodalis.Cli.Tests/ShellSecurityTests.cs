@@ -14,6 +14,7 @@ namespace Qodalis.Cli.Tests;
 /// Remote shell security (web-cli spec "Appendix C — Remote shell security", C1–C5) without the
 /// users plugin: access modes, locked default, limits, timeouts, environment, logging.
 /// </summary>
+[Collection(ProcessEnvironment.Collection)]
 public class ShellSecurityTests
 {
     private const string Shell = "/bin/sh";
