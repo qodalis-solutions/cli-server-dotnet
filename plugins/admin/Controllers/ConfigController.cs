@@ -1,75 +1,112 @@
+using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Qodalis.Cli.Plugin.Admin.Services;
+using Microsoft.Extensions.Logging;
+using Qodalis.Cli.Abstractions.Config;
+using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Plugin.Admin.Controllers;
 
 /// <summary>
-/// Admin controller for viewing and updating server configuration settings.
+/// The config API over the server's config providers (<see cref="ICliConfigService"/>):
+/// <list type="bullet">
+/// <item><c>GET /</c>: <c>{ providers: [...] }</c>, the providers the caller may see (<c>config:read</c>)</item>
+/// <item><c>GET /{provider}</c>: one provider</item>
+/// <item><c>PATCH /{provider}/{section}</c>: <c>{ changes, version? }</c> (<c>config:write</c>): 200 with the section, 400
+/// <c>{ error, errors }</c> per key, 403, 404, 409 <c>{ error, version }</c> when the version is stale</item>
+/// </list>
 /// </summary>
 [ApiController]
 [Route("api/v1/qcli/config")]
 public class ConfigController : ControllerBase
 {
-    private readonly AdminConfig _config;
+    private readonly ICliConfigService _service;
+    private readonly CliServerOptions _serverOptions;
+    private readonly ILogger<ConfigController> _logger;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ConfigController"/> class.
-    /// </summary>
-    public ConfigController(AdminConfig config)
+    public ConfigController(ICliConfigService service, CliServerOptions serverOptions, ILogger<ConfigController> logger)
     {
-        _config = config;
+        _service = service;
+        _serverOptions = serverOptions;
+        _logger = logger;
     }
 
     /// <summary>
-    /// Returns all configuration sections with their current settings.
+    /// Who is asking: the server's caller on a protected server, else the dashboard session (the static admin of
+    /// password mode may do everything).
     /// </summary>
+    public static CliConfigContext ContextOf(HttpContext http, CliServerOptions serverOptions)
+    {
+        if (serverOptions.RequireAuthentication && http.GetCliPrincipal() != null)
+            return CliConfigContexts.Of(http, serverOptions, "api");
+        var principal = http.GetCliPrincipal();
+        if (principal != null)
+            return new CliConfigContext(new CliConfigCaller(principal.UserId, principal.UserName, principal.Permissions), principal.Can, "api");
+        var user = http.Items["AdminUser"] as ClaimsPrincipal;
+        return CliConfigContext.For(new CliConfigCaller(null, user?.Identity?.Name ?? "admin", ["*"]), "api");
+    }
+
+    private IActionResult Error(Exception ex)
+    {
+        if (ex is CliConfigException config)
+            return new ContentResult { StatusCode = config.Status, Content = config.ToJson().ToJsonString(), ContentType = "application/json" };
+        _logger.LogError(ex, "[qcli-admin] config request failed");
+        return StatusCode(500, new { error = "internal server error" });
+    }
+
+    /// <summary>The providers the caller may see.</summary>
     [HttpGet]
-    public IActionResult GetConfig()
+    public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        return Ok(new { sections = _config.GetConfigSections() });
-    }
-
-    /// <summary>
-    /// Updates mutable configuration settings (e.g., auth credentials, JWT expiry).
-    /// </summary>
-    /// <param name="request">The configuration update request.</param>
-    [HttpPut]
-    public IActionResult UpdateConfig([FromBody] UpdateConfigRequest request)
-    {
-        if (request.Auth != null)
+        try
         {
-            if (!string.IsNullOrEmpty(request.Auth.Username))
-                _config.Username = request.Auth.Username;
-
-            if (!string.IsNullOrEmpty(request.Auth.Password))
-                _config.Password = request.Auth.Password;
-
-            if (request.Auth.JwtExpiryHours.HasValue && request.Auth.JwtExpiryHours.Value > 0)
-                _config.JwtExpiry = TimeSpan.FromHours(request.Auth.JwtExpiryHours.Value);
+            Response.Headers.CacheControl = "no-store";
+            return Ok(new { providers = await _service.ListAsync(ContextOf(HttpContext, _serverOptions), cancellationToken) });
         }
-
-        return Ok(new { message = "Configuration updated" });
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ex);
+        }
     }
-}
 
-/// <summary>
-/// Request body for updating server configuration.
-/// </summary>
-public class UpdateConfigRequest
-{
-    /// <summary>Authentication-related configuration updates.</summary>
-    public AuthConfigUpdate? Auth { get; set; }
-}
+    /// <summary>One provider.</summary>
+    [HttpGet("{provider}")]
+    public async Task<IActionResult> Get(string provider, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Response.Headers.CacheControl = "no-store";
+            return Ok(await _service.GetAsync(provider, ContextOf(HttpContext, _serverOptions), cancellationToken));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ex);
+        }
+    }
 
-/// <summary>
-/// Authentication configuration update fields.
-/// </summary>
-public class AuthConfigUpdate
-{
-    /// <summary>New admin username.</summary>
-    public string? Username { get; set; }
-    /// <summary>New admin password.</summary>
-    public string? Password { get; set; }
-    /// <summary>New JWT token expiry in hours.</summary>
-    public double? JwtExpiryHours { get; set; }
+    /// <summary>Changes settings of a section: <c>{ changes, version? }</c>.</summary>
+    [HttpPatch("{provider}/{section}")]
+    public async Task<IActionResult> Update(string provider, string section, [FromBody] JsonElement body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = JsonNode.Parse(body.GetRawText()) as JsonObject;
+            var changes = json?["changes"] is JsonObject c ? c.ToDictionary(p => p.Key, p => p.Value?.DeepClone()) : null;
+            string? version = null;
+            if (json?["version"] is { } v)
+            {
+                version = CliConfigValues.AsString(v) ?? throw new CliConfigException(400, "version must be a string");
+            }
+            var context = ContextOf(HttpContext, _serverOptions);
+            return Ok(await _service.UpdateAsync(provider, section, new CliConfigUpdateRequest { Changes = changes, Version = version },
+                context, cancellationToken));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ex);
+        }
+    }
 }

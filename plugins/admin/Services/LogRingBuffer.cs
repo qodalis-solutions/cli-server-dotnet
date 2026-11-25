@@ -10,8 +10,18 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// </summary>
 public class LogRingBuffer : ILoggerProvider, ILogStore
 {
-    private readonly LogEntry[] _buffer;
-    private readonly int _capacity;
+    /// <summary>The levels, lowest first.</summary>
+    public static readonly IReadOnlyList<string> Levels = ["DEBUG", "INFO", "WARN", "ERROR"];
+
+    /// <summary>The smallest and largest buffer sizes <see cref="Resize"/> accepts.</summary>
+    public const int MinCapacity = 100;
+
+    /// <inheritdoc cref="MinCapacity"/>
+    public const int MaxCapacity = 100_000;
+
+    private LogEntry[] _buffer;
+    private int _capacity;
+    private string _minLevel = "DEBUG";
     private long _writeIndex;
     private long _count;
     private readonly object _lock = new();
@@ -37,6 +47,8 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
     {
         lock (_lock)
         {
+            var rank = IndexOfLevel(entry.Level);
+            if (rank >= 0 && rank < IndexOfLevel(_minLevel)) return;
             var index = _writeIndex % _capacity;
             _buffer[index] = entry;
             _writeIndex++;
@@ -137,6 +149,50 @@ public class LogRingBuffer : ILoggerProvider, ILogStore
     /// <inheritdoc />
     public Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<string>>([]);
+
+    private static int IndexOfLevel(string? level) =>
+        Levels.ToList().FindIndex(l => string.Equals(l, level, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>How many entries the buffer keeps.</summary>
+    public int Capacity
+    {
+        get
+        {
+            lock (_lock) return _capacity;
+        }
+    }
+
+    /// <summary>Keeps up to <paramref name="capacity"/> entries from now on (the newest ones stay). Changed at runtime by the <c>logs</c> config provider.</summary>
+    public void Resize(int capacity)
+    {
+        if (capacity < 1) throw new ArgumentOutOfRangeException(nameof(capacity), capacity, $"invalid log buffer capacity: {capacity}");
+        var kept = Snapshot();
+        lock (_lock)
+        {
+            if (capacity == _capacity) return;
+            if (kept.Count > capacity) kept = kept.GetRange(kept.Count - capacity, capacity);
+            _buffer = new LogEntry[capacity];
+            for (var i = 0; i < kept.Count; i++) _buffer[i] = kept[i];
+            _capacity = capacity;
+            _count = kept.Count;
+            _writeIndex = kept.Count;
+        }
+    }
+
+    /// <summary>The lowest level kept (default <c>DEBUG</c>: everything); lower entries are neither kept nor broadcast.</summary>
+    public string MinLevel
+    {
+        get
+        {
+            lock (_lock) return _minLevel;
+        }
+        set
+        {
+            var index = IndexOfLevel(value);
+            if (index < 0) throw new ArgumentException($"invalid log level: {value}", nameof(value));
+            lock (_lock) _minLevel = Levels[index];
+        }
+    }
 
     /// <summary>The entries, oldest first.</summary>
     private List<LogEntry> Snapshot()

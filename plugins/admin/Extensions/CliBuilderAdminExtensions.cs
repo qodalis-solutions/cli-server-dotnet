@@ -6,6 +6,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
+using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Logs;
 using Qodalis.Cli.Extensions;
@@ -58,6 +59,15 @@ public static class CliBuilderAdminExtensions
             return new ModuleRegistry(builder.Modules, () => sp.GetServices<ICliCommandProcessor>());
         });
         builder.Services.AddSingleton<ICliProcessorFilter>(sp => sp.GetRequiredService<ModuleRegistry>());
+
+        // Config: the auth (read-only) and logs providers; the API at /api/v1/qcli/config serves every provider
+        builder.AddConfigProvider(sp => AdminConfigProviders.Auth(sp.GetRequiredService<AdminConfig>(), () =>
+        {
+            var external = sp.GetRequiredService<Qodalis.Cli.Security.CliServerOptions>().ExternalAuthentication;
+            return external ? "external" : sp.GetService<Qodalis.Cli.Security.ICliAuthBridge>() != null ? "users" : "password";
+        }));
+        builder.AddConfigProvider(_ => AdminConfigProviders.Logs(logBuffer));
+        builder.AddRoutePermission("/api/v1/qcli/config", CliConfigPermissions.Read, CliConfigPermissions.Write);
 
         // Register the admin plugin controller assembly
         builder.AddApplicationPart(typeof(StatusController).Assembly);

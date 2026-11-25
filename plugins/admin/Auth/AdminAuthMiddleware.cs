@@ -92,6 +92,8 @@ public class AdminAuthMiddleware
                 return;
             }
 
+            // The config API checks config:read / config:write against the caller's permissions
+            if (context.GetCliPrincipal() == null) context.SetCliPrincipal(user);
             context.Items["AdminUser"] = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.Name, user.UserName),

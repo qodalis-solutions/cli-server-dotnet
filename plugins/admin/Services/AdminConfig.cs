@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging;
 namespace Qodalis.Cli.Plugin.Admin.Services;
 
 /// <summary>
-/// Admin configuration — reads credentials and JWT settings from environment variables.
+/// Admin configuration: the credentials, JWT settings, appearance and sign-in URL; reads the credentials from
+/// environment variables. The dashboard's Settings page is served by the config providers (<c>auth</c> and <c>logs</c>
+/// here, the server's built-in ones and the plugins').
 /// </summary>
 public class AdminConfig
 {
@@ -138,47 +140,6 @@ public class AdminConfig
         return usernameMatch && passwordMatch;
     }
 
-    /// <summary>
-    /// Returns the configuration sections for the admin config endpoint.
-    /// </summary>
-    /// <returns>An array of configuration section objects.</returns>
-    public object[] GetConfigSections()
-    {
-        return new object[]
-        {
-            new
-            {
-                name = "server",
-                mutable = false,
-                settings = new object[]
-                {
-                    new { key = "platform", value = "dotnet", type = "string", description = "Server platform", mutable = false },
-                    new { key = "platformVersion", value = Environment.Version.ToString(), type = "string", description = ".NET version", mutable = false },
-                    new { key = "os", value = Environment.OSVersion.ToString(), type = "string", description = "Operating system", mutable = false },
-                },
-            },
-            new
-            {
-                name = "auth",
-                mutable = false,
-                settings = new object[]
-                {
-                    new { key = "username", value = Username, type = "string", description = "Admin username", mutable = false },
-                    new { key = "jwtExpiryHours", value = JwtExpiry.TotalHours, type = "number", description = "JWT token expiry (hours)", mutable = false },
-                    new { key = "jwtSecretConfigured", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_JWT_SECRET")), type = "boolean", description = "Whether JWT secret is explicitly set", mutable = false },
-                },
-            },
-            new
-            {
-                name = "environment",
-                mutable = false,
-                settings = new object[]
-                {
-                    new { key = "QCLI_ADMIN_USERNAME", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_USERNAME")) ? "(set)" : "(default)", type = "string", description = "Admin username env var", mutable = false },
-                    new { key = "QCLI_ADMIN_PASSWORD", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_PASSWORD")) ? "(set)" : "(default)", type = "string", description = "Admin password env var", mutable = false },
-                    new { key = "QCLI_ADMIN_JWT_SECRET", value = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QCLI_ADMIN_JWT_SECRET")) ? "(set)" : "(auto-generated)", type = "string", description = "JWT secret env var", mutable = false },
-                },
-            },
-        };
-    }
+    /// <summary>True while the well-known <c>admin</c> / <c>admin</c> credentials are in effect.</summary>
+    public bool UsesDefaultCredentials() => Username == "admin" && Password == "admin";
 }
