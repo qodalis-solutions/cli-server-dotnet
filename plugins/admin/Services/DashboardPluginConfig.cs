@@ -142,6 +142,19 @@ public static partial class DashboardPluginConfigs
     /// </summary>
     public static DashboardPluginConfig? Parse(JsonNode? raw)
     {
+        try
+        {
+            return ParseConfig(raw);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
+        {
+            // JSON the parser accepted but cannot read (duplicate keys, ...)
+            throw new DashboardPluginConfigException("config must be JSON");
+        }
+    }
+
+    private static DashboardPluginConfig? ParseConfig(JsonNode? raw)
+    {
         if (raw == null) return null;
         if (raw is not JsonObject o) throw new DashboardPluginConfigException("config must be an object");
         if (Encoding.UTF8.GetByteCount(raw.ToJsonString(Compact)) > MaxBytes) throw new DashboardPluginConfigException("config is larger than 32 KB");
