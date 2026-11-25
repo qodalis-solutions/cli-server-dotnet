@@ -62,6 +62,10 @@ On start the plugin seeds the built-in groups `admin` (permissions `["*"]`) and 
 | `SetHostUser` | `bool` | `true` | Set `HttpContext.User` to the caller on CLI requests and guarded host routes (see [The host's user](#the-hosts-user-sethostuser)) |
 | `GuardOnly` / `UseGuardOnly()` | `bool` | `false` | Only the guards: no users routes, no seeding, no server protection (see [Guard-only mode](#guard-only-mode-a-second-service)) |
 
+The `users` [config provider](../../README.md#config-providers) changes the session idle timeout and maximum lifetime,
+the failed sign-ins before lockout, the lockout duration and the minimum password length at runtime (sections
+`sessions` and `security`); section `access` shows how the plugin protects the server (read-only).
+
 ## Permissions
 
 Permissions are `resource:action` strings with `*` wildcards (`*`, `users:*`), matched case-insensitively. A user's effective permissions are the union of their groups' `permissions`. Built-in permissions: `users:read|create|update|delete`, `groups:read|create|update|delete`, `sessions:read|revoke`, `audit:read|clear`, `tokens:read|revoke`, plus the server permissions below.

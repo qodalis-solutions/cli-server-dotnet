@@ -97,6 +97,7 @@ app.Lifetime.ApplicationStopping.Register(() =>
 - **WebSockets** for server events, log streaming and an opt-in, authenticated PTY shell.
 - **Plugins**: file system (memory, OS, JSON, SQLite, EF Core, S3), data explorer (SQLite, PostgreSQL, MySQL, SQL Server, MongoDB, Redis, Elasticsearch), jobs, users, admin dashboard, AWS.
 - **MCP endpoint** that exposes commands and plugin features as tools to AI clients.
+- **Config providers**: the server's settings, read and changed at runtime from the dashboard, the `config` command and MCP tools, kept in memory, a JSON file or a database.
 - **Version discovery** so clients negotiate the API version.
 
 ## Packages
@@ -272,6 +273,8 @@ All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
 | `AddPermissions(Action<CliPermissionCatalogBuilder>, surface = "host")` | Adds entries to the permission catalog users pick from (see [Permission catalog](#permission-catalog)) |
 | `Services` | The `IServiceCollection`, for plugin registrations |
 | `ServerOptions.MaxTableRows` | Rows an unpaged table may return before it is cut (default 200, `0` = no limit); see [Paging](#paging) |
+| `AddConfigProvider<T>()`, `AddConfigProvider(instance)`, `AddConfigProvider(sp => ...)` | Registers a config provider (see [Config providers](#config-providers)) |
+| `SetConfigStore(store)`, `ConfigureConfig(o => ...)` | Where writable settings are kept; the `config` command and what the `host` provider lists |
 | `WithoutCliRoutes()` | Leaves out every CLI route and socket (`/api/qcli/*`, `/api/v1/qcli/*`, `/api/v2/qcli/*`, `/api/cli/*`, `/ws/*`): no controllers of core or plugins (also those MVC discovers on its own: a Web SDK host lists every referenced `Qodalis.Cli*` assembly as an application part, and `AddCli` removes their controllers; the host's own controllers stay), `UseCli()` throws. For a service that only uses the guards and services, e.g. with the users plugin's `UseGuardOnly()`; the permission catalog, events and services stay |
 
 ### Permission catalog
@@ -371,6 +374,49 @@ claude mcp add qcli -e QCLI_URL=http://localhost:8046 -e QCLI_TOKEN=<token> -- n
 
 Without an authentication plugin the server is open. Install the users plugin (`cli.AddUsers()` and `app.UseQodalisUsers()` before `app.UseCli()`); with its default `ProtectServer = true` every CLI route and socket requires a session, except sign-in and version discovery. `host` API tokens (created by your app for its own routes) are refused on every CLI route and socket, protected or not. See [plugins/users/README.md](plugins/users/README.md).
 
+## Config providers
+
+The server's configuration is read and changed through **config providers** that the server, its plugins and the host register: the same contract and JSON as the Node and Python servers. The admin plugin serves them over HTTP (the dashboard's Settings page), the `config` command in the terminal and the `config_*` tools over MCP.
+
+```csharp
+using Qodalis.Cli.Abstractions.Config;
+
+cli.AddConfigProvider(new CliStoredConfigProvider(new CliStoredConfigProviderOptions
+{
+    Id = "billing", Title = "Billing",
+    Sections =
+    [
+        new()
+        {
+            Id = "invoices",
+            Settings =
+            [
+                new() { Key = "dueDays", Type = CliConfigEntryTypes.Number, Default = 30,
+                        Validation = new() { Min = 1, Max = 90 }, Apply = v => billing.DueDays = (int)v! },
+                new() { Key = "apiKey", Type = CliConfigEntryTypes.Secret },
+            ],
+        },
+    ],
+}));
+cli.SetConfigStore(new JsonFileConfigStore("config.json")); // default: in memory
+```
+
+- **Contract** (`Qodalis.Cli.Abstractions.Config`): `ICliConfigProvider` (`Id`, `Title`, `Order`, `RequiredPermission`, `GetSectionsAsync`) and, for writable providers, `ICliConfigWriter` (`ValidateAsync`, `UpdateAsync`). Entries are typed `string`, `number`, `boolean`, `string[]`, `enum`, `secret`, `json`, `duration` (`500ms`, `30s`, `15m`, `12h`, `7d`) or `url`, with a source (`default`, `file`, `environment`, `database`, `runtime`), `mutable`, `requiresRestart`, `sensitive`, validation (`min`, `max`, `pattern`, `options`, `required`) and an `editor` hint. Each writable section has a version: a change made against an older one gets 409.
+- **`CliStoredConfigProvider`** describes settings in code and keeps changes in the server's store; `Apply` makes the effective value take effect at startup and after every change. `CliCustomConfigProvider.Create()` is the free key/value `custom` provider.
+- **Stores**: `InMemoryConfigStore` (default, source `runtime`), `JsonFileConfigStore` (source `file`, written to a temporary file and renamed, mode 0600) and `cli.AddEfCoreConfigStore(o => o.UseNpgsql(...))` of [`Qodalis.Cli.Plugin.Config.EfCore`](plugins/config-efcore/README.md) (table `QcliConfig`, source `database`). Stored values are applied when the server starts.
+- **Modules** bring their own providers with `ICliModule.ConfigProviders`.
+- **Built-in providers**: `server` (the process, read-only), `host` (the server options, the allowed environment variables and `IConfiguration` keys, secrets masked; `cli.ConfigureConfig(o => o.Environment.Allow.Add("APP_*"))`), `cors` (allowed origins at runtime), `mcp` (tool lists, instructions, read-only mode), `filesystem` (storage and roots, read-only), `custom`; from plugins `auth` and `logs` (admin), `jobs` (history retention) and `users` (sessions, lockout, passwords). A host provider with a built-in id replaces the built-in.
+- **Secrets** are never returned: `value: null` and `isSet`. `null` resets a setting to its default (clears a secret, removes a free key).
+- **Permissions** `config:read` and `config:write` (plus a provider's `RequiredPermission`) on a protected server; every change is audited as `config.update` (old and new values, secrets as `***`, `via` api, terminal or mcp) and published as `config:changed` (audience `config:read`, keys only).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/qcli/config` | `{ providers: [...] }`, those the caller may see (`config:read`) |
+| GET | `/api/v1/qcli/config/{provider}` | One provider (403, 404) |
+| PATCH | `/api/v1/qcli/config/{provider}/{section}` | `{ changes, version? }` (`config:write`): 200 with the section, applied keys and new version; 400 `{ error, errors }`; 409 `{ error, version }` |
+
+Terminal: `config list`, `config get <provider>[.<section>[.<key>]]`, `config set <provider>.<section>.<key> <value> [--expected-version v]`, `config reset <provider>.<section>.<key>` (left out with `ConfigureConfig(o => o.Command = false)`). MCP: `config_list`, `config_get` (read-only) and `config_set`; `McpOptions.ReadOnly = true` lists and allows only tools annotated read-only.
+
 ## Use with your app's sign-in
 
 When your application already signs users in (cookies, JWT, an identity provider), the users plugin can take its users from your app instead of its own logins. The browser terminal, the MCP endpoint and the admin dashboard then all use your session.
@@ -441,6 +487,7 @@ Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter
 | GET | `/api/qcli/data-explorer/sources`, `schema` | Data explorer, with a provider registered |
 | POST | `/api/qcli/data-explorer/execute` | Run a query |
 | POST | `/api/qcli/mcp` | MCP endpoint, with `AddMcp()` |
+| GET, PATCH | `/api/v1/qcli/config[/{provider}[/{section}]]` | Config providers, with the admin plugin (see [Config providers](#config-providers)) |
 | WS | `/ws/v1/qcli/events` | Server events (see [Server events](#server-events)) |
 | WS | `/ws/v1/qcli/logs` | Log stream (`?level=` filter) |
 | WS | `/ws/v1/qcli/shell` | Interactive PTY shell, with `EnableShell()` |

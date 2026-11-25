@@ -193,6 +193,11 @@ hosts the scheduler, whatever job manager the API uses. A custom `ICliJobManager
 `JobHistoryRetention` its scheduler applies (`ICliJobScheduler.GetHistoryRetention(registration)` in a process that
 hosts this plugin's scheduler).
 
+The `jobs` [config provider](../../README.md#config-providers) (section `history`) changes the global limits at runtime
+(`maxAge`, `maxRunsPerJob`, `failedMaxAge`, `failedMaxRunsPerJob`; `pruneInterval` is read-only): the next
+`jobs:prune-history` run applies them, and the job is registered when a first limit is set
+(`CliJobScheduler.SetHistoryDefaults`).
+
 ## Interrupted runs
 
 When the scheduler starts, the runs of its registered jobs that its store still has as `running` (left by a process
