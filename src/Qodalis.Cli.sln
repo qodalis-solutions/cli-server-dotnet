@@ -59,6 +59,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Database
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Databases.EfCore", "..\plugins\databases-efcore\Qodalis.Cli.Plugin.Databases.EfCore.csproj", "{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Config.EfCore", "..\plugins\config-efcore\Qodalis.Cli.Plugin.Config.EfCore.csproj", "{90D7A057-8943-41AA-9F73-EEF0483EDABE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -405,6 +407,18 @@ Global
 		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x64.Build.0 = Release|Any CPU
 		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x86.ActiveCfg = Release|Any CPU
 		{8AFBA321-5D72-49B4-BC2B-F69C43519A1C}.Release|x86.Build.0 = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|x64.Build.0 = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Debug|x86.Build.0 = Debug|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|x64.ActiveCfg = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|x64.Build.0 = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|x86.ActiveCfg = Release|Any CPU
+		{90D7A057-8943-41AA-9F73-EEF0483EDABE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
