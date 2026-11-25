@@ -269,7 +269,9 @@ public partial class CliBuilder
     }
 
     /// <summary>
-    /// Registers a CLI module, its command processors and its config providers (<see cref="ICliModule.ConfigProviders"/>).
+    /// Registers a CLI module, its command processors, its config providers (<see cref="ICliModule.ConfigProviders"/>)
+    /// and its permissions (<see cref="ICliModule.Permissions"/>, surface <c>cli</c>; a name already in the catalog
+    /// stays as registered).
     /// </summary>
     /// <param name="module">The module to register.</param>
     /// <returns>This builder instance for chaining.</returns>
@@ -287,6 +289,14 @@ public partial class CliBuilder
         {
             AddConfigProvider(provider);
         }
+
+        // A name already in the catalog (the host's, or the module added twice) stays as registered
+        var fresh = (module.Permissions ?? [])
+            .Where(p => p?.Name == null || _permissions.Find(p.Name) == null)
+            .DistinctBy(p => p?.Name?.ToLowerInvariant())
+            .Select(p => new CliPermission(p?.Name!, p?.Description!, p?.Group!, CliPermissionSurface.Cli))
+            .ToList();
+        if (fresh.Count > 0) _permissions.AddRange(fresh);
 
         return this;
     }

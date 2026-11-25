@@ -15,4 +15,5 @@ public abstract class CliModule : ICliModule
     public abstract IEnumerable<ICliCommandProcessor> Processors { get; }
     public virtual string? Icon => null;
     public virtual IEnumerable<ICliConfigProvider> ConfigProviders => [];
+    public virtual IEnumerable<CliModulePermission> Permissions => [];
 }
