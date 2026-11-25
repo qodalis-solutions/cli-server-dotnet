@@ -18,10 +18,13 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 /// <item><c>GET /plugins?query=&amp;page=&amp;pageSize=</c>: the marketplace's dashboard plugins, annotated (<c>installed</c>, <c>updateAvailable</c>, <c>allowed</c>, <c>blockedReason</c>, <c>requires</c>)</item>
 /// <item><c>GET /plugins/{name}</c>: one plugin with its versions</item>
 /// <item><c>GET /installed</c>: the installed plugins (<c>updateAvailable</c> when the marketplace answers)</item>
-/// <item><c>POST /installed</c> <c>{ name, version? }</c>: 201 with the installed plugin</item>
-/// <item><c>PUT /installed/{name}</c> <c>{ version? }</c>: the updated plugin</item>
-/// <item><c>DELETE /installed/{name}</c>: the removed plugin</item>
+/// <item><c>GET /installed/{name}/config</c>: <c>{ values, version }</c>: its settings' values (stored over defaults), the section's version</item>
+/// <item><c>POST /installed</c> <c>{ name, version?, config? }</c>: 201 with the installed plugin (<c>warnings</c> when its settings were ignored)</item>
+/// <item><c>PUT /installed/{name}</c> <c>{ version?, config? }</c>: the updated plugin with <c>configDropped</c></item>
+/// <item><c>DELETE /installed/{name}</c>: the removed plugin (its settings deleted)</item>
 /// </list>
+/// <c>config</c> (<c>{ key: value }</c>) is checked against the version's settings before anything is downloaded: 400
+/// <c>{ error: 'validation failed', errors: { key: message } }</c>.
 /// </summary>
 [ApiController]
 [Route("api/v1/qcli/dashboard/marketplace")]
@@ -47,7 +50,14 @@ public class DashboardMarketplaceController(DashboardMarketplace marketplace, IL
         }
         catch (DashboardMarketplaceException ex)
         {
-            return Error(ex.Status, ex.Message);
+            var body = new JsonObject { ["error"] = ex.Message };
+            if (ex.Errors != null)
+            {
+                var errors = new JsonObject();
+                foreach (var (key, message) in ex.Errors) errors[key] = message;
+                body["errors"] = errors;
+            }
+            return Send(ex.Status, body);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -139,13 +149,22 @@ public class DashboardMarketplaceController(DashboardMarketplace marketplace, IL
     public Task<IActionResult> Installed(CancellationToken cancellationToken) => Run(async () =>
         Send(200, await marketplace.InstalledAsync(checkUpdates: true, cancellationToken)));
 
+    /// <summary><c>GET /installed/{name}/config</c> (the only GET below <c>/installed/</c>).</summary>
+    [HttpGet("installed/{**path}")]
+    public Task<IActionResult> PluginConfig(string path, CancellationToken cancellationToken) => Run(async () =>
+    {
+        var name = NameOf(path);
+        if (!name.EndsWith("/config", StringComparison.Ordinal)) return Error(404, "not found");
+        return Send(200, await marketplace.PluginConfigAsync(name[..^"/config".Length], cancellationToken));
+    });
+
     [HttpPost("installed")]
     public Task<IActionResult> Install() => Run(async () =>
     {
         if (Installer(out var denied) is not { } actor) return denied!;
         var body = await BodyAsync();
         var name = body["name"] is JsonValue n && n.GetValueKind() == JsonValueKind.String ? n.GetValue<string>() : null;
-        return Send(201, await marketplace.InstallPluginAsync(name, Field(body, "version"), actor, HttpContext.RequestAborted));
+        return Send(201, await marketplace.InstallPluginAsync(name, Field(body, "version"), actor, body["config"], HttpContext.RequestAborted));
     });
 
     [HttpPut("installed/{**name}")]
@@ -154,8 +173,13 @@ public class DashboardMarketplaceController(DashboardMarketplace marketplace, IL
         if (Installer(out var denied) is not { } actor) return denied!;
         var package = NameOf(name);
         var body = await BodyAsync();
-        var result = await marketplace.UpdatePluginAsync(package, Field(body, "version"), actor, HttpContext.RequestAborted);
-        return Send(200, result.Plugin);
+        var result = await marketplace.UpdatePluginAsync(package, Field(body, "version"), actor, body["config"], HttpContext.RequestAborted);
+        var plugin = JsonSerializer.SerializeToNode(result.Plugin, Json)!.AsObject();
+        var warnings = plugin["warnings"];
+        plugin.Remove("warnings");
+        plugin["configDropped"] = new JsonArray(result.ConfigDropped.Select(k => (JsonNode?)k).ToArray());
+        if (warnings != null) plugin["warnings"] = warnings;
+        return Send(200, plugin);
     });
 
     [HttpDelete("installed/{**name}")]

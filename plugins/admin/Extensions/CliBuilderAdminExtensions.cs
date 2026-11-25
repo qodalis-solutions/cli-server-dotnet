@@ -78,7 +78,8 @@ public static class CliBuilderAdminExtensions
         builder.AddRoutePermission("/api/v1/qcli/config", CliConfigPermissions.Read, CliConfigPermissions.Write);
 
         // Dashboard plugins from the marketplace: pages added and removed at runtime, loaded from installed.json at
-        // startup, their files served at /qcli/modules/<id>/; changes need dashboard:install
+        // startup, their files served at /qcli/modules/<id>/; changes need dashboard:install. Their settings are the
+        // dashboard-plugins config provider, registered at startup.
         builder.Services.AddSingleton(sp => new DashboardMarketplace(
             sp.GetRequiredService<AdminConfig>().Marketplace,
             sp.GetService<IHostEnvironment>()?.ContentRootPath ?? Directory.GetCurrentDirectory(),
@@ -88,7 +89,8 @@ public static class CliBuilderAdminExtensions
             () => sp.GetService<ICliEventBus>(),
             sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin"),
             sp.GetService<TimeProvider>()));
-        builder.Services.AddHostedService(sp => new DashboardMarketplaceStartup(sp.GetRequiredService<DashboardMarketplace>()));
+        builder.Services.AddHostedService(sp => new DashboardMarketplaceStartup(sp.GetRequiredService<DashboardMarketplace>(),
+            sp.GetService<Qodalis.Cli.Config.CliConfigRegistry>()));
         builder.Services.AddTransient<IStartupFilter, DashboardMarketplaceAssets>();
         builder.AddRoutePermission("/api/v1/qcli/dashboard/marketplace", Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
             Qodalis.Cli.Security.CliRoutePolicy.DashboardInstall);

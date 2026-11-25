@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Abstractions.Audit;
+using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Security;
@@ -61,10 +62,16 @@ public sealed class DashboardMarketplaceOptions
     }
 }
 
-/// <summary>A refused or failed marketplace operation: the HTTP status and the <c>{ error }</c> text.</summary>
-public sealed class DashboardMarketplaceException(int status, string message) : Exception(message)
+/// <summary>
+/// A refused or failed marketplace operation: the HTTP status and the <c>{ error }</c> text (<see cref="Errors"/>:
+/// per-key messages of settings).
+/// </summary>
+public sealed class DashboardMarketplaceException(int status, string message, IReadOnlyDictionary<string, string>? errors = null) : Exception(message)
 {
     public int Status { get; } = status;
+
+    /// <summary>Per-key messages of the settings given with an install or update (400 <c>validation failed</c>); null otherwise.</summary>
+    public IReadOnlyDictionary<string, string>? Errors { get; } = errors;
 }
 
 /// <summary>Who installs or removes a plugin (recorded as <c>installedBy</c> and in the audit log).</summary>
@@ -110,6 +117,14 @@ public sealed class InstalledDashboardPluginRecord
     [JsonPropertyName("installedAt")] public required string InstalledAt { get; init; }
 
     [JsonPropertyName("installedBy")] public required string InstalledBy { get; init; }
+
+    /// <summary>
+    /// The installed version's settings (<c>config.entries</c> of its marketplace record), so they are restored offline;
+    /// absent when it has none.
+    /// </summary>
+    [JsonPropertyName("config")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DashboardPluginConfig? Config { get; set; }
 }
 
 /// <summary>An installed plugin as <c>GET /installed</c> lists it.</summary>
@@ -127,12 +142,20 @@ public sealed class InstalledDashboardPlugin
     [JsonPropertyName("installedAt")] public required string InstalledAt { get; init; }
     [JsonPropertyName("installedBy")] public required string InstalledBy { get; init; }
 
+    /// <summary>The plugin has settings: the section <c>dashboard-plugins.&lt;id&gt;</c> of the config providers.</summary>
+    [JsonPropertyName("hasConfig")] public bool HasConfig { get; init; }
+
     /// <summary>Whether the marketplace has a newer installable version; absent when it was not asked or unreachable.</summary>
     [JsonPropertyName("updateAvailable")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? UpdateAvailable { get; init; }
 
-    internal static InstalledDashboardPlugin Of(InstalledDashboardPluginRecord r, bool? updateAvailable = null) => new()
+    /// <summary>An install or update only: why the version's settings were ignored (a bad marketplace record).</summary>
+    [JsonPropertyName("warnings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Warnings { get; init; }
+
+    internal static InstalledDashboardPlugin Of(InstalledDashboardPluginRecord r, bool? updateAvailable = null, IReadOnlyList<string>? warnings = null) => new()
     {
         Name = r.Name,
         Version = r.Version,
@@ -141,12 +164,62 @@ public sealed class InstalledDashboardPlugin
         Id = r.Id,
         InstalledAt = r.InstalledAt,
         InstalledBy = r.InstalledBy,
+        HasConfig = r.Config != null,
         UpdateAvailable = updateAvailable,
+        Warnings = warnings,
     };
 }
 
-/// <summary>The result of an update: the plugin, whether it changed, and the version before.</summary>
-public sealed record DashboardPluginUpdate(InstalledDashboardPlugin Plugin, bool Changed, string PreviousVersion);
+/// <summary>
+/// The result of an update: the plugin, whether it changed, the version before, and the stored settings the new version
+/// no longer has or whose value it no longer accepts (deleted).
+/// </summary>
+public sealed record DashboardPluginUpdate(InstalledDashboardPlugin Plugin, bool Changed, string PreviousVersion, IReadOnlyList<string> ConfigDropped);
+
+/// <summary>A setting of an installed plugin with its value (<c>admin dashboard info</c>).</summary>
+public sealed class DashboardPluginSetting
+{
+    [JsonPropertyName("key")] public required string Key { get; init; }
+
+    [JsonPropertyName("label")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Label { get; init; }
+
+    [JsonPropertyName("description")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
+
+    [JsonPropertyName("type")] public required string Type { get; init; }
+
+    [JsonPropertyName("default")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public JsonNode? Default { get; init; }
+
+    [JsonPropertyName("validation")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CliConfigValidation? Validation { get; init; }
+
+    [JsonPropertyName("value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public JsonNode? Value { get; init; }
+
+    /// <summary>Nothing is stored for it: the value is the default.</summary>
+    [JsonPropertyName("isDefault")] public bool IsDefault { get; init; }
+}
+
+/// <summary>An installed plugin with its files and its settings' values (<c>admin dashboard info</c>).</summary>
+public sealed class DashboardPluginInfo
+{
+    [JsonPropertyName("plugin")] public required InstalledDashboardPlugin Plugin { get; init; }
+    [JsonPropertyName("files")] public required IReadOnlyList<InstalledDashboardPluginFile> Files { get; init; }
+
+    /// <summary>The section's version; null without settings.</summary>
+    [JsonPropertyName("configVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ConfigVersion { get; init; }
+
+    [JsonPropertyName("settings")] public required IReadOnlyList<DashboardPluginSetting> Settings { get; init; }
+}
 
 /// <summary>
 /// Dashboard plugins from the marketplace: browses its <c>kind=dashboard</c> catalog, installs, updates and removes
@@ -229,6 +302,12 @@ public sealed partial class DashboardMarketplace : IDisposable
 
     /// <summary>False when the host turned the marketplace off.</summary>
     public bool Enabled { get; }
+
+    /// <summary>
+    /// The <c>dashboard-plugins</c> config provider: a section per installed plugin with settings (registered by the
+    /// admin plugin when the marketplace is on).
+    /// </summary>
+    public DashboardPluginsConfigProvider Config { get; } = new();
 
     public string Url { get; }
 
@@ -599,17 +678,27 @@ public sealed partial class DashboardMarketplace : IDisposable
 
     // ---------------------------------------------------------------- changes
 
-    /// <summary><c>POST /installed</c>: installs <paramref name="name"/> (the newest fitting version when <paramref name="version"/> is null).</summary>
-    public Task<InstalledDashboardPlugin> InstallPluginAsync(string? name, string? version, DashboardMarketplaceActor actor, CancellationToken cancellationToken = default) =>
+    /// <summary>
+    /// <c>POST /installed</c>: installs <paramref name="name"/> (the newest fitting version when <paramref name="version"/>
+    /// is null) with the values of its settings in <paramref name="config"/> (<c>{ key: value }</c>, checked against the
+    /// version's settings before anything is downloaded: 400 <c>validation failed</c> with per-key errors).
+    /// <c>Warnings</c> when the marketplace's settings of the version are invalid (it is installed without settings).
+    /// </summary>
+    public Task<InstalledDashboardPlugin> InstallPluginAsync(string? name, string? version, DashboardMarketplaceActor actor,
+        JsonNode? config = null, CancellationToken cancellationToken = default) =>
         ExclusiveAsync(async () =>
         {
             CheckNameAndVersion(name, version);
+            var values = ConfigValuesOf(config);
             if (RecordOf(name) is { } existing) throw new DashboardMarketplaceException(409, $"already installed: {name}@{existing.Version}");
             var (plugin, target) = await ResolveAsync(name!, version, cancellationToken);
+            var settings = SettingsOf(name!, target);
+            CheckConfigValues(settings.Config, values);
             var id = PluginId(name!, Str(target["extension"], "id") ?? Str(plugin["extension"], "id"))
                 ?? throw new DashboardMarketplaceException(400, $"no dashboard extension id for {name}");
             if (_extensions.Contains(id)) throw new DashboardMarketplaceException(409, $"dashboard extension already registered: {id}");
             var record = await StoreAsync(name!, target, id, plugin, actor, cancellationToken);
+            record.Config = settings.Config;
             try
             {
                 Register(record);
@@ -620,24 +709,42 @@ public sealed partial class DashboardMarketplace : IDisposable
                 throw new DashboardMarketplaceException(409, ex.Message);
             }
             Save();
-            await ChangedAsync("install", record, actor, null);
-            return InstalledDashboardPlugin.Of(record);
+            // A section left from an earlier install of the page (removed while its store was unreachable) starts clean
+            var leftover = (await Config.StoredValuesAsync(id, CancellationToken.None)).Keys;
+            var set = values.Where(p => p.Value != null).Select(p => p.Key).ToList();
+            var changes = leftover.Where(k => !set.Contains(k)).ToDictionary(k => k, _ => (JsonNode?)null, StringComparer.Ordinal);
+            foreach (var key in set) changes[key] = values[key]!.DeepClone();
+            await WriteConfigAsync(record, changes, actor);
+            await ChangedAsync("install", record, actor, null, set.Count > 0 ? set : null, null);
+            return InstalledDashboardPlugin.Of(record, warnings: settings.Warning != null ? [settings.Warning] : null);
         });
 
     /// <summary>
-    /// <c>PUT /installed/{name}</c>: updates to <paramref name="version"/> (default: the newest fitting one); unchanged
-    /// when it already is that version. The page keeps its id.
+    /// <c>PUT /installed/{name}</c>: updates to <paramref name="version"/> (default: the newest fitting one), with values of
+    /// its settings in <paramref name="config"/> (checked against the new version's settings before anything is
+    /// downloaded). Stored values whose key the new version still has and whose value it still accepts are kept, the
+    /// others deleted (<c>ConfigDropped</c>). Unchanged when it already is that version (the values are applied all the
+    /// same). The page keeps its id.
     /// </summary>
-    public Task<DashboardPluginUpdate> UpdatePluginAsync(string? name, string? version, DashboardMarketplaceActor actor, CancellationToken cancellationToken = default) =>
+    public Task<DashboardPluginUpdate> UpdatePluginAsync(string? name, string? version, DashboardMarketplaceActor actor,
+        JsonNode? config = null, CancellationToken cancellationToken = default) =>
         ExclusiveAsync(async () =>
         {
             CheckNameAndVersion(name, version);
+            var values = ConfigValuesOf(config);
             var current = RecordOf(name) ?? throw new DashboardMarketplaceException(404, $"not installed: {name}");
             var (plugin, target) = await ResolveAsync(name!, version, cancellationToken);
             if (Str(target, "version") == current.Version)
-                return new DashboardPluginUpdate(InstalledDashboardPlugin.Of(current), false, current.Version);
+            {
+                CheckConfigValues(current.Config, values);
+                await WriteConfigAsync(current, values, actor);
+                return new DashboardPluginUpdate(InstalledDashboardPlugin.Of(current), false, current.Version, []);
+            }
+            var settings = SettingsOf(name!, target);
+            CheckConfigValues(settings.Config, values);
             // The page keeps its id, so open dashboards and links keep working
             var record = await StoreAsync(name!, target, current.Id, plugin, actor, cancellationToken);
+            record.Config = settings.Config;
             Unregister(current.Id);
             try
             {
@@ -651,11 +758,21 @@ public sealed partial class DashboardMarketplace : IDisposable
             }
             Save();
             DeleteDirectory(VersionDir(name!, current.Version));
-            await ChangedAsync("update", record, actor, current.Version);
-            return new DashboardPluginUpdate(InstalledDashboardPlugin.Of(record), true, current.Version);
+            // Stored values the new version still accepts are kept, the others dropped
+            var stored = await Config.StoredValuesAsync(record.Id, CancellationToken.None);
+            var set = values.Where(p => p.Value != null).Select(p => p.Key).ToList();
+            var dropped = stored.Where(p => record.Config?.Entry(p.Key) is not { } entry || entry.Check(p.Value) != null)
+                .Select(p => p.Key).ToList();
+            var changes = dropped.ToDictionary(k => k, _ => (JsonNode?)null, StringComparer.Ordinal);
+            foreach (var (key, value) in values) changes[key] = value?.DeepClone();
+            await WriteConfigAsync(record, changes, actor);
+            var configDropped = dropped.Where(k => !set.Contains(k)).ToList();
+            await ChangedAsync("update", record, actor, current.Version, set.Count > 0 ? set : null, configDropped.Count > 0 ? configDropped : null);
+            return new DashboardPluginUpdate(InstalledDashboardPlugin.Of(record, warnings: settings.Warning != null ? [settings.Warning] : null),
+                true, current.Version, configDropped);
         });
 
-    /// <summary><c>DELETE /installed/{name}</c>: unregisters the page and deletes its files.</summary>
+    /// <summary><c>DELETE /installed/{name}</c>: unregisters the page, deletes its files and its stored settings.</summary>
     public Task<InstalledDashboardPlugin> RemovePluginAsync(string? name, DashboardMarketplaceActor actor) =>
         ExclusiveAsync(async () =>
         {
@@ -664,9 +781,114 @@ public sealed partial class DashboardMarketplace : IDisposable
             Unregister(current.Id);
             Save();
             DeleteDirectory(System.IO.Path.Combine(Dir, DirName(name)));
-            await ChangedAsync("remove", current, actor, null);
+            // Its settings go with it
+            var (keys, configVersion) = await Config.ClearAsync(current.Id);
+            if (configVersion != null) await ConfigChangedAsync(current.Id, keys, configVersion, actor);
+            await ChangedAsync("remove", current, actor, null, null, null);
             return InstalledDashboardPlugin.Of(current);
         });
+
+    /// <summary>
+    /// <c>GET /installed/{name}/config</c>: the values of a plugin's settings (stored over defaults) and the section's
+    /// version; <c>{ values: {}, version: null }</c> for a plugin without settings. Throws 400 for an invalid name, 404
+    /// when it is not installed.
+    /// </summary>
+    public async Task<JsonObject> PluginConfigAsync(string? name, CancellationToken cancellationToken = default)
+    {
+        CheckNameAndVersion(name, null);
+        var record = RecordOf(name) ?? throw new DashboardMarketplaceException(404, $"not installed: {name}");
+        var current = await Config.ValuesAsync(record.Id, cancellationToken);
+        return new JsonObject
+        {
+            ["values"] = current?.Values ?? new JsonObject(),
+            ["version"] = current?.Version,
+        };
+    }
+
+    /// <summary>An installed plugin with its files and its settings' values (<c>admin dashboard info</c>). Throws 400 or 404.</summary>
+    public async Task<DashboardPluginInfo> PluginInfoAsync(string? name, CancellationToken cancellationToken = default)
+    {
+        CheckNameAndVersion(name, null);
+        var record = RecordOf(name) ?? throw new DashboardMarketplaceException(404, $"not installed: {name}");
+        var current = await Config.ValuesAsync(record.Id, cancellationToken);
+        var stored = current != null ? await Config.StoredValuesAsync(record.Id, cancellationToken) : [];
+        return new DashboardPluginInfo
+        {
+            Plugin = InstalledDashboardPlugin.Of(record),
+            Files = record.Files.ToList(),
+            ConfigVersion = current?.Version,
+            Settings = (record.Config?.Entries ?? []).Select(e => new DashboardPluginSetting
+            {
+                Key = e.Key,
+                Label = e.Label,
+                Description = e.Description,
+                Type = e.Type,
+                Default = e.Default?.DeepClone(),
+                Validation = e.Validation?.Clone(),
+                Value = current?.Values[e.Key]?.DeepClone(),
+                IsDefault = !stored.ContainsKey(e.Key),
+            }).ToList(),
+        };
+    }
+
+    /// <summary>The <c>config</c> of an install or update: <c>{ key: value }</c>; null is none. Throws 400 for anything else.</summary>
+    private static Dictionary<string, JsonNode?> ConfigValuesOf(JsonNode? config)
+    {
+        if (config == null) return new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+        if (config is not JsonObject o) throw new DashboardMarketplaceException(400, "config must be an object");
+        return o.ToDictionary(p => p.Key, p => p.Value?.DeepClone(), StringComparer.Ordinal);
+    }
+
+    /// <summary>Throws 400 <c>validation failed</c> with per-key errors when values do not fit the settings.</summary>
+    private static void CheckConfigValues(DashboardPluginConfig? config, Dictionary<string, JsonNode?> values)
+    {
+        var errors = DashboardPluginConfigs.ValidateValues(config, values);
+        if (errors.Count > 0) throw new DashboardMarketplaceException(400, "validation failed", errors);
+    }
+
+    /// <summary>A version's settings; a bad record (a secret, invalid rules or defaults) installs without them, with a warning.</summary>
+    private static (DashboardPluginConfig? Config, string? Warning) SettingsOf(string name, JsonObject target)
+    {
+        try
+        {
+            return (DashboardPluginConfigs.Parse(target["config"]), null);
+        }
+        catch (DashboardPluginConfigException ex)
+        {
+            return (null, $"the settings of {name}@{Str(target, "version")} are invalid and were ignored: {ex.Message}");
+        }
+    }
+
+    /// <summary>Writes a plugin's setting changes (none: nothing written) and publishes <c>config:changed</c>.</summary>
+    private async Task WriteConfigAsync(InstalledDashboardPluginRecord record, Dictionary<string, JsonNode?> changes, DashboardMarketplaceActor actor)
+    {
+        if (changes.Count == 0) return;
+        var version = await Config.WriteAsync(record.Id, changes);
+        await ConfigChangedAsync(record.Id, changes.Keys.ToList(), version, actor);
+    }
+
+    private async Task ConfigChangedAsync(string section, IReadOnlyList<string> keys, string version, DashboardMarketplaceActor actor)
+    {
+        if (_bus() is not { } bus) return;
+        var data = new Dictionary<string, object?>
+        {
+            ["provider"] = DashboardPluginConfigs.ProviderId,
+            ["section"] = section,
+            ["keys"] = keys.ToList(),
+            ["version"] = version,
+            ["requiresRestart"] = false,
+            ["store"] = Config.StoreKind,
+            ["user"] = actor.UserName,
+        };
+        try
+        {
+            await bus.PublishAsync(CliConfigConstants.ChangedEvent, data, CliEventAudience.WithPermission(CliConfigPermissions.Read));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[qcli-admin] publishing a dashboard plugin's settings change failed");
+        }
+    }
 
     private static void CheckNameAndVersion(string? name, string? version)
     {
@@ -714,13 +936,15 @@ public sealed partial class DashboardMarketplace : IDisposable
             }
         }
         target = target.DeepClone().AsObject();
-        if (target["files"] is not JsonArray)
+        if (target["files"] is not JsonArray || !target.ContainsKey("config"))
         {
-            // An older details view without files: the version record has them
+            // A details view without files (an older marketplace) or settings: the version record has them
             var targetVersion = Str(target, "version")!;
-            if (await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name)}/versions/{Uri.EscapeDataString(targetVersion)}", cancellationToken) is not JsonObject record)
+            var record = await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name)}/versions/{Uri.EscapeDataString(targetVersion)}", cancellationToken) as JsonObject;
+            if (record == null && target["files"] is not JsonArray)
                 throw new DashboardMarketplaceException(404, $"version not found: {name}@{targetVersion}");
-            target["files"] = record["files"]?.DeepClone();
+            if (target["files"] is not JsonArray) target["files"] = record!["files"]?.DeepClone();
+            if (!target.ContainsKey("config")) target["config"] = record?["config"]?.DeepClone();
         }
         return (plugin, target);
     }
@@ -853,12 +1077,15 @@ public sealed partial class DashboardMarketplace : IDisposable
             _extensions.Add(Page(null));
         }
         lock (_lock) _plugins.Add(record);
+        if (record.Config != null) Config.SetSection(record.Id, record.Title, record.Config, $"{record.Name}@{record.Version}");
+        else Config.RemoveSection(record.Id);
     }
 
     private void Unregister(string id)
     {
         _extensions.Remove(id);
         lock (_lock) _plugins.RemoveAll(p => p.Id == id);
+        Config.RemoveSection(id);
     }
 
     /// <summary>Writes <c>installed.json</c> atomically (a temporary file moved over it).</summary>
@@ -881,10 +1108,16 @@ public sealed partial class DashboardMarketplace : IDisposable
         }
     }
 
-    private async Task ChangedAsync(string action, InstalledDashboardPluginRecord record, DashboardMarketplaceActor actor, string? previousVersion)
+    private async Task ChangedAsync(string action, InstalledDashboardPluginRecord record, DashboardMarketplaceActor actor, string? previousVersion,
+        IReadOnlyList<string>? config, IReadOnlyList<string>? configDropped)
     {
         var properties = new Dictionary<string, object?> { ["name"] = record.Name, ["version"] = record.Version, ["id"] = record.Id };
         if (previousVersion != null) properties["previousVersion"] = previousVersion;
+        // The event carries the plugin; the audit entry also the settings given and dropped
+        var data = new Dictionary<string, object?> { ["action"] = action };
+        foreach (var (key, value) in properties) data[key] = value;
+        if (config != null) properties["config"] = config.ToList();
+        if (configDropped != null) properties["configDropped"] = configDropped.ToList();
         if (_audit() is { } audit)
         {
             try
@@ -909,8 +1142,6 @@ public sealed partial class DashboardMarketplace : IDisposable
         }
         if (_bus() is { } bus)
         {
-            var data = new Dictionary<string, object?> { ["action"] = action };
-            foreach (var (key, value) in properties) data[key] = value;
             try
             {
                 await bus.PublishAsync(ExtensionsChangedEvent, data, CliEventAudience.WithPermission(CliRoutePolicy.AdminAccess));
@@ -968,6 +1199,16 @@ public sealed partial class DashboardMarketplace : IDisposable
                 }
                 if (_extensions.Contains(id)) throw new InvalidDataException($"dashboard extension already registered: {id}");
                 var title = Str(raw, "title");
+                DashboardPluginConfig? config = null;
+                try
+                {
+                    config = DashboardPluginConfigs.Parse(raw["config"]);
+                }
+                catch (DashboardPluginConfigException ex)
+                {
+                    _logger.LogWarning("[qcli-admin] the settings of dashboard plugin {Name}@{Version} are invalid, loaded without them: {Error}",
+                        name, version, ex.Message);
+                }
                 Register(new InstalledDashboardPluginRecord
                 {
                     Name = name!,
@@ -984,6 +1225,7 @@ public sealed partial class DashboardMarketplace : IDisposable
                     }).ToList(),
                     InstalledAt = Str(raw, "installedAt") ?? string.Empty,
                     InstalledBy = Str(raw, "installedBy") ?? string.Empty,
+                    Config = config,
                 });
             }
             catch (Exception ex) when (ex is InvalidDataException or DashboardMarketplaceException or InvalidOperationException or ArgumentException or IOException)
