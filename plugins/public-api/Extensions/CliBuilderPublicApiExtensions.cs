@@ -98,6 +98,10 @@ public static class CliBuilderPublicApiExtensions
         services.AddSingleton<PublicApiUsageService>();
         services.AddSingleton<IPublicApiUsage>(sp => sp.GetRequiredService<PublicApiUsageService>());
         services.AddSingleton<IApiTokenUsageProvider>(sp => sp.GetRequiredService<PublicApiUsageService>());
+
+        // The api command (api usage): your own usage, another account's with tokens:read
+        services.AddHttpContextAccessor();
+        builder.AddProcessor<CliApiCommandProcessor>();
         return builder;
     }
 
