@@ -1,3 +1,4 @@
+using Qodalis.Cli.Abstractions.Restart;
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Services;
@@ -276,6 +277,10 @@ builder.Services
 
         cli.AddUsers(o => o.DefaultAdminPassword = "root");
         cli.AddAdmin();
+        // Restart from the dashboard or `admin restart --yes`: the demo runs bare (dotnet run), with no supervisor, so it
+        // starts itself again once the host stopped (self: the same command, environment and working directory). Under
+        // Docker, systemd, PM2, Kubernetes or IIS leave the mode out (auto stops with exit code 75 for the supervisor).
+        cli.ConfigureRestart(o => o.Mode = CliServerRestartModes.Self);
 
         // ---------------------------------------------------------------
         // Config stores: settings changed from the dashboard's Config page, `config set` or MCP `config_set` are kept
