@@ -57,6 +57,43 @@ public class DashboardExtensionsTests
     }
 
     [Fact]
+    public void TheRuntimeRegistry_AddsAndRemovesExtensions_AndAnIdCanBeRegisteredAgain()
+    {
+        var extensions = new CliDashboardExtensions(Builder().AddDashboardExtension(Marketplace()).DashboardExtensions);
+        var before = extensions.All;
+        var added = extensions.Add(new CliDashboardExtension { Id = "billing", Title = "Billing", Entry = "/b.js", Group = "elsewhere" });
+        Assert.Equal("system", added.Group);
+        Assert.Equal(["marketplace"], before.Select(e => e.Id));
+        Assert.Equal(["marketplace", "billing"], extensions.All.Select(e => e.Id));
+        Assert.True(extensions.Contains("billing"));
+        Assert.Equal("dashboard extension already registered: billing",
+            Assert.Throws<InvalidOperationException>(() => extensions.Add(new CliDashboardExtension { Id = "billing", Title = "B", Entry = "/b.js" })).Message);
+        Assert.Throws<ArgumentException>(() => extensions.Add(new CliDashboardExtension { Id = "Bad Id", Title = "B", Entry = "/b.js" }));
+        Assert.True(extensions.Remove("marketplace"));
+        Assert.False(extensions.Remove("marketplace"));
+        Assert.Equal(["billing"], extensions.All.Select(e => e.Id));
+        extensions.Add(Marketplace());
+        Assert.Equal(["billing", "marketplace"], extensions.All.Select(e => e.Id));
+    }
+
+    [Fact]
+    public async Task TheListReadsTheRuntimeRegistryOnEveryRequest()
+    {
+        using var host = await StartAsync(false, cli => cli.AddDashboardExtension(Marketplace()));
+        var client = host.GetTestClient();
+        var token = await TokenAsync(client, "/api/v1/qcli/auth/login", new { username = AdminUser, password = AdminPass });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        async Task<List<string>> Ids() => JsonDocument.Parse(await client.GetStringAsync("/api/v1/qcli/dashboard/extensions")).RootElement
+            .GetProperty("extensions").EnumerateArray().Select(e => e.GetProperty("id").GetString()!).ToList();
+        var registry = host.Services.GetRequiredService<CliDashboardExtensions>();
+        Assert.Equal(["marketplace"], (await Ids()).Where(id => id == "marketplace" || id == "added"));
+        registry.Add(new CliDashboardExtension { Id = "added", Title = "Added", Entry = "/added.js" });
+        Assert.Contains("added", await Ids());
+        registry.Remove("marketplace");
+        Assert.DoesNotContain("marketplace", await Ids());
+    }
+
+    [Fact]
     public void TurnsAnUnknownGroupIntoSystem()
     {
         var builder = Builder().AddDashboardExtension(new CliDashboardExtension { Id = "x", Title = "X", Entry = "/x.js", Group = "elsewhere" });
