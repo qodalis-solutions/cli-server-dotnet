@@ -263,6 +263,27 @@ public class WeatherModule : CliModule
 `GET /api/v1/qcli/commands` lists a module's commands with the module's name as `module` (unless a command names one
 itself), so the dashboard's Plugins page groups them under the module.
 
+Each command, and each sub-command in `processors`, lists the permissions it declares itself (`RequiredPermissions`)
+as `requiredPermissions`; the field is left out when it declares none. Running a command also needs the permissions of
+the commands above it and, on a protected server, `commands:execute`; neither is repeated:
+
+```json
+{
+  "command": "aws",
+  "module": "aws",
+  "requiredPermissions": ["aws:read"],
+  "processors": [
+    {
+      "command": "s3",
+      "processors": [
+        { "command": "ls" },
+        { "command": "rm", "requiredPermissions": ["aws:write"] }
+      ]
+    }
+  ]
+}
+```
+
 ## Configuration
 
 All options are set on the `CliBuilder` passed to `AddCli(cli => ...)`.
