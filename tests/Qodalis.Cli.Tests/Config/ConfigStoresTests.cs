@@ -13,6 +13,9 @@ public abstract class ConfigStoreContractTests
 {
     protected abstract ICliConfigStore Store { get; }
 
+    /// <summary>False for a store on one shared connection (an in-memory SQLite database): its concurrency is tested on a file.</summary>
+    protected virtual bool SharesOneConnection => false;
+
     internal static Dictionary<string, JsonNode?> C(string json) =>
         JsonNode.Parse(json)!.AsObject().ToDictionary(p => p.Key, p => p.Value?.DeepClone());
 
@@ -86,6 +89,31 @@ public abstract class ConfigStoreContractTests
         var read = await Store.ReadAsync("p", "s");
         read.Values["list"]!.AsArray().Add("again");
         Assert.Equal("{\"list\":[\"a\"]}", Values(await Store.ReadAsync("p", "s")));
+    }
+
+    [Fact]
+    public async Task ConcurrentWritesWithoutAnExpectedVersion_NeverLoseAChange()
+    {
+        if (SharesOneConnection) return;
+        await Task.WhenAll(Enumerable.Range(0, 5).Select(i => Task.Run(() => Store.WriteAsync("p", "s", C($"{{\"k{i}\":{i}}}")))));
+        var final = await Store.ReadAsync("p", "s");
+        Assert.Equal(5, final.Version);
+        Assert.Equal(["k0", "k1", "k2", "k3", "k4"], final.Values.Keys.Order());
+    }
+
+    [Fact]
+    public async Task OneStore_KeepsTwoProvidersApart_SameSectionIds_OwnValuesAndVersions()
+    {
+        await Store.WriteAsync("jobs", "history", C("{\"maxAge\":\"30d\"}"));
+        await Store.WriteAsync("jobs", "history", C("{\"maxRunsPerJob\":10}"));
+        await Store.WriteAsync("users", "history", C("{\"maxAge\":\"1d\"}"));
+        var jobs = await Store.ReadAsync("jobs", "history");
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("{\"maxAge\":\"30d\",\"maxRunsPerJob\":10}"), jobs.ValuesToJson()));
+        Assert.Equal(2, jobs.Version);
+        var users = await Store.ReadAsync("users", "history");
+        Assert.Equal(("{\"maxAge\":\"1d\"}", 1L), (Values(users), users.Version));
+        await Assert.ThrowsAsync<CliConfigConflictException>(() => Store.WriteAsync("users", "history", C("{\"maxAge\":\"2d\"}"), 2));
+        Assert.Equal(3, (await Store.WriteAsync("jobs", "history", C("{\"maxAge\":\"7d\"}"), 2)).Version);
     }
 
     [Fact]
@@ -218,6 +246,8 @@ public sealed class EfCoreConfigStoreContractTests : ConfigStoreContractTests, I
     }
 
     protected override ICliConfigStore Store { get; }
+
+    protected override bool SharesOneConnection => true;
 
     public void Dispose() => _connection.Dispose();
 }
