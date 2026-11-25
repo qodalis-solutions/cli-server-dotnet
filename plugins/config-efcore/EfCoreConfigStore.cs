@@ -34,6 +34,80 @@ public class EfCoreConfigStore : ICliConfigStore
 
     public string Source => CliConfigSources.Database;
 
+    /// <summary>
+    /// <c>SQL Server database qcli, table QcliConfig</c>: the provider, the database's name when known and the table;
+    /// never the connection string or credentials (a SQLite database by its file name only).
+    /// </summary>
+    public CliConfigStoreDescription? Describe()
+    {
+        string? provider = null, database = null, table = null;
+        try
+        {
+            using var db = _dbFactory.CreateDbContext();
+            provider = ProviderTitle(db.Database.ProviderName);
+            var entity = db.Model.FindEntityType(typeof(ConfigSectionEntity));
+            var name = entity?.GetTableName();
+            if (!string.IsNullOrEmpty(name)) table = entity!.GetSchema() is { Length: > 0 } schema ? $"{schema}.{name}" : name;
+            if (db.Database.IsRelational()) database = DatabaseName(db.Database.GetDbConnection());
+        }
+        catch (Exception)
+        {
+            // Described with what is known
+        }
+        var parts = new List<string>();
+        var head = provider ?? "Database";
+        if (!string.IsNullOrEmpty(database)) head += $" database {database}";
+        parts.Add(head);
+        parts.Add($"table {table ?? "QcliConfig"}");
+        return new CliConfigStoreDescription
+        {
+            Kind = CliConfigStoreKinds.Database,
+            Title = "Database",
+            Detail = string.Join(", ", parts),
+            Persistent = true,
+        };
+    }
+
+    /// <summary>The EF Core provider as people name it.</summary>
+    public static string? ProviderTitle(string? providerName)
+    {
+        if (string.IsNullOrEmpty(providerName)) return null;
+        var name = providerName.ToLowerInvariant();
+        if (name.Contains("sqlserver")) return "SQL Server";
+        if (name.Contains("npgsql") || name.Contains("postgres")) return "PostgreSQL";
+        if (name.Contains("mysql")) return "MySQL";
+        if (name.Contains("sqlite")) return "SQLite";
+        if (name.Contains("inmemory")) return "In-memory database";
+        if (name.Contains("oracle")) return "Oracle";
+        return providerName.Split('.').Last();
+    }
+
+    /// <summary>The database's name from the connection (no connection is opened); a SQLite file by its name only.</summary>
+    public static string? DatabaseName(System.Data.Common.DbConnection connection)
+    {
+        string? name;
+        try
+        {
+            name = connection.Database;
+            if (string.IsNullOrEmpty(name) || name == "main") name = connection.DataSource;
+            else return SafeName(name);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (string.IsNullOrEmpty(name) || name == ":memory:" || name.StartsWith("file::memory:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        // SQLite: the data source is the file
+        return connection.GetType().Name.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) ? SafeName(Path.GetFileName(name)) : null;
+    }
+
+    /// <summary>A name only: anything that looks like a connection string or a URL is never shown.</summary>
+    private static string? SafeName(string? name) =>
+        string.IsNullOrWhiteSpace(name) || name.Contains('=') || name.Contains(';') || name.Contains("://", StringComparison.Ordinal) || name.Contains('@')
+            ? null
+            : name.Trim();
+
     private async Task<ConfigStorageDbContext> CreateDbContextAsync(CancellationToken cancellationToken)
     {
         var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
