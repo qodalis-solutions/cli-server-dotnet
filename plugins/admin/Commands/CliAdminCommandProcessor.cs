@@ -17,8 +17,9 @@ namespace Qodalis.Cli.Plugin.Admin.Commands;
 
 /// <summary>
 /// <c>admin</c>: <c>status [--history]</c>, <c>plugins [list|enable|disable &lt;id&gt;]</c>, <c>clients</c>,
-/// <c>logs [...]</c>, <c>dashboard [list|search|info|install|update|remove]</c>. Needs <c>admin:access</c> on a protected
-/// server; <c>logs</c> also <c>logs:read</c>, <c>dashboard install|update|remove</c> also <c>dashboard:install</c>.
+/// <c>logs [...]</c>, <c>restart [--yes] [--reason] | restart status</c>, <c>dashboard [list|search|info|install|update|remove]</c>.
+/// Needs <c>admin:access</c> on a protected server; <c>logs</c> also <c>logs:read</c>, <c>restart</c> (not <c>restart
+/// status</c>) also <c>server:restart</c>, <c>dashboard install|update|remove</c> also <c>dashboard:install</c>.
 /// Server settings are the core <c>config</c> command. Reads the services the admin routes use.
 /// </summary>
 public sealed partial class CliAdminCommandProcessor : CliCommandProcessor
@@ -38,13 +39,16 @@ public sealed partial class CliAdminCommandProcessor : CliCommandProcessor
             new ClientsProcessor(services),
             new LogsProcessor(services),
         ];
+        // Restart (core's restart service)
+        if (services.GetService<Qodalis.Cli.Abstractions.Restart.ICliServerRestart>() is { } restart)
+            Processors = [.. Processors, new RestartProcessor(restart, services)];
         // Dashboard plugins from the marketplace, unless it is turned off
         if (services.GetService<DashboardMarketplace>() is { Enabled: true } marketplace)
             Processors = [.. Processors, new DashboardProcessor(marketplace, services)];
     }
 
     public override string Command { get; set; } = "admin";
-    public override string Description { get; set; } = "Server administration: status, command modules, WebSocket clients, logs, dashboard plugins";
+    public override string Description { get; set; } = "Server administration: status, command modules, WebSocket clients, logs, restart, dashboard plugins";
     public override string? Module { get; set; } = ModuleName;
     public override string? Icon { get; set; } = "🛠️";
     public override IEnumerable<string>? RequiredPermissions { get; set; } = [CliRoutePolicy.AdminAccess];
