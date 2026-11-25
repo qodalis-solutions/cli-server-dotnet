@@ -13,7 +13,7 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 /// <summary>
 /// The config API over the server's config providers (<see cref="ICliConfigService"/>):
 /// <list type="bullet">
-/// <item><c>GET /</c>: <c>{ store, providers: [...] }</c>: where changes are saved, and the providers the caller may see (<c>config:read</c>)</item>
+/// <item><c>GET /</c>: <c>{ defaultStore, providers: [...] }</c>: the store providers use unless they have their own, and the providers the caller may see (<c>config:read</c>), each stored one with its <c>store</c></item>
 /// <item><c>GET /{provider}</c>: one provider</item>
 /// <item><c>PATCH /{provider}/{section}</c>: <c>{ changes, version? }</c> (<c>config:write</c>): 200 with the section, 400
 /// <c>{ error, errors }</c> per key, 403, 404, 409 <c>{ error, version }</c> when the version is stale</item>
@@ -65,7 +65,7 @@ public class ConfigController : ControllerBase
         {
             Response.Headers.CacheControl = "no-store";
             var providers = await _service.ListAsync(ContextOf(HttpContext, _serverOptions), cancellationToken);
-            return Ok(new CliConfigListView { Store = _service.DescribeStore(), Providers = providers.ToList() });
+            return Ok(new CliConfigListView { DefaultStore = _service.DescribeDefaultStore(), Providers = providers.ToList() });
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

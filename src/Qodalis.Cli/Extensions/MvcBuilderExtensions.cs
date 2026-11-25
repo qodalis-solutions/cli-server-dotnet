@@ -143,7 +143,7 @@ public static class MvcBuilderExtensions
         return builder;
     }
 
-    /// <summary>Config providers: the store, the registry with the built-in providers, the service, its startup and MCP tools.</summary>
+    /// <summary>Config providers: the default store and the stores per provider, the registry with the built-in providers, the service, its startup and MCP tools.</summary>
     private static void AddConfigServices(IServiceCollection services, CliBuilder cliBuilder)
     {
         var serverOptions = cliBuilder.ServerOptions;
@@ -152,6 +152,11 @@ public static class MvcBuilderExtensions
         {
             var registry = new CliConfigRegistry(sp.GetRequiredService<ICliConfigStore>(),
                 sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Config"));
+            // The host's stores per provider id: the options' map, then SetConfigStore(store, id) (the last one wins)
+            foreach (var (providerId, store) in cliBuilder.ConfigOptions.Stores)
+                registry.SetStore(store, providerId);
+            foreach (var registration in sp.GetServices<CliConfigStoreRegistration>())
+                registry.SetStore(registration.Factory(sp), registration.ProviderId);
             foreach (var provider in sp.GetServices<ICliConfigProvider>())
                 registry.Add(provider);
 

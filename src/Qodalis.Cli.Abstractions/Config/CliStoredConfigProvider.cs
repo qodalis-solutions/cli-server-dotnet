@@ -64,23 +64,36 @@ public sealed class CliStoredConfigProviderOptions
     public int Order { get; init; } = CliConfigConstants.DefaultOrder;
     public string? RequiredPermission { get; init; }
     public List<CliConfigSectionDefinition> Sections { get; init; } = [];
+
+    /// <summary>
+    /// The store this provider's changes are kept in. The host's store for this id (<c>cli.SetConfigStore(store, id)</c>,
+    /// <c>ConfigureConfig(o =&gt; o.Stores[id] = store)</c>) still wins; without either the server's default store is used
+    /// (in memory unless the host sets one).
+    /// </summary>
+    public ICliConfigStore? Store { get; init; }
 }
 
-/// <summary>A provider that keeps its settings in the server's config store (attached when the server starts).</summary>
+/// <summary>A provider that keeps its settings in a config store, maybe its own (attached when the server starts).</summary>
 public interface ICliConfigStoreAttachable
 {
     /// <summary>Uses <paramref name="store"/> and applies the values stored there.</summary>
     Task AttachStoreAsync(ICliConfigStore store, CancellationToken cancellationToken = default);
+
+    /// <summary>The provider's own store, used unless the host set one for its id; null for the server's default store.</summary>
+    ICliConfigStore? OwnStore => null;
 }
 
 /// <summary>
 /// A provider of settings described in code, whose changes are kept in an <see cref="ICliConfigStore"/>: the server
-/// attaches its store when it starts (<c>cli.SetConfigStore(...)</c>, in memory by default) and the stored values are
-/// applied then. Built-in providers and plugins use it; a host can too:
+/// attaches a store when it starts (or when the provider is registered later) and the stored values are applied then.
+/// Which store: the host's store for this provider's id (<c>cli.SetConfigStore(store, id)</c>), else the provider's own
+/// (<see cref="CliStoredConfigProviderOptions.Store"/>, <see cref="SetStore"/>), else the server's default store
+/// (<c>cli.SetConfigStore(store)</c>), else in memory. Built-in providers and plugins use it; a host can too:
 /// <code>
 /// cli.AddConfigProvider(new CliStoredConfigProvider(new CliStoredConfigProviderOptions
 /// {
 ///     Id = "billing", Title = "Billing",
+///     Store = new AppSettingsConfigStore(),
 ///     Sections = [new() { Id = "invoices", Settings = [
 ///         new() { Key = "dueDays", Type = CliConfigEntryTypes.Number, Default = 30,
 ///                 Validation = new() { Min = 1, Max = 90 }, Apply = v => billing.DueDays = (int)v! },
@@ -94,7 +107,9 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
     private readonly List<CliConfigSectionDefinition> _sections;
     private readonly Dictionary<string, CliConfigStoredSection> _cache = new();
     private readonly object _lock = new();
-    private ICliConfigStore? _store;
+    private ICliConfigStore? _ownStore;
+    private ICliConfigStore? _attached;
+    private ICliConfigStore? _fallback;
     private Task _loading = Task.CompletedTask;
 
     public CliStoredConfigProvider(CliStoredConfigProviderOptions options)
@@ -118,6 +133,7 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
             }
         }
         _sections = options.Sections;
+        _ownStore = options.Store;
     }
 
     public string Id { get; }
@@ -126,24 +142,58 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
     public int Order { get; }
     public string? RequiredPermission { get; }
 
-    /// <summary>Changes are saved to the config store.</summary>
+    /// <summary>Changes are saved to its config store.</summary>
     public CliConfigProviderStorage? Storage { get; } = CliConfigStoreHelpers.StoreStorage();
 
-    /// <summary>The store in use (in memory until the server attaches its own).</summary>
+    /// <summary>The provider's own store (the <c>Store</c> option or <see cref="SetStore"/>); the host's store for this id still wins.</summary>
+    public ICliConfigStore? OwnStore
+    {
+        get
+        {
+            lock (_lock) return _ownStore;
+        }
+    }
+
+    /// <summary>The store its changes are kept in: the one the server attached, else its own; null before either.</summary>
+    public ICliConfigStore? ConfigStore
+    {
+        get
+        {
+            lock (_lock) return _attached ?? _ownStore;
+        }
+    }
+
+    /// <summary>
+    /// Sets the provider's own store (as the <c>Store</c> option), before the provider is registered; afterwards it
+    /// throws <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public CliStoredConfigProvider SetStore(ICliConfigStore? store)
+    {
+        lock (_lock)
+        {
+            if (_attached != null)
+                throw new InvalidOperationException($"the config store of {Id} must be set before the provider is registered");
+            _ownStore = store;
+        }
+        return this;
+    }
+
+    /// <summary>The store in use: the attached one, else its own, else in memory.</summary>
     protected ICliConfigStore Store
     {
         get
         {
-            lock (_lock) return _store ??= new InMemoryConfigStore();
+            lock (_lock) return _attached ?? _ownStore ?? (_fallback ??= new InMemoryConfigStore());
         }
     }
 
     /// <inheritdoc />
     public Task AttachStoreAsync(ICliConfigStore store, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(store);
         lock (_lock)
         {
-            _store = store;
+            _attached = store;
             _cache.Clear();
             _loading = LoadAsync(store, cancellationToken);
             return _loading;
@@ -324,19 +374,21 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
 }
 
 /// <summary>
-/// The <c>custom</c> provider: one free key/value section (<c>custom</c>) on the server's config store, for the host's
-/// own settings. Values are strings, numbers, booleans, string lists or JSON.
+/// The <c>custom</c> provider: one free key/value section (<c>custom</c>) for the host's own settings, in its own
+/// <c>store</c> or the server's default one. Values are strings, numbers, booleans, string lists or JSON.
 /// </summary>
 public static class CliCustomConfigProvider
 {
     public static CliStoredConfigProvider Create(string id = "custom", string title = "Custom",
-        string description = "Free settings of the host application, kept in the config store", int order = 1000) =>
+        string description = "Free settings of the host application, kept in the config store", int order = 1000,
+        ICliConfigStore? store = null) =>
         new(new CliStoredConfigProviderOptions
         {
             Id = id,
             Title = title,
             Description = description,
             Order = order,
+            Store = store,
             Sections = [new CliConfigSectionDefinition { Id = "custom", Title = "Custom settings", AllowCustomKeys = true }],
         });
 }

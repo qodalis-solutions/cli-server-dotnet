@@ -333,13 +333,15 @@ public static class CliConfigStoreKinds
     public const string Memory = "memory";
     public const string File = "file";
     public const string Database = "database";
+    public const string Redis = "redis";
     public const string Custom = "custom";
 }
 
 /// <summary>
-/// Where changes are saved (<c>store</c> of <c>GET /api/v1/qcli/config</c>): what a store says about itself
-/// (<see cref="ICliConfigStore.Describe"/>). <see cref="Detail"/> names the file (relative to the app) or the database
-/// and table, never credentials or a connection string.
+/// Where changes are saved: what a store says about itself (<see cref="ICliConfigStore.Describe"/>), as each stored
+/// provider's <c>store</c> and the top-level <c>defaultStore</c> of <c>GET /api/v1/qcli/config</c>. <see cref="Detail"/>
+/// names the file (relative to the app), the database and table, or the Redis host and key prefix, never credentials or
+/// a connection string.
 /// </summary>
 public sealed class CliConfigStoreDescription
 {
@@ -349,7 +351,7 @@ public sealed class CliConfigStoreDescription
     /// <summary><c>In memory</c>, <c>JSON file</c>, <c>Database</c>, ...</summary>
     [JsonPropertyName("title")] public string Title { get; init; } = string.Empty;
 
-    /// <summary><c>qcli-config.json</c>, <c>SQL Server database qcli, table QcliConfig</c>; empty when nothing to add.</summary>
+    /// <summary><c>qcli-config.json</c>, <c>SQL Server database qcli, table QcliConfig</c>, <c>cache:6379/0, prefix qcli:config</c>; empty when nothing to add.</summary>
     [JsonPropertyName("detail")] public string Detail { get; init; } = string.Empty;
 
     /// <summary>Changes are kept across restarts.</summary>
@@ -359,7 +361,7 @@ public sealed class CliConfigStoreDescription
 /// <summary>Where a provider's settings come from (<see cref="CliConfigProviderStorage.Kind"/>).</summary>
 public static class CliConfigStorageKinds
 {
-    /// <summary>Changes are saved to the config store.</summary>
+    /// <summary>Changes are saved to its config store (the provider view's <c>store</c>).</summary>
     public const string Store = "store";
     /// <summary>The running process.</summary>
     public const string Runtime = "runtime";
@@ -468,13 +470,24 @@ public sealed class CliConfigProviderView
     /// <summary>Where its settings come from (<c>sources</c> always present).</summary>
     [JsonPropertyName("storage")] public CliConfigProviderStorage Storage { get; init; } = new();
 
+    /// <summary>
+    /// The store its changes are saved to (providers whose storage is <c>store</c>: every
+    /// <see cref="CliStoredConfigProvider"/>); each provider may have its own. Absent for other providers.
+    /// </summary>
+    [JsonPropertyName("store")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CliConfigStoreDescription? Store { get; init; }
+
     [JsonPropertyName("sections")] public List<CliConfigSectionView> Sections { get; init; } = [];
 }
 
-/// <summary>The body of <c>GET /api/v1/qcli/config</c>: where changes are saved, and the providers.</summary>
+/// <summary>
+/// The body of <c>GET /api/v1/qcli/config</c>: the store providers use unless they have their own
+/// (<c>defaultStore</c>), and the providers, each stored one with its <c>store</c>.
+/// </summary>
 public sealed class CliConfigListView
 {
-    [JsonPropertyName("store")] public CliConfigStoreDescription Store { get; init; } = new();
+    [JsonPropertyName("defaultStore")] public CliConfigStoreDescription DefaultStore { get; init; } = new();
     [JsonPropertyName("providers")] public List<CliConfigProviderView> Providers { get; init; } = [];
 }
 
@@ -510,8 +523,8 @@ public interface ICliConfigService
     /// <summary>The providers the caller may see, sorted. Throws <see cref="CliConfigException"/> 403 without <c>config:read</c>.</summary>
     Task<IReadOnlyList<CliConfigProviderView>> ListAsync(CliConfigContext context, CancellationToken cancellationToken = default);
 
-    /// <summary>Where writable settings are saved: the config store's own description.</summary>
-    CliConfigStoreDescription DescribeStore();
+    /// <summary>The store providers use unless they have their own (its own description).</summary>
+    CliConfigStoreDescription DescribeDefaultStore();
 
     /// <summary>One provider. Throws <see cref="CliConfigException"/> 403 / 404.</summary>
     Task<CliConfigProviderView> GetAsync(string providerId, CliConfigContext context, CancellationToken cancellationToken = default);

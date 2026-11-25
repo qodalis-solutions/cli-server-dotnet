@@ -153,10 +153,10 @@ public sealed class ConfigCommandTests : IAsyncLifetime
     public async Task ConfigList_ProvidersAndSections()
     {
         var text = await Run("config list");
-        Assert.Equal("Store: In memory, changes are lost on restart", text.Split('\n')[0]);
+        Assert.Equal("Default store: In memory, changes are lost on restart", text.Split('\n')[0]);
         Assert.Contains("server  Server  (read-only)\n", text);
         Assert.Matches(@"\nhost  Host  \(read-only; from Server options[^)]*\)\n", text);
-        Assert.Matches(@"app  App\n  main +7 setting\(s\)  version 0\n  main\.extra +1 setting\(s\)  version 0", text);
+        Assert.Matches(@"app  App  · In memory\n  main +7 setting\(s\)  version 0\n  main\.extra +1 setting\(s\)  version 0", text);
         Assert.Equal(text, await Run("config"));
     }
 
@@ -354,7 +354,7 @@ public sealed class ConfigCommandStoreTests : IDisposable
     {
         await using var host = await ConfigTestHost.StartAsync(cli => cli.SetConfigStore(new JsonFileConfigStore(Path.Combine(_dir, "qcli-demo-config.json"))));
         var text = (await ConfigCommands.RunAsync(host.Client, "config list")).Text;
-        Assert.Equal("Store: JSON file (qcli-demo-config.json), kept across restarts", text.Split('\n')[0]);
+        Assert.Equal("Default store: JSON file (qcli-demo-config.json), kept across restarts", text.Split('\n')[0]);
         Assert.DoesNotContain(_dir, text);
     }
 
@@ -363,6 +363,6 @@ public sealed class ConfigCommandStoreTests : IDisposable
     {
         await using var host = await ConfigTestHost.StartAsync(cli => cli.SetConfigStore(new VaultConfigStore()));
         var text = (await ConfigCommands.RunAsync(host.Client, "config list")).Text;
-        Assert.Equal("Store: Custom store (VaultConfigStore), kept across restarts", text.Split('\n')[0]);
+        Assert.Equal("Default store: Custom store (VaultConfigStore), kept across restarts", text.Split('\n')[0]);
     }
 }

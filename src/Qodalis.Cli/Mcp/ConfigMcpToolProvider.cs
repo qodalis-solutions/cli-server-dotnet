@@ -57,7 +57,7 @@ public sealed class ConfigMcpToolProvider : IMcpToolProvider
             new()
             {
                 Name = "config_list",
-                Description = "Where config changes are saved (store), the server's config providers (where each reads its settings from) and their sections (ids, titles, whether writable, versions); read a section with config_get",
+                Description = "The server's config providers (where each reads its settings from, and the store a stored one saves changes to), the default store, and their sections (ids, titles, whether writable, versions); read a section with config_get",
                 InputSchema = McpSchema.Object(),
                 RequiredPermissions = [CliConfigPermissions.Read],
                 Annotations = McpToolAnnotations.ReadOnly,
@@ -66,15 +66,21 @@ public sealed class ConfigMcpToolProvider : IMcpToolProvider
                     var providers = await _service.ListAsync(Context(ctx), ct);
                     return Json(new
                     {
-                        store = _service.DescribeStore(),
-                        providers = providers.Select(p => new
+                        defaultStore = _service.DescribeDefaultStore(),
+                        providers = providers.Select(p =>
                         {
-                            id = p.Id,
-                            title = p.Title,
-                            description = p.Description,
-                            writable = p.Writable,
-                            storage = p.Storage,
-                            sections = p.Sections.Select(s => new { id = s.Id, title = s.Title, mutable = s.Mutable, version = s.Version, keys = s.Entries.Count }),
+                            var summary = McpJson.ToObject(new
+                            {
+                                id = p.Id,
+                                title = p.Title,
+                                description = p.Description,
+                                writable = p.Writable,
+                                storage = p.Storage,
+                                store = p.Store,
+                                sections = p.Sections.Select(s => new { id = s.Id, title = s.Title, mutable = s.Mutable, version = s.Version, keys = s.Entries.Count }),
+                            })!;
+                            if (p.Store == null) summary.Remove("store");
+                            return summary;
                         }),
                     });
                 }),

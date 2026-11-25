@@ -145,7 +145,7 @@ public sealed class ConfigStoreDescriptionTests : IDisposable
     [Fact]
     public void ProviderStorage_ItsOwn_ElseCustomSavedOrReadByTheProvider()
     {
-        Assert.Equal("{\"kind\":\"store\",\"description\":\"Changes are saved to the config store\",\"sources\":[]}",
+        Assert.Equal("{\"kind\":\"store\",\"description\":\"Changes are saved to its config store\",\"sources\":[]}",
             JsonSerializer.Serialize(CliConfigViews.Storage(ConfigApi.Billing())));
         Assert.Equal("{\"kind\":\"runtime\",\"description\":\"Read from the running server process\",\"sources\":[]}",
             JsonSerializer.Serialize(CliConfigViews.Storage(new CliServerConfigProvider())));

@@ -86,15 +86,16 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
         Assert.Equal(200, (int)res.StatusCode);
         Assert.Equal("no-store", res.Headers.CacheControl?.ToString());
         var body = await ConfigApi.JsonOf(res);
-        Assert.Equal(["providers", "store"], body.EnumerateObject().Select(p => p.Name).Order());
-        Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}", body.GetProperty("store").GetRawText());
+        Assert.Equal(["defaultStore", "providers"], body.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}", body.GetProperty("defaultStore").GetRawText());
         var providers = body.GetProperty("providers");
         Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "billing", "custom"],
             providers.EnumerateArray().Select(p => p.GetProperty("id").GetString()));
         var billing = ConfigApi.Find(providers, "id", "billing");
-        Assert.Equal(["description", "id", "order", "sections", "storage", "title", "writable"], billing.EnumerateObject().Select(p => p.Name).Order());
-        Assert.Equal("{\"kind\":\"store\",\"description\":\"Changes are saved to the config store\",\"sources\":[]}",
+        Assert.Equal(["id", "title", "description", "order", "writable", "storage", "store", "sections"], billing.EnumerateObject().Select(p => p.Name));
+        Assert.Equal("{\"kind\":\"store\",\"description\":\"Changes are saved to its config store\",\"sources\":[]}",
             billing.GetProperty("storage").GetRawText());
+        Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}", billing.GetProperty("store").GetRawText());
         var storage = providers.EnumerateArray().ToDictionary(p => p.GetProperty("id").GetString()!, p => p.GetProperty("storage"));
         Assert.Equal("{\"kind\":\"runtime\",\"description\":\"Read from the running server process\",\"sources\":[]}", storage["server"].GetRawText());
         Assert.Equal("configuration", storage["host"].GetProperty("kind").GetString());

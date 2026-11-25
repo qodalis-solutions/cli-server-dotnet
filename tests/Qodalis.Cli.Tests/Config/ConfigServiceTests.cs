@@ -146,7 +146,7 @@ public class ConfigServiceTests
     [Fact]
     public async Task Registry_TheStore_AttachedToStoredProviders_AlsoThoseAddedLater()
     {
-        Assert.Equal("runtime", new CliConfigRegistry().Store.Source);
+        Assert.Equal("runtime", new CliConfigRegistry().DefaultStore.Source);
         var store = new InMemoryConfigStore();
         await store.WriteAsync("app", "main", C("{\"limit\":9}"));
         await store.WriteAsync("custom", "custom", C("{\"a\":1}"));
@@ -454,7 +454,7 @@ public class ConfigServiceTests
         var entry = Assert.Single(s.Audits.Entries);
         Assert.Equal(("config.update", "ann", "u1", "ann", "u1", "config:app.main", "app.main: limit, mode"),
             (entry.Event, entry.Username, entry.UserId, entry.Actor, entry.ActorId, entry.Target, entry.Details));
-        Assert.Equal("{\"provider\":\"app\",\"section\":\"main\",\"version\":\"1\",\"via\":\"api\",\"changes\":[{\"key\":\"limit\",\"old\":5,\"new\":8},{\"key\":\"mode\",\"old\":\"a\",\"new\":\"b\"}]}",
+        Assert.Equal("{\"provider\":\"app\",\"section\":\"main\",\"version\":\"1\",\"store\":\"memory\",\"via\":\"api\",\"changes\":[{\"key\":\"limit\",\"old\":5,\"new\":8},{\"key\":\"mode\",\"old\":\"a\",\"new\":\"b\"}]}",
             JsonSerializer.Serialize(entry.Properties));
         Assert.True(entry.Timestamp > 0);
     }
@@ -503,7 +503,7 @@ public class ConfigServiceTests
         var e = Assert.Single(s.Events);
         Assert.Equal("config:changed", e.Type);
         Assert.Equal(CliEventAudience.WithPermission("config:read"), e.Audience);
-        Assert.Equal("{\"provider\":\"app\",\"section\":\"main\",\"keys\":[\"apiKey\",\"limit\"],\"version\":\"1\",\"requiresRestart\":false,\"user\":\"ann\"}",
+        Assert.Equal("{\"provider\":\"app\",\"section\":\"main\",\"keys\":[\"apiKey\",\"limit\"],\"version\":\"1\",\"requiresRestart\":false,\"store\":\"memory\",\"user\":\"ann\"}",
             JsonSerializer.Serialize(e.Data));
         Assert.DoesNotContain("shh", JsonSerializer.Serialize(e.Data));
     }

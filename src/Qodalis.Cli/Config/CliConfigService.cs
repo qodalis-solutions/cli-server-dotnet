@@ -72,8 +72,8 @@ public static class CliConfigViews
 
 /// <summary>
 /// The server's config providers, read and changed with permissions, validation, conflicts, secrets masked, audit
-/// (<c>config.update</c>) and events (<c>config:changed</c>): the HTTP API (admin plugin), the <c>config</c> command and
-/// the MCP tools all go through it.
+/// (<c>config.update</c>) and events (<c>config:changed</c>), each stored provider with the store it saves to: the HTTP API
+/// (admin plugin), the <c>config</c> command and the MCP tools all go through it.
 /// </summary>
 public sealed class CliConfigService : ICliConfigService
 {
@@ -119,7 +119,7 @@ public sealed class CliConfigService : ICliConfigService
         return provider;
     }
 
-    private static async Task<CliConfigProviderView> ViewAsync(ICliConfigProvider provider, CliConfigContext context,
+    private async Task<CliConfigProviderView> ViewAsync(ICliConfigProvider provider, CliConfigContext context,
         CancellationToken cancellationToken)
     {
         var writer = provider is ICliConfigWriter;
@@ -132,12 +132,17 @@ public sealed class CliConfigService : ICliConfigService
             Order = provider.Order,
             Writable = writer && context.HasPermission(CliConfigPermissions.Write),
             Storage = CliConfigViews.Storage(provider),
+            Store = DescribeProviderStore(provider),
             Sections = (sections ?? []).Select(s => CliConfigViews.Section(s, writer)).ToList(),
         };
     }
 
-    /// <summary>Where writable settings are saved: the store's own description (<c>custom</c> when it has none).</summary>
-    public CliConfigStoreDescription DescribeStore() => CliConfigStoreHelpers.Describe(Registry.Store);
+    /// <summary>The store providers use unless they have their own: its own description (<c>custom</c> when it has none).</summary>
+    public CliConfigStoreDescription DescribeDefaultStore() => CliConfigStoreHelpers.Describe(Registry.DefaultStore);
+
+    /// <summary>The store a provider's changes are saved to; null for a provider without one (read-only, or saving itself).</summary>
+    public CliConfigStoreDescription? DescribeProviderStore(ICliConfigProvider provider) =>
+        Registry.StoreOf(provider) is { } store ? CliConfigStoreHelpers.Describe(store) : null;
 
     public async Task<IReadOnlyList<CliConfigProviderView>> ListAsync(CliConfigContext context, CancellationToken cancellationToken = default)
     {
@@ -241,8 +246,9 @@ public sealed class CliConfigService : ICliConfigService
                 ["new"] = now != null || raw != null ? AuditValue(now ?? old, raw, old: false) : null,
             });
         }
-        await AuditAsync(provider.Id, sectionId, result.Version, auditChanges, context);
-        await PublishAsync(provider.Id, sectionId, result, context, cancellationToken);
+        var storeKind = DescribeProviderStore(provider)?.Kind;
+        await AuditAsync(provider.Id, sectionId, result.Version, auditChanges, context, storeKind);
+        await PublishAsync(provider.Id, sectionId, result, context, storeKind, cancellationToken);
         return new CliConfigUpdateResponse
         {
             Provider = provider.Id,
@@ -264,7 +270,8 @@ public sealed class CliConfigService : ICliConfigService
         return (old ? view?.Value : view?.Value ?? raw)?.DeepClone();
     }
 
-    private async Task AuditAsync(string providerId, string sectionId, string version, JsonArray changes, CliConfigContext context)
+    private async Task AuditAsync(string providerId, string sectionId, string version, JsonArray changes, CliConfigContext context,
+        string? storeKind)
     {
         var store = Audit;
         if (store == null) return;
@@ -275,6 +282,7 @@ public sealed class CliConfigService : ICliConfigService
             ["section"] = sectionId,
             ["version"] = version,
         };
+        if (storeKind != null) properties["store"] = storeKind;
         if (context.Via != null) properties["via"] = context.Via;
         properties["changes"] = changes;
         try
@@ -299,7 +307,7 @@ public sealed class CliConfigService : ICliConfigService
     }
 
     private async Task PublishAsync(string providerId, string sectionId, CliConfigUpdateResult result, CliConfigContext context,
-        CancellationToken cancellationToken)
+        string? storeKind, CancellationToken cancellationToken)
     {
         var bus = Bus;
         if (bus == null) return;
@@ -311,6 +319,7 @@ public sealed class CliConfigService : ICliConfigService
             ["version"] = result.Version,
             ["requiresRestart"] = result.RequiresRestart,
         };
+        if (storeKind != null) data["store"] = storeKind;
         if (!string.IsNullOrEmpty(context.Caller?.UserName)) data["user"] = context.Caller.UserName;
         try
         {
