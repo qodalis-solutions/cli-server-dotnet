@@ -491,11 +491,13 @@ public sealed class ConfigMultiStoreServerTests : IAsyncLifetime
         Assert.Equal(File_, body.GetProperty("defaultStore").GetRawText());
         var stores = body.GetProperty("providers").EnumerateArray().ToDictionary(p => p.GetProperty("id").GetString()!,
             p => p.TryGetProperty("store", out var s) ? s.GetRawText() : null);
-        Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "billing", "custom"], stores.Keys);
+        Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "dashboard-plugins", "billing", "custom"], stores.Keys);
         Assert.Equal((null, null, null), (stores["server"], stores["auth"], stores["host"]));
         Assert.Equal((File_, File_), (stores["cors"], stores["mcp"]));
         Assert.Equal("{\"kind\":\"custom\",\"title\":\"logs-store\",\"detail\":\"logs-store-detail\",\"persistent\":true}", stores["logs"]);
         Assert.Equal((Redis, Redis), (stores["billing"], stores["custom"]));
+        // the dashboard plugins' settings: no store of their own, the default one
+        Assert.Equal(File_, stores["dashboard-plugins"]);
         var jobs = ConfigApi.Find(body.GetProperty("providers"), "id", "jobs");
         Assert.Equal("{\"kind\":\"database\",\"title\":\"Database\",\"detail\":\"SQLite database qcli-demo.db, table QcliConfig\",\"persistent\":true}",
             jobs.GetProperty("store").GetRawText());
@@ -564,6 +566,7 @@ public sealed class ConfigMultiStoreServerTests : IAsyncLifetime
             "mcp  MCP  · JSON file (app.json, section qcli)",
             "jobs  Jobs  · Database (SQLite database qcli-demo.db, table QcliConfig)",
             "logs  Logs  · logs-store (logs-store-detail)",
+            "dashboard-plugins  Dashboard plugins  · JSON file (app.json, section qcli)",
             "billing  Billing  · Redis (Redis-detail)",
             "custom  Custom  · Redis (Redis-detail)",
         ], heads);

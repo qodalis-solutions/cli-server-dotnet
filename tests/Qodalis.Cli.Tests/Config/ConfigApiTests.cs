@@ -89,7 +89,7 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
         Assert.Equal(["defaultStore", "providers"], body.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal("{\"kind\":\"memory\",\"title\":\"In memory\",\"detail\":\"\",\"persistent\":false}", body.GetProperty("defaultStore").GetRawText());
         var providers = body.GetProperty("providers");
-        Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "billing", "custom"],
+        Assert.Equal(["server", "auth", "host", "cors", "mcp", "jobs", "logs", "dashboard-plugins", "billing", "custom"],
             providers.EnumerateArray().Select(p => p.GetProperty("id").GetString()));
         var billing = ConfigApi.Find(providers, "id", "billing");
         Assert.Equal(["id", "title", "description", "order", "writable", "storage", "store", "sections"], billing.EnumerateObject().Select(p => p.Name));
@@ -101,7 +101,7 @@ public sealed class ConfigApiOpenServerTests : IAsyncLifetime
         Assert.Equal("configuration", storage["host"].GetProperty("kind").GetString());
         Assert.Equal("Server options", storage["host"].GetProperty("sources")[0].GetString());
         Assert.Equal(("options", 0), (storage["auth"].GetProperty("kind").GetString(), storage["auth"].GetProperty("sources").GetArrayLength()));
-        foreach (var id in new[] { "cors", "mcp", "jobs", "logs", "custom" }) Assert.Equal("store", storage[id].GetProperty("kind").GetString());
+        foreach (var id in new[] { "cors", "mcp", "jobs", "logs", "dashboard-plugins", "custom" }) Assert.Equal("store", storage[id].GetProperty("kind").GetString());
         Assert.Equal(("Billing", "", 100, true),
             (billing.GetProperty("title").GetString(), billing.GetProperty("description").GetString(), billing.GetProperty("order").GetInt32(), billing.GetProperty("writable").GetBoolean()));
         var section = billing.GetProperty("sections")[0];
