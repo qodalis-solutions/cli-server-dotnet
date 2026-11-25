@@ -28,4 +28,12 @@ public sealed class McpOptions
 
     /// <summary>Optional instructions returned by <c>initialize</c>.</summary>
     public string? Instructions { get; set; }
+
+    /// <summary>
+    /// Only tools annotated <c>readOnlyHint: true</c> are listed and callable (e.g. <c>config_get</c>, not
+    /// <c>config_set</c>), the server-side counterpart of the MCP client's <c>QCLI_READ_ONLY</c>. Default false.
+    /// Changeable at runtime through the <c>mcp</c> config provider, like <see cref="Tools"/>, <see cref="Exclude"/>
+    /// and <see cref="Instructions"/>.
+    /// </summary>
+    public bool ReadOnly { get; set; }
 }

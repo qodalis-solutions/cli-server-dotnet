@@ -5,7 +5,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.DataExplorer;
+using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
+using Qodalis.Cli.Config;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Controllers;
 using Qodalis.Cli.FileSystem;
 using Qodalis.Cli.Logging;
@@ -61,8 +66,16 @@ public static class MvcBuilderExtensions
             {
                 registry.Register(processor);
             }
+            // The config command (unless the host registered its own)
+            if (cliBuilder.ServerOptions.CliRoutes && cliBuilder.ConfigOptions.Command && registry.FindProcessor("config") == null)
+            {
+                registry.Register(new CliConfigCommandProcessor(sp.GetRequiredService<ICliConfigService>(),
+                    () => CliConfigContexts.Of(sp.GetService<IHttpContextAccessor>()?.HttpContext, cliBuilder.ServerOptions, "terminal")));
+            }
             return registry;
         });
+
+        AddConfigServices(builder.Services, cliBuilder);
 
         builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
         builder.Services.AddSingleton(new CliDashboardExtensions(cliBuilder.DashboardExtensions));
@@ -130,4 +143,93 @@ public static class MvcBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Config providers: the store, the registry with the built-in providers, the service, its startup and MCP tools.</summary>
+    private static void AddConfigServices(IServiceCollection services, CliBuilder cliBuilder)
+    {
+        var serverOptions = cliBuilder.ServerOptions;
+        services.TryAddSingleton<ICliConfigStore, InMemoryConfigStore>();
+        services.AddSingleton(sp =>
+        {
+            var registry = new CliConfigRegistry(sp.GetRequiredService<ICliConfigStore>(),
+                sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Config"));
+            foreach (var provider in sp.GetServices<ICliConfigProvider>())
+                registry.Add(provider);
+
+            // The built-in providers (a provider the host registered under the same id wins)
+            void BuiltIn(ICliConfigProvider provider)
+            {
+                if (!registry.Has(provider.Id)) registry.Add(provider);
+            }
+            BuiltIn(new CliServerConfigProvider(environment: () => sp.GetService<IHostEnvironment>()?.EnvironmentName));
+            BuiltIn(new CliHostConfigProvider(() => HostOptions(serverOptions), sp.GetService<IConfiguration>(),
+                cliBuilder.ConfigOptions.Environment));
+            BuiltIn(CliRuntimeConfigProviders.Cors(serverOptions.AllowedOrigins,
+                serverOptions.AllowedOrigins.Count > 0 ? CliCorsMode.Origins : CliCorsMode.Disabled));
+            BuiltIn(CliRuntimeConfigProviders.Mcp(serverOptions.Mcp, CliRoutePolicy.McpPath));
+            if (serverOptions.CliRoutes && sp.GetService<FileSystemOptions>() is { } fileSystem)
+            {
+                var storage = fileSystem.Provider?.Name ?? cliBuilder.FileStorageProvider?.Name ?? "os";
+                BuiltIn(CliRuntimeConfigProviders.FileSystem(storage, fileSystem.AllowedPaths));
+            }
+            BuiltIn(CliCustomConfigProvider.Create());
+            registry.Start();
+            return registry;
+        });
+        services.AddSingleton(sp => new CliConfigService(sp.GetRequiredService<CliConfigRegistry>(), sp,
+            sp.GetService<ILogger<CliConfigService>>()));
+        services.AddSingleton<ICliConfigService>(sp => sp.GetRequiredService<CliConfigService>());
+        services.AddHostedService<CliConfigStartup>();
+        services.AddMcpToolProvider<ConfigMcpToolProvider>();
+    }
+
+    private static IEnumerable<CliHostOption> HostOptions(CliServerOptions options) =>
+    [
+        new("cliRoutes", "CLI routes", "The CLI's routes and sockets are served", options.CliRoutes),
+        new("enableShell", "Shell", "Interactive shell sessions are accepted", options.EnableShell),
+        new("shellAuth", "Shell access", "How shell sessions are authorized",
+            !options.EnableShell ? "none"
+            : options.Shell.AllowAnonymous ? "anonymous"
+            : options.Shell.Authorize != null ? "callback"
+            : !string.IsNullOrEmpty(options.Shell.Token) ? "token"
+            : options.RequireAuthentication ? "users" : "locked"),
+        new("maxTableRows", "Table rows", "Rows a table returns without paging (0: no limit)", options.MaxTableRows),
+        new("protected", "Protected", "An auth provider protects every route", options.RequireAuthentication),
+        new("externalAuthentication", "External sign-in", "The host application signs users in", options.ExternalAuthentication),
+        new("mcp", "MCP", "The MCP endpoint is served", options.Mcp is { Enabled: true }),
+    ];
+}
+
+/// <summary>Config contexts of the callers of the server.</summary>
+public static class CliConfigContexts
+{
+    /// <summary>
+    /// The context of a request: the caller's principal on a protected server, else every permission (a server without
+    /// authentication).
+    /// </summary>
+    public static CliConfigContext Of(HttpContext? httpContext, CliServerOptions options, string via)
+    {
+        var principal = httpContext?.GetCliPrincipal();
+        if (!options.RequireAuthentication || principal == null) return CliConfigContext.For(null, via);
+        return new CliConfigContext(new CliConfigCaller(principal.UserId, principal.UserName, principal.Permissions),
+            principal.Can, via);
+    }
+}
+
+/// <summary>Loads and applies the stored settings when the server starts.</summary>
+internal sealed class CliConfigStartup(CliConfigRegistry registry, ILogger<CliConfigStartup> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await registry.ReadyAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Loading the stored config settings failed");
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

@@ -103,7 +103,8 @@ public sealed class CliServerOptions
     {
         if (string.IsNullOrEmpty(origin)) return false;
         var o = origin.TrimEnd('/');
-        foreach (var allowed in AllowedOrigins)
+        // A copy: the cors config provider replaces the list's items at runtime
+        foreach (var allowed in AllowedOrigins.ToArray())
         {
             var a = allowed.TrimEnd('/');
             if (string.Equals(a, o, StringComparison.OrdinalIgnoreCase)) return true;

@@ -11,7 +11,7 @@ public class PermissionCatalogTests
     private static readonly string[] CoreNames =
     [
         "commands:execute", "shell:execute", "files:read", "files:write", "data:query", "jobs:read",
-        "jobs:manage", "logs:read", "admin:access", "audit:read", "audit:clear",
+        "jobs:manage", "logs:read", "admin:access", "config:read", "config:write", "audit:read", "audit:clear",
     ];
 
     private readonly ServiceCollection _services = new();
@@ -45,9 +45,9 @@ public class PermissionCatalogTests
             .Add("banks:read", "Banks and their buy and sell rates"));
 
         var all = Resolve().All;
-        Assert.Equal(13, all.Count);
-        Assert.Equal(new CliPermission("rates:read", "Official exchange rates", "Rates", "host"), all[11]);
-        Assert.Equal(new CliPermission("banks:read", "Banks and their buy and sell rates", "Rates", "host"), all[12]);
+        Assert.Equal(15, all.Count);
+        Assert.Equal(new CliPermission("rates:read", "Official exchange rates", "Rates", "host"), all[13]);
+        Assert.Equal(new CliPermission("banks:read", "Banks and their buy and sell rates", "Rates", "host"), all[14]);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class PermissionCatalogTests
         _builder.AddPermissions(p => p.Group("Rates").Add("rates:read", "Official exchange rates"));
         _builder.AddPermissions(p => p.Group("Things").Add("things:read", "Read things"), CliPermissionSurface.Cli);
 
-        Assert.Equal(["things:read", "rates:read"], Resolve().All.Skip(11).Select(p => p.Name));
+        Assert.Equal(["things:read", "rates:read"], Resolve().All.Skip(13).Select(p => p.Name));
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public class PermissionCatalogTests
         var second = provider.GetRequiredService<ICliPermissionCatalog>();
 
         Assert.Same(first, second);
-        Assert.Equal(23, first.All.Count);
+        Assert.Equal(25, first.All.Count);
         Assert.Equal(first.All.Count, first.All.Select(p => p.Name).Distinct().Count());
         Assert.Equal("cli", first.Find("users:read")!.Surface);
     }
@@ -179,7 +179,7 @@ public class PermissionCatalogPerAddCliTests
 
         // The last registration wins: the second builder's catalog has the plugin's entries too.
         var catalog = services.BuildServiceProvider().GetRequiredService<ICliPermissionCatalog>();
-        Assert.Equal(23, catalog.All.Count);
+        Assert.Equal(25, catalog.All.Count);
         Assert.NotNull(catalog.Find("users:read"));
     }
 }

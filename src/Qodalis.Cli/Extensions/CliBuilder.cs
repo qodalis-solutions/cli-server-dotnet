@@ -269,7 +269,7 @@ public partial class CliBuilder
     }
 
     /// <summary>
-    /// Registers a CLI module and all its command processors.
+    /// Registers a CLI module, its command processors and its config providers (<see cref="ICliModule.ConfigProviders"/>).
     /// </summary>
     /// <param name="module">The module to register.</param>
     /// <returns>This builder instance for chaining.</returns>
@@ -281,6 +281,11 @@ public partial class CliBuilder
         foreach (var processor in module.Processors)
         {
             Services.AddSingleton<ICliCommandProcessor>(processor);
+        }
+
+        foreach (var provider in module.ConfigProviders ?? [])
+        {
+            AddConfigProvider(provider);
         }
 
         return this;

@@ -149,6 +149,7 @@ public sealed partial class CliMcpServer
         var options = Options;
         if (options.Tools is { Count: > 0 } allow && !allow.Any(p => MatchesPattern(tool.Name, p))) return false;
         if (options.Exclude is { Count: > 0 } deny && deny.Any(p => MatchesPattern(tool.Name, p))) return false;
+        if (options.ReadOnly && tool.Annotations?.ReadOnlyHint != true) return false;
         if (!_serverOptions.RequireAuthentication) return true;
         if (principal == null) return false;
         return CliCommandPermissions.Missing(principal, tool.RequiredPermissions).Count == 0;
@@ -289,8 +290,14 @@ public sealed partial class CliMcpServer
             throw new JsonRpcException(InvalidParams, "Invalid params: arguments must be an object");
         var args = argsNode as JsonObject ?? [];
 
-        var tool = (await VisibleToolsAsync(context, cancellationToken)).FirstOrDefault(t => t.Name == name)
-            ?? throw new JsonRpcException(InvalidParams, $"Unknown tool: {name}");
+        var tool = (await VisibleToolsAsync(context, cancellationToken)).FirstOrDefault(t => t.Name == name);
+        if (tool == null)
+        {
+            if (Options.ReadOnly && (await CollectToolsAsync(context, cancellationToken)).Tools
+                    .Any(t => t.Name == name && t.Annotations?.ReadOnlyHint != true))
+                throw new JsonRpcException(InvalidParams, $"Tool {name} is not available: the MCP endpoint is read-only");
+            throw new JsonRpcException(InvalidParams, $"Unknown tool: {name}");
+        }
 
         var invalid = McpSchema.Validate(tool.InputSchema, args);
         if (invalid != null)

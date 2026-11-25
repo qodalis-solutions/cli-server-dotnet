@@ -114,6 +114,9 @@ public static class CliRoutePolicy
         if (IsUnder(path, "/api/qcli/data-explorer")) return new(true, false, DataQuery, false);
         if (IsUnder(path, "/api/v1/qcli/jobs")) return new(true, false, isGet ? JobsRead : JobsManage, false);
         if (IsUnder(path, "/api/v1/qcli/audit")) return new(true, false, isGet ? AuditRead : AuditClear, false);
+        // Config providers: config:read to see, config:write to change (the admin plugin's auth also applies)
+        if (IsUnder(path, "/api/v1/qcli/config"))
+            return new(true, false, isGet ? Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Read : Qodalis.Cli.Abstractions.Config.CliConfigPermissions.Write, false);
         if (AdminPrefixes.Any(p => IsUnder(path, p))) return new(true, false, AdminAccess, false);
 
         return new(true, false, null, false);

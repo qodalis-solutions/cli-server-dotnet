@@ -156,7 +156,11 @@ public sealed class CommandsMcpToolProvider : IMcpToolProvider
         var tools = new List<CliMcpTool>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var root in _registry.Processors.ToList())
+        {
+            // The config command is served by the config_* tools instead
+            if (root is Qodalis.Cli.Config.CliConfigCommandProcessor) continue;
             Walk(root, [], [], tools, names);
+        }
         return tools;
     }
 
