@@ -241,6 +241,8 @@ builder.Services.AddControllers().AddCli(cli =>
 });
 ```
 
+Core has one built-in command, `http` (`CliHttpCommandProcessor` in `Qodalis.Cli.Processors`: `http get|post <url>` sent from the server, module `core`), which needs the `http:request` permission; hosts opt in with `cli.AddProcessor<CliHttpCommandProcessor>()`. The demo's example commands (`echo`, `status`, `system`, `hash`, `base64`, ...) live in `demo/Processors`, not in the packages.
+
 Processors are singletons. To use scoped services such as a `DbContext`, inject `IServiceScopeFactory` and create a scope inside `HandleAsync`.
 
 ### Modules
@@ -258,6 +260,8 @@ public class WeatherModule : CliModule
 `plugins/weather/` is a complete reference module. A module can bring the permissions its commands require to the
 [permission catalog](#permission-catalog): `Permissions` (`CliModulePermission(name, description, group)`), added by
 `cli.AddModule` with surface `cli`; a name already in the catalog stays as registered (see `AwsModule`).
+`GET /api/v1/qcli/commands` lists a module's commands with the module's name as `module` (unless a command names one
+itself), so the dashboard's Plugins page groups them under the module.
 
 ## Configuration
 
@@ -287,7 +291,7 @@ The server keeps a catalog of the permissions users can choose when they grant t
 { "name": "files:read", "description": "List, read and download files", "group": "Files", "surface": "cli" }
 ```
 
-Core registers the 11 permissions its route policy checks (`commands:execute`, `shell:execute`, `files:read`, `files:write`, `data:query`, `jobs:read`, `jobs:manage`, `logs:read`, `admin:access`, `audit:read`, `audit:clear`); the users plugin adds its 12 (`users:*`, `groups:*`, `sessions:*`, `tokens:*`). Your app adds the permissions its own routes check:
+Core registers the permissions its route policy checks and its `http` command needs (`commands:execute`, `shell:execute`, `http:request`, `files:read`, `files:write`, `data:query`, `jobs:read`, `jobs:manage`, `logs:read`, `admin:access`, `config:read`, `config:write`, `audit:read`, `audit:clear`); the users plugin adds its 12 (`users:*`, `groups:*`, `sessions:*`, `tokens:*`). Your app adds the permissions its own routes check:
 
 ```csharp
 cli.AddPermissions(p => p.Group("Rates")
@@ -738,9 +742,9 @@ cd demo && dotnet run                                              # demo server
 |---|---|
 | `src/Qodalis.Cli.Abstractions` | Interfaces for plugin authors |
 | `src/Qodalis.Cli` | ASP.NET Core integration: controllers, `CliBuilder`, services, MCP, security |
-| `src/Qodalis.Cli.Server` | Bundled host (built-in `echo`, `status`, `system`, `http`, `hash`, `base64` commands) |
+| `src/Qodalis.Cli.Server` | Bundled host (the built-in `http` command and the weather module) |
 | `plugins/` | Plugin packages |
-| `demo/` | Demo server with sample processors and jobs |
+| `demo/` | Demo server: its example commands as the `demo` module (`echo`, `status`, `time`, `hello`, `math`, `system`, `hash`, `base64`), jobs |
 | `tests/Qodalis.Cli.Tests` | xUnit tests |
 
 Work on `feature/*` branches and open pull requests into `develop`. Pushes to `main` publish the NuGet packages and the Docker image.
