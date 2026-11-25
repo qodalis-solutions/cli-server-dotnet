@@ -22,6 +22,7 @@ public static class AdminConfigProviders
         public string Title => "Authentication";
         public string? Description => "How the admin dashboard signs users in (read-only)";
         public int Order => 10;
+        public CliConfigProviderStorage? Storage => new() { Kind = CliConfigStorageKinds.Options, Description = "Read from the admin plugin's options" };
 
         public Task<IReadOnlyList<CliConfigSection>> GetSectionsAsync(CliConfigContext context, CancellationToken cancellationToken = default)
         {

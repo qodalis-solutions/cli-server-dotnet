@@ -57,7 +57,7 @@ public sealed class ConfigMcpToolProvider : IMcpToolProvider
             new()
             {
                 Name = "config_list",
-                Description = "The server's config providers and their sections (ids, titles, whether writable, versions); read a section with config_get",
+                Description = "Where config changes are saved (store), the server's config providers (where each reads its settings from) and their sections (ids, titles, whether writable, versions); read a section with config_get",
                 InputSchema = McpSchema.Object(),
                 RequiredPermissions = [CliConfigPermissions.Read],
                 Annotations = McpToolAnnotations.ReadOnly,
@@ -66,12 +66,14 @@ public sealed class ConfigMcpToolProvider : IMcpToolProvider
                     var providers = await _service.ListAsync(Context(ctx), ct);
                     return Json(new
                     {
+                        store = _service.DescribeStore(),
                         providers = providers.Select(p => new
                         {
                             id = p.Id,
                             title = p.Title,
                             description = p.Description,
                             writable = p.Writable,
+                            storage = p.Storage,
                             sections = p.Sections.Select(s => new { id = s.Id, title = s.Title, mutable = s.Mutable, version = s.Version, keys = s.Entries.Count }),
                         }),
                     });

@@ -4,7 +4,9 @@ using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.CommandLine;
 using Microsoft.Extensions.Configuration.EnvironmentVariables;
+using Microsoft.Extensions.Configuration.Memory;
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Security;
@@ -44,6 +46,7 @@ public sealed class CliServerConfigProvider : ICliConfigProvider
     public string Title => "Server";
     public string? Description => "The server process (read-only)";
     public int Order => 0;
+    public CliConfigProviderStorage? Storage => new() { Kind = CliConfigStorageKinds.Runtime, Description = "Read from the running server process" };
 
     public Task<IReadOnlyList<CliConfigSection>> GetSectionsAsync(CliConfigContext context, CancellationToken cancellationToken = default)
     {
@@ -159,6 +162,81 @@ public sealed class CliHostConfigProvider : ICliConfigProvider
     public string Title => "Host";
     public string? Description => "Server options, environment variables and configuration (read-only, secrets masked)";
     public int Order => 20;
+
+    /// <summary>
+    /// Server options, then the host's configuration sources in the order they apply (later ones override earlier
+    /// ones): file names only (<c>appsettings.json</c>, <c>appsettings.Development.json</c>), <c>User secrets</c>,
+    /// <c>Environment variables</c>, <c>Command line</c>. Without an <see cref="IConfigurationRoot"/>: server options and
+    /// environment variables.
+    /// </summary>
+    public CliConfigProviderStorage? Storage => _configuration is IConfigurationRoot root
+        ? new()
+        {
+            Kind = CliConfigStorageKinds.Configuration,
+            Description = "Server options, environment variables and the host's configuration",
+            Sources = ["Server options", .. ConfigurationSources(root)],
+        }
+        : new()
+        {
+            Kind = CliConfigStorageKinds.Options,
+            Description = "Server options and environment variables",
+            Sources = ["Server options", "Environment variables"],
+        };
+
+    /// <summary>
+    /// The names of a configuration's providers in the order they apply; a name given twice keeps its last place (the
+    /// one that wins). In-memory sources (the host's defaults) are left out; a chained configuration is expanded.
+    /// </summary>
+    public static IReadOnlyList<string> ConfigurationSources(IConfigurationRoot root)
+    {
+        var names = new List<string>();
+        void Add(IConfigurationRoot configuration)
+        {
+            foreach (var provider in configuration.Providers)
+            {
+                if (provider is ChainedConfigurationProvider chained)
+                {
+                    if (chained.Configuration is IConfigurationRoot inner) Add(inner);
+                    continue;
+                }
+                var name = SourceName(provider);
+                if (name == null) continue;
+                names.Remove(name);
+                names.Add(name);
+            }
+        }
+        Add(root);
+        return names;
+    }
+
+    /// <summary>How a configuration provider is shown: a file by its name only, never its directory; null to leave it out.</summary>
+    private static string? SourceName(IConfigurationProvider provider)
+    {
+        switch (provider)
+        {
+            case MemoryConfigurationProvider:
+                return null;
+            case EnvironmentVariablesConfigurationProvider:
+                return "Environment variables";
+            case CommandLineConfigurationProvider:
+                return "Command line";
+            case FileConfigurationProvider file:
+            {
+                var path = file.Source.Path ?? string.Empty;
+                var physical = file.Source.FileProvider?.GetFileInfo(path).PhysicalPath ?? path;
+                if (physical.Contains("usersecrets", StringComparison.OrdinalIgnoreCase)) return "User secrets";
+                var name = Path.GetFileName(path);
+                return string.IsNullOrEmpty(name) ? null : name;
+            }
+            default:
+            {
+                var type = provider.GetType().Name;
+                return type.EndsWith("ConfigurationProvider", StringComparison.Ordinal) && type.Length > "ConfigurationProvider".Length
+                    ? type[..^"ConfigurationProvider".Length]
+                    : type;
+            }
+        }
+    }
 
     private static Regex GlobToRegex(string glob) =>
         new("^" + Regex.Escape(glob).Replace("\\*", ".*") + "$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);

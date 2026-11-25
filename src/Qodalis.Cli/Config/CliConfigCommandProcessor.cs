@@ -158,7 +158,7 @@ public sealed class CliConfigCommandProcessor : CliCommandProcessor
 internal sealed class ConfigListProcessor(ICliConfigService service, Func<CliConfigContext> context) : CliCommandProcessor
 {
     public override string Command { get; set; } = "list";
-    public override string Description { get; set; } = "Lists the config providers and their sections";
+    public override string Description { get; set; } = "Lists where changes are saved, the config providers and their sections";
     public override IEnumerable<string>? RequiredPermissions { get; set; } = [CliConfigPermissions.Read];
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
@@ -166,11 +166,17 @@ internal sealed class ConfigListProcessor(ICliConfigService service, Func<CliCon
         try
         {
             var providers = await service.ListAsync(context(), cancellationToken);
-            if (providers.Count == 0) return "No config providers.";
-            var lines = new List<string>();
+            var lines = new List<string> { $"Store: {CliConfigStoreHelpers.DescribeLine(service.DescribeStore())}" };
+            if (providers.Count == 0)
+            {
+                lines.Add("No config providers.");
+                return string.Join('\n', lines);
+            }
             foreach (var p in providers)
             {
-                lines.Add($"{p.Id}  {p.Title}{(p.Writable ? "" : "  (read-only)")}");
+                var from = p.Storage.Sources.Count > 0 ? $"from {string.Join(", ", p.Storage.Sources)}" : "";
+                var notes = string.Join("; ", new[] { p.Writable ? "" : "read-only", from }.Where(n => n.Length > 0));
+                lines.Add($"{p.Id}  {p.Title}{(notes.Length > 0 ? $"  ({notes})" : "")}");
                 foreach (var s in p.Sections)
                     lines.Add($"  {s.Id.PadRight(16)} {s.Entries.Count.ToString(CultureInfo.InvariantCulture).PadLeft(3)} setting(s){(s.Version != null ? $"  version {s.Version}" : "")}");
             }

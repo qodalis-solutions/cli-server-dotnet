@@ -33,6 +33,24 @@ public static class CliConfigViews
         };
     }
 
+    /// <summary>A provider's storage as the API returns it: its own, else <c>custom</c> (saved / read by the provider).</summary>
+    public static CliConfigProviderStorage Storage(ICliConfigProvider provider)
+    {
+        var own = provider.Storage;
+        if (own != null && !string.IsNullOrEmpty(own.Kind))
+            return new CliConfigProviderStorage
+            {
+                Kind = own.Kind,
+                Description = own.Description ?? string.Empty,
+                Sources = (own.Sources ?? []).Where(s => s != null).ToList(),
+            };
+        return new CliConfigProviderStorage
+        {
+            Kind = CliConfigStorageKinds.Custom,
+            Description = provider is ICliConfigWriter ? "Saved by the provider" : "Read by the provider",
+        };
+    }
+
     /// <summary>A section as the API returns it; <paramref name="writable"/>: the provider implements the writer.</summary>
     public static CliConfigSectionView Section(CliConfigSection section, bool writable)
     {
@@ -113,9 +131,13 @@ public sealed class CliConfigService : ICliConfigService
             Description = provider.Description ?? string.Empty,
             Order = provider.Order,
             Writable = writer && context.HasPermission(CliConfigPermissions.Write),
+            Storage = CliConfigViews.Storage(provider),
             Sections = (sections ?? []).Select(s => CliConfigViews.Section(s, writer)).ToList(),
         };
     }
+
+    /// <summary>Where writable settings are saved: the store's own description (<c>custom</c> when it has none).</summary>
+    public CliConfigStoreDescription DescribeStore() => CliConfigStoreHelpers.Describe(Registry.Store);
 
     public async Task<IReadOnlyList<CliConfigProviderView>> ListAsync(CliConfigContext context, CancellationToken cancellationToken = default)
     {
