@@ -12,6 +12,8 @@ using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Audit;
 using Qodalis.Cli.Plugin.Aws;
 using Qodalis.Cli.Plugin.Aws.Processors;
+using Qodalis.Cli.Plugin.DataExplorer.Postgres;
+using Qodalis.Cli.Plugin.DataExplorer.Sql;
 using Qodalis.Cli.Plugin.Docs;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem.Json;
@@ -212,5 +214,33 @@ public class PluginEntriesTests : IAsyncLifetime
         await Assert.ThrowsAsync<FileStorageNotConfiguredError>(() => s3.Services.GetRequiredService<IFileStorageProvider>().ListAsync("/"));
         var view = await s3.Services.GetRequiredService<ICliConfigService>().GetAsync("filesystem-s3", new CliConfigContext(null, _ => true));
         Assert.True(view.Sections.Single().Entries.Single(e => e.Key == "bucket").Required);
+    }
+
+    [Fact]
+    public async Task DataExplorerSources_AddedOnceConfigured_TheDataExplorersRulesOnTheLaterOnes()
+    {
+        var (host, dir) = await StartAsync(cli =>
+        {
+            // The host's own source keeps its rules; the plugins' sources follow the data explorer entry's
+            cli.AddDataExplorerProvider(new SqlDataExplorerProvider("Data Source=:memory:"), o => { o.Name = "host"; o.Description = "h"; o.ReadOnly = false; o.MaxRows = 5000; });
+            cli.AddPlugin<SqlPluginEntry>(new { name = "local", readOnly = false });
+            cli.AddPlugin<PostgresPluginEntry>();
+            cli.AddPlugin<DataExplorerPluginEntry>(new { forceReadOnly = true, maxRows = 50, rateLimitQueries = 10 });
+        });
+        var states = await States(host);
+        // The data explorer (Core) registers before its sources (Source), whatever order they were added in
+        var providers = host.Services.GetServices<ICliConfigProvider>().Select(p => p.Id).Where(id => id.StartsWith("data-explorer", StringComparison.Ordinal));
+        Assert.Equal(["data-explorer", "data-explorer-sql", "data-explorer-postgres"], providers);
+        var postgres = states.Single(s => s.Name == "data-explorer-postgres");
+        Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "data-explorer-postgres"), (postgres.Status, postgres.Settings));
+        Assert.Equal(["data-explorer-postgres.settings.connectionString"], postgres.Missing);
+
+        var registry = host.Services.GetRequiredService<Qodalis.Cli.Services.DataExplorerRegistry>();
+        Assert.Equal(["host", "local"], registry.GetSources().Select(s => s.Name).Order());
+        var local = registry.Get("local")!.Value.Options;
+        Assert.Equal((true, 50, 10), (local.ReadOnly, local.MaxRows, local.RateLimit!.MaxQueries));
+        var own = registry.Get("host")!.Value.Options;
+        Assert.Equal((false, 5000, null), (own.ReadOnly, own.MaxRows, own.RateLimit));
+        Assert.True(File.Exists(Path.Combine(dir, "plugin-data", "data-explorer-sql", "data.db")) || registry.Get("local") != null);
     }
 }
