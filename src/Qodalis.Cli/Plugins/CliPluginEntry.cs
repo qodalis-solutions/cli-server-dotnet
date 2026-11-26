@@ -164,6 +164,18 @@ public sealed class CliPluginContext
     /// </summary>
     public CliStoredConfigProvider Settings(CliPluginSettingsOptions options) => _settings(options ?? new CliPluginSettingsOptions());
 
+    /// <summary>What the plugin still needs (<see cref="NeedsConfiguration"/>).</summary>
+    internal List<string> Needs { get; } = [];
+
+    /// <summary>
+    /// Marks the plugin <c>needs-configuration</c> for a reason besides its own required settings (another plugin it
+    /// builds on: <c>"users plugin"</c>); it should register nothing else and is loaded again at the next start.
+    /// </summary>
+    public void NeedsConfiguration(params string[] missing)
+    {
+        foreach (var m in missing) if (!string.IsNullOrWhiteSpace(m) && !Needs.Contains(m)) Needs.Add(m);
+    }
+
     /// <summary>
     /// Settings needed while the services are registered (a config store's own connection, a database's): kept in
     /// <c>&lt;data dir&gt;/plugin-settings.json</c> (never in the store they may set up) and read now, so

@@ -147,6 +147,7 @@ public sealed partial class CliServerPlugins
     private readonly List<(CliServerPluginState State, CliStoredConfigProvider Provider)> _settings = [];
     private readonly List<CliPluginLogger> _loggers = [];
     private readonly Dictionary<CliServerPluginState, CliInstalledPlugin> _installed = new();
+    private readonly Dictionary<CliServerPluginState, List<string>> _needs = new();
     private readonly HashSet<string> _ownStoreless = new(StringComparer.Ordinal);
     private ICliConfigStore? _pluginSettingsStore;
 
@@ -474,6 +475,13 @@ public sealed partial class CliServerPlugins
                 if (provider.OwnStore == null) _ownStoreless.Add(provider.Id);
             }
             candidate.State.Settings = providers.FirstOrDefault()?.Id;
+            if (context.Needs.Count > 0)
+            {
+                _needs[candidate.State] = [.. context.Needs];
+                candidate.State.Status = CliServerPluginStatuses.NeedsConfiguration;
+                candidate.State.Missing = [.. context.Needs];
+                candidate.State.Error = $"needs configuration: {string.Join(", ", context.Needs)}";
+            }
             if (listed != null) _installed[candidate.State] = listed;
         }
     }
@@ -562,11 +570,17 @@ public sealed partial class CliServerPlugins
     public async Task CheckSettingsAsync()
     {
         List<(CliServerPluginState State, CliStoredConfigProvider Provider)> settings;
-        lock (_lock) settings = [.. _settings];
-        foreach (var group in settings.GroupBy(s => s.State))
+        Dictionary<CliServerPluginState, List<string>> needs;
+        lock (_lock)
         {
-            var missing = new List<string>();
-            foreach (var (_, provider) in group)
+            settings = [.. _settings];
+            needs = new(_needs);
+        }
+        var states = settings.Select(s => s.State).Concat(needs.Keys).Distinct().ToList();
+        foreach (var state in states)
+        {
+            var missing = new List<string>(needs.GetValueOrDefault(state) ?? []);
+            foreach (var (_, provider) in settings.Where(s => s.State == state))
             {
                 try
                 {
@@ -580,10 +594,10 @@ public sealed partial class CliServerPlugins
             }
             lock (_lock)
             {
-                if (group.Key.Status is not (CliServerPluginStatuses.Loaded or CliServerPluginStatuses.NeedsConfiguration)) continue;
-                group.Key.Status = missing.Count > 0 ? CliServerPluginStatuses.NeedsConfiguration : CliServerPluginStatuses.Loaded;
-                group.Key.Error = missing.Count > 0 ? $"needs configuration: {string.Join(", ", missing)}" : null;
-                group.Key.Missing = missing.Count > 0 ? missing : null;
+                if (state.Status is not (CliServerPluginStatuses.Loaded or CliServerPluginStatuses.NeedsConfiguration)) continue;
+                state.Status = missing.Count > 0 ? CliServerPluginStatuses.NeedsConfiguration : CliServerPluginStatuses.Loaded;
+                state.Error = missing.Count > 0 ? $"needs configuration: {string.Join(", ", missing)}" : null;
+                state.Missing = missing.Count > 0 ? missing : null;
             }
         }
         Publish();
