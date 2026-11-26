@@ -25,6 +25,7 @@ public static class CliConfigViews
             Value = sensitive ? null : entry.Value?.DeepClone(),
             Default = sensitive ? null : entry.Default?.DeepClone(),
             Source = entry.Source ?? CliConfigSources.Default,
+            Origin = entry.Origin ?? CliConfigOrigins.Of(entry.Source),
             Mutable = writable && entry.Mutable,
             RequiresRestart = entry.RequiresRestart,
             Sensitive = sensitive,

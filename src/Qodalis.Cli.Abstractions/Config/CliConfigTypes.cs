@@ -41,6 +41,26 @@ public static class CliConfigSources
     public const string Code = "code";
 }
 
+/// <summary>
+/// Who decided a setting's current value, for the dashboard: the host's <c>code</c> (a plugin's code options, an
+/// environment variable), a saved <c>setting</c> (config API, <c>config set</c>, the dashboard), or the <c>default</c>.
+/// A saved setting wins over the code's value, which wins over the default.
+/// </summary>
+public static class CliConfigOrigins
+{
+    public const string Code = "code";
+    public const string Setting = "setting";
+    public const string Default = "default";
+
+    /// <summary>The origin of an entry that does not state one, from its source.</summary>
+    public static string Of(string? source) => source switch
+    {
+        null or "" or CliConfigSources.Default => Default,
+        CliConfigSources.Code or CliConfigSources.Environment => Code,
+        _ => Setting,
+    };
+}
+
 /// <summary>The permissions, event names and naming rules of config providers.</summary>
 public static class CliConfigPermissions
 {
@@ -149,6 +169,9 @@ public sealed class CliConfigEntry
 
     /// <summary>Must have a value for its owner to work (a server plugin without it is <c>needs-configuration</c>).</summary>
     public bool Required { get; init; }
+
+    /// <summary><see cref="CliConfigOrigins"/>: who decided the value (default: from <see cref="Source"/>).</summary>
+    public string? Origin { get; init; }
 
     public CliConfigValidation? Validation { get; init; }
 
@@ -413,6 +436,10 @@ public sealed class CliConfigEntryView
     public JsonNode? Default { get; init; }
 
     [JsonPropertyName("source")] public string Source { get; init; } = CliConfigSources.Default;
+
+    /// <summary><c>code</c>, <c>setting</c> or <c>default</c>: who decided the value (a secret's too, its value never returned).</summary>
+    [JsonPropertyName("origin")] public string Origin { get; init; } = CliConfigOrigins.Default;
+
     [JsonPropertyName("mutable")] public bool Mutable { get; init; }
     [JsonPropertyName("requiresRestart")] public bool RequiresRestart { get; init; }
     [JsonPropertyName("sensitive")] public bool Sensitive { get; init; }

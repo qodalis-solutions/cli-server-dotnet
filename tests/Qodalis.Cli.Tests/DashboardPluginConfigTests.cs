@@ -193,11 +193,11 @@ public sealed class DashboardPluginConfigTests : IAsyncLifetime
               "id":"tickets","title":"Tickets","description":"{{{Tickets}}}@1.0.0","mutable":true,"version":"0","allowCustomKeys":false,
               "entries":[
                 {"key":"refreshSeconds","label":"Refresh every","description":"Seconds between two refreshes","type":"number","value":30,"default":30,
-                 "source":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false,"validation":{"min":5,"max":3600}},
+                 "source":"default","origin":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false,"validation":{"min":5,"max":3600}},
                 {"key":"columns","label":"columns","description":"","type":"string[]","value":["name","status"],"default":["name","status"],
-                 "source":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false},
+                 "source":"default","origin":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false},
                 {"key":"mode","label":"mode","description":"","type":"enum","value":"compact","default":"compact",
-                 "source":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false,"validation":{"options":["compact","full"]}}
+                 "source":"default","origin":"default","mutable":true,"requiresRestart":false,"sensitive":false,"required":false,"validation":{"options":["compact","full"]}}
               ]
             }]
             """), provider["sections"]!.ToJsonString());

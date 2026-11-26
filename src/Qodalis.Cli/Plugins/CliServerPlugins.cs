@@ -146,6 +146,25 @@ public sealed partial class CliServerPlugins
     private readonly List<CliServerPluginState> _states = [];
     private readonly List<(CliServerPluginState State, CliStoredConfigProvider Provider)> _settings = [];
     private readonly List<CliPluginLogger> _loggers = [];
+    private readonly Dictionary<CliServerPluginState, CliInstalledPlugin> _installed = new();
+    private readonly HashSet<string> _ownStoreless = new(StringComparer.Ordinal);
+    private ICliConfigStore? _pluginSettingsStore;
+
+    /// <summary>The file of the plugins' settings while the server keeps its settings in memory.</summary>
+    public const string SettingsFile = "plugin-settings.json";
+
+    /// <summary>
+    /// Where the plugins' settings are kept while the server's default config store is in memory:
+    /// <c>&lt;data dir&gt;/plugin-settings.json</c> (mode 0600 on Unix), so a setting saved from the dashboard survives a restart.
+    /// </summary>
+    public ICliConfigStore PluginSettingsStore =>
+        _pluginSettingsStore ??= new JsonFileConfigStore(Path.Combine(DataDir, SettingsFile));
+
+    /// <summary>The settings providers of the registered plugins that have no store of their own.</summary>
+    internal IReadOnlyList<string> StorelessSettings()
+    {
+        lock (_lock) return [.. _ownStoreless];
+    }
     private readonly object _lock = new();
     private bool _loaded;
 
@@ -329,7 +348,7 @@ public sealed partial class CliServerPlugins
                 Fail(candidate.State, ex is TargetInvocationException { InnerException: { } inner } ? inner : ex);
             }
         }
-        if (records.Count > 0) PersistErrors();
+        Publish();
     }
 
     private static void Fail(CliServerPluginState state, Exception ex)
@@ -441,35 +460,60 @@ public sealed partial class CliServerPlugins
             builder.Restore(snapshot);
             throw;
         }
+        var listed = builder.InstalledPlugins.FirstOrDefault(p => string.Equals(p.Id, candidate.Package, StringComparison.OrdinalIgnoreCase));
+        if (listed != null && candidate.Source == CliServerPluginSources.Code) listed.Source = CliInstalledPlugin.CodeSource;
         lock (_lock)
         {
             _loggers.Add(logger);
-            foreach (var provider in providers) _settings.Add((candidate.State, provider));
+            foreach (var provider in providers)
+            {
+                _settings.Add((candidate.State, provider));
+                if (provider.OwnStore == null) _ownStoreless.Add(provider.Id);
+            }
+            candidate.State.Settings = providers.FirstOrDefault()?.Id;
+            if (listed != null) _installed[candidate.State] = listed;
         }
     }
 
-    /// <summary>The errors in the installed list, for the dashboard (cleared once a plugin loads).</summary>
-    private void PersistErrors()
+    /// <summary>
+    /// The states on the installed plugins' list (status, missing, settings) and in <c>installed.json</c> (with the
+    /// error of a plugin that could not load, cleared once it loads), for the dashboard.
+    /// </summary>
+    private void Publish()
     {
+        var states = States();
+        lock (_lock)
+        {
+            foreach (var (state, plugin) in _installed)
+            {
+                plugin.Status = state.Status;
+                plugin.Missing = state.Missing?.ToList();
+                plugin.Settings = state.Settings;
+            }
+        }
+        if (!Enabled) return;
         try
         {
             var records = Records();
             var changed = false;
-            var states = States();
             foreach (var record in records)
             {
-                var state = states.FirstOrDefault(s => s.Name == record.Name && s.Version == record.Version);
+                var state = states.FirstOrDefault(s => s.Source == CliServerPluginSources.Marketplace && s.Name == record.Name && s.Version == record.Version);
                 if (state == null) continue;
                 var error = state.Status is CliServerPluginStatuses.Failed or CliServerPluginStatuses.Skipped ? state.Error : null;
-                if (record.Error == error) continue;
+                if (record.Error == error && record.Status == state.Status && record.Settings == state.Settings
+                    && (record.Missing ?? []).SequenceEqual(state.Missing ?? [])) continue;
                 record.Error = error;
+                record.Status = state.Status;
+                record.Missing = state.Missing?.ToList();
+                record.Settings = state.Settings;
                 changed = true;
             }
             if (changed) Save(records);
         }
         catch (Exception)
         {
-            // read-only directory: the errors stay in this process's states
+            // read-only directory: the states stay in this process
         }
     }
 
@@ -539,6 +583,7 @@ public sealed partial class CliServerPlugins
                 group.Key.Missing = missing.Count > 0 ? missing : null;
             }
         }
+        Publish();
     }
 
     private sealed class SkippedException(string message) : Exception(message);

@@ -164,6 +164,11 @@ public static class MvcBuilderExtensions
         {
             var registry = new CliConfigRegistry(sp.GetRequiredService<ICliConfigStore>(),
                 sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Config"));
+            // The settings of plugins (code or marketplace) without a store of their own: in <data dir>/plugin-settings.json
+            // while the server keeps its settings in memory, so they survive a restart; the host's stores still win
+            if (registry.DefaultStore.GetType() == typeof(InMemoryConfigStore))
+                foreach (var id in cliBuilder.ServerPlugins.StorelessSettings())
+                    registry.SetStore(cliBuilder.ServerPlugins.PluginSettingsStore, id);
             // The host's stores per provider id: the options' map, then SetConfigStore(store, id) (the last one wins)
             foreach (var (providerId, store) in cliBuilder.ConfigOptions.Stores)
                 registry.SetStore(store, providerId);

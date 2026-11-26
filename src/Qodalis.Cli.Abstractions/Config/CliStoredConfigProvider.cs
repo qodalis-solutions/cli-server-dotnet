@@ -307,6 +307,7 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
                     Default = sensitive ? null : setting.Default?.DeepClone(),
                     IsSet = sensitive ? !CliConfigValues.IsEmpty(value) : null,
                     Source = overridden ? source : setting.Source ?? CliConfigSources.Default,
+                    Origin = overridden ? CliConfigOrigins.Setting : CliConfigOrigins.Of(setting.Source),
                     Mutable = setting.Mutable,
                     RequiresRestart = setting.RequiresRestart,
                     Sensitive = sensitive,
@@ -327,6 +328,7 @@ public class CliStoredConfigProvider : ICliConfigProvider, ICliConfigWriter, ICl
                         Type = CliConfigValues.InferType(value),
                         Value = value?.DeepClone(),
                         Source = source,
+                        Origin = CliConfigOrigins.Setting,
                         Mutable = true,
                     });
                 }

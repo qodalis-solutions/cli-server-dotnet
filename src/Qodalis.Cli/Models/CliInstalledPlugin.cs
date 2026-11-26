@@ -43,10 +43,28 @@ public class CliInstalledPlugin
     /// </summary>
     [JsonPropertyName("source")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Source { get; init; }
+    public string? Source { get; set; }
 
     /// <summary>The <see cref="Source"/> of a plugin installed from the marketplace.</summary>
     public const string MarketplaceSource = "marketplace";
+
+    /// <summary>The <see cref="Source"/> of a plugin added in code through its entry (<c>cli.AddPlugin</c>).</summary>
+    public const string CodeSource = "code";
+
+    /// <summary>A server plugin's status (<c>loaded</c>, <c>needs-configuration</c>, ...); null for a package added otherwise.</summary>
+    [JsonPropertyName("status")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Status { get; set; }
+
+    /// <summary>While <c>needs-configuration</c>: the required settings without a value.</summary>
+    [JsonPropertyName("missing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Missing { get; set; }
+
+    /// <summary>The config provider of a server plugin's settings.</summary>
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Settings { get; set; }
 
     /// <summary>Describes the package an assembly belongs to.</summary>
     public static CliInstalledPlugin FromAssembly(Assembly assembly)

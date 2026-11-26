@@ -26,19 +26,19 @@ namespace Qodalis.Cli.Plugins;
 public static class CliPluginOrder
 {
     /// <summary>Authentication (users and its stores): first, the others may need the principal.</summary>
-    public const int Auth = 100;
+    public const int Auth = 10;
 
     /// <summary>Config stores: before the providers whose settings they keep.</summary>
-    public const int ConfigStore = 200;
+    public const int ConfigStore = 20;
 
     /// <summary>Core services other plugins extend (data explorer, filesystem storage).</summary>
-    public const int Core = 300;
+    public const int Core = 30;
 
     /// <summary>Most plugins.</summary>
-    public const int Default = 500;
+    public const int Default = 50;
 
     /// <summary>What plugs into another plugin (data explorer sources).</summary>
-    public const int Source = 700;
+    public const int Source = 70;
 }
 
 /// <summary>
@@ -218,6 +218,21 @@ public sealed class CliServerPluginRecord
     [JsonPropertyName("error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; set; }
+
+    /// <summary>Its status at the last start (<see cref="CliServerPluginStatuses"/>), kept for the dashboard.</summary>
+    [JsonPropertyName("status")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Status { get; set; }
+
+    /// <summary>While <c>needs-configuration</c>: the required settings without a value.</summary>
+    [JsonPropertyName("missing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Missing { get; set; }
+
+    /// <summary>The config provider of its settings (<c>config set &lt;settings&gt;.settings.&lt;key&gt;</c>).</summary>
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Settings { get; set; }
 }
 
 /// <summary>A plugin the server tried to load at startup.</summary>
@@ -242,8 +257,14 @@ public sealed class CliServerPluginState
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Missing { get; set; }
 
+    /// <summary>The config provider of its settings, when it has some.</summary>
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Settings { get; set; }
+
     internal CliServerPluginState Clone() => new()
     {
         Name = Name, Package = Package, Version = Version, Status = Status, Error = Error, Source = Source, Missing = Missing?.ToList(),
+        Settings = Settings,
     };
 }
