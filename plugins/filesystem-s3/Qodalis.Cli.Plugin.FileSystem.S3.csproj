@@ -22,6 +22,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
+    <!-- The plugin entry (installs from the dashboard, cli.AddPlugin) -->
+    <ProjectReference Include="../../src/Qodalis.Cli/Qodalis.Cli.csproj" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.305.23" />
   </ItemGroup>
   <ItemGroup>

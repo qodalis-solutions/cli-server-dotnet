@@ -28,6 +28,12 @@ public static class CliBuilderDocsExtensions
     {
         var options = new DocsOptions();
         configure?.Invoke(options);
+        return builder.AddDocs(options);
+    }
+
+    /// <summary>Adds the docs plugin with these options (read when the server starts serving).</summary>
+    internal static CliBuilder AddDocs(this CliBuilder builder, DocsOptions options)
+    {
         if (!IsValidBasePath(options.BasePath)) throw new ArgumentException($"invalid docs base path: {options.BasePath}");
         DocsVariables.Validate(options.Variables.Keys);
 
@@ -106,7 +112,7 @@ public static class CliBuilderDocsExtensions
         return app;
     }
 
-    private static bool IsValidBasePath(string? path) =>
+    internal static bool IsValidBasePath(string? path) =>
         !string.IsNullOrEmpty(path) && path[0] == '/' && path.Length > 1 && path[^1] != '/' &&
         !path.Contains("//", StringComparison.Ordinal) && !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '?' or '#' or '\\');
 

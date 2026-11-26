@@ -49,5 +49,12 @@ public sealed class DocsOptions
 
     internal IReadOnlyList<DocsSource> Sources => _sources;
 
+    /// <summary>Replaces the folders with <paramref name="path"/> (the plugin's settings).</summary>
+    internal void SetFolder(string path)
+    {
+        _sources.RemoveAll(s => s.Folder != null);
+        _sources.Add(new DocsSource(path, null, null));
+    }
+
     internal sealed record DocsSource(string? Folder, string? Slug, string? Markdown);
 }

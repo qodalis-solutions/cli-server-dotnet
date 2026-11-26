@@ -318,6 +318,12 @@ public class AwsCommandProcessor : CliCommandProcessor, ICliCommandProcessor
     private readonly AwsConfigService _configService;
     private readonly AwsCredentialManager _credentialManager;
 
+    /// <summary>The region, profile and credentials the commands use (<c>aws configure</c> changes them too).</summary>
+    public AwsConfigService ConfigService => _configService;
+
+    /// <summary>Drops the cached clients (after the configuration changed).</summary>
+    public void ClearClients() => _credentialManager.ClearCache();
+
     /// <summary>
     /// Initializes a new instance of <see cref="AwsCommandProcessor"/> with all AWS service sub-processors.
     /// </summary>

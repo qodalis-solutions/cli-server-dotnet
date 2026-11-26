@@ -18,8 +18,11 @@ public class WeatherModule : Cli.CliModule
     public override string? Icon => "🌤️";
 
     /// <inheritdoc />
-    public override IEnumerable<ICliCommandProcessor> Processors { get; } =
-    [
-        new CliWeatherCommandProcessor(),
-    ];
+    public override IEnumerable<ICliCommandProcessor> Processors { get; }
+
+    /// <param name="defaultLocation">The place when a command names none, read on every command (default London).</param>
+    public WeatherModule(Func<string?>? defaultLocation = null)
+    {
+        Processors = [new CliWeatherCommandProcessor(defaultLocation)];
+    }
 }

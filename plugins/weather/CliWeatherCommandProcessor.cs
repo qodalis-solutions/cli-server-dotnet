@@ -33,11 +33,20 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         "Weather from wttr.in, fetched by the server. Give the place as the value or with --location; the default is London.";
 
     /// <inheritdoc />
-    public override IEnumerable<ICliCommandProcessor>? Processors { get; set; } =
-    [
-        new WeatherCurrentProcessor(),
-        new WeatherForecastProcessor(),
-    ];
+    public override IEnumerable<ICliCommandProcessor>? Processors { get; set; }
+
+    private readonly Func<string?>? _defaultLocation;
+
+    /// <param name="defaultLocation">The place when a command names none (read on every command; default London).</param>
+    public CliWeatherCommandProcessor(Func<string?>? defaultLocation = null)
+    {
+        _defaultLocation = defaultLocation;
+        Processors = [new WeatherCurrentProcessor(defaultLocation), new WeatherForecastProcessor(defaultLocation)];
+    }
+
+    /// <summary>The place when a command names none.</summary>
+    internal static string Fallback(Func<string?>? defaultLocation) =>
+        defaultLocation?.Invoke() is { } place && !string.IsNullOrWhiteSpace(place) ? place.Trim() : "London";
 
     /// <inheritdoc />
     public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
@@ -56,14 +65,14 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
     /// <inheritdoc />
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var location = GetLocation(command);
+        var location = GetLocation(command, Fallback(_defaultLocation));
         return await FetchWeather(location, cancellationToken);
     }
 
     /// <summary>
     /// Extracts the location from the command arguments, falling back to "London".
     /// </summary>
-    internal static string GetLocation(CliProcessCommand command)
+    internal static string GetLocation(CliProcessCommand command, string fallback = "London")
     {
         if (command.Args.TryGetValue("location", out var loc))
             return loc.ToString()!;
@@ -72,7 +81,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
         if (!string.IsNullOrWhiteSpace(text))
             return text;
 
-        return "London";
+        return fallback;
     }
 
     /// <summary>
@@ -164,7 +173,7 @@ public class CliWeatherCommandProcessor : Cli.CliCommandProcessor
 /// <summary>
 /// Sub-command processor that displays current weather conditions for a location.
 /// </summary>
-internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
+internal class WeatherCurrentProcessor(Func<string?>? defaultLocation = null) : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "current";
     public override bool? AcceptsRawInput { get; set; } = true;
@@ -190,7 +199,7 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var location = CliWeatherCommandProcessor.GetLocation(command);
+        var location = CliWeatherCommandProcessor.GetLocation(command, CliWeatherCommandProcessor.Fallback(defaultLocation));
         return await CliWeatherCommandProcessor.FetchWeather(location, cancellationToken);
     }
 }
@@ -198,7 +207,7 @@ internal class WeatherCurrentProcessor : Cli.CliCommandProcessor
 /// <summary>
 /// Sub-command processor that displays a 3-day weather forecast for a location.
 /// </summary>
-internal class WeatherForecastProcessor : Cli.CliCommandProcessor
+internal class WeatherForecastProcessor(Func<string?>? defaultLocation = null) : Cli.CliCommandProcessor
 {
     public override string Command { get; set; } = "forecast";
     public override bool? AcceptsRawInput { get; set; } = true;
@@ -226,7 +235,7 @@ internal class WeatherForecastProcessor : Cli.CliCommandProcessor
 
     public override async Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default)
     {
-        var location = CliWeatherCommandProcessor.GetLocation(command);
+        var location = CliWeatherCommandProcessor.GetLocation(command, CliWeatherCommandProcessor.Fallback(defaultLocation));
         return await CliWeatherCommandProcessor.FetchForecast(location, cancellationToken);
     }
 }

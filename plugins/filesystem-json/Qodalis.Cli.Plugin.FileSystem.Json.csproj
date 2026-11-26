@@ -22,6 +22,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../filesystem/Qodalis.Cli.Plugin.FileSystem.csproj" />
+    <!-- The plugin entry (installs from the dashboard, cli.AddPlugin) -->
+    <ProjectReference Include="../../src/Qodalis.Cli/Qodalis.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
