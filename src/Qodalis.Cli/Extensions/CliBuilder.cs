@@ -324,6 +324,11 @@ public partial class CliBuilder
     /// </summary>
     public CliBuilder AddApplicationPart(Assembly assembly)
     {
+        // Once per assembly name: plugins installed from the marketplace load their own copies of the plugins they build
+        // on, and a second copy's controllers would route the same paths twice (500 on every one of them)
+        var name = assembly.GetName().Name;
+        if (AdditionalAssemblyParts.Any(a => a == assembly || string.Equals(a.GetName().Name, name, StringComparison.Ordinal)))
+            return this;
         AdditionalAssemblyParts.Add(assembly);
         return this;
     }

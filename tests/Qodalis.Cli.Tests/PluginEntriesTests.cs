@@ -10,6 +10,7 @@ using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Config;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Plugin.Audit;
+using Qodalis.Cli.Plugin.Audit.Extensions;
 using Qodalis.Cli.Plugin.Aws;
 using Qodalis.Cli.Plugin.Aws.Processors;
 using Qodalis.Cli.Plugin.DataExplorer.Postgres;
@@ -289,8 +290,109 @@ public class PluginEntriesTests : IAsyncLifetime
         Assert.Contains("audit-efcore", File.ReadAllText(Path.Combine(dir, CliServerPlugins.SettingsFile)));
 
         var (next, _) = await StartAsync(cli => cli.AddPlugin<AuditEfCorePluginEntry>(), dir);
-        Assert.IsType<EfCoreAuditStore>(next.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore"));
+        // The store alone: the audit plugin (not added here) would wrap it and serve it
+        Assert.IsType<EfCoreAuditStore>(next.Services.GetRequiredService<IAuditStore>());
         Assert.Equal(CliServerPluginStatuses.Loaded, (await States(next)).Single().Status);
+    }
+
+    /// <summary>
+    /// The audit plugin's assembly loaded again in a context of its own, as a plugin installed from the marketplace loads
+    /// the copy its folder carries (audit next to audit-efcore, or the users plugin's).
+    /// </summary>
+    private sealed class IsolatedAuditContext() : System.Runtime.Loader.AssemblyLoadContext("isolated-audit", isCollectible: true)
+    {
+        public System.Reflection.Assembly Audit { get; private set; } = null!;
+
+        public IsolatedAuditContext Load()
+        {
+            Audit = LoadFromAssemblyPath(Path.Combine(AppContext.BaseDirectory, "Qodalis.Cli.Plugin.Audit.dll"));
+            Assert.NotSame(typeof(AuditPluginEntry).Assembly, Audit);
+            return this;
+        }
+
+        protected override System.Reflection.Assembly? Load(System.Reflection.AssemblyName assemblyName) => null;
+
+        public ICliPluginEntry Entry() => (ICliPluginEntry)Activator.CreateInstance(Audit.GetType(typeof(AuditPluginEntry).FullName!, throwOnError: true)!)!;
+
+        public void AddAudit(CliBuilder cli) =>
+            Audit.GetType(typeof(Qodalis.Cli.Plugin.Audit.Extensions.CliBuilderAuditExtensions).FullName!, throwOnError: true)!
+                .GetMethod(nameof(Qodalis.Cli.Plugin.Audit.Extensions.CliBuilderAuditExtensions.AddAudit))!.Invoke(null, [cli]);
+    }
+
+    [Fact]
+    public async Task AuditFromTheMarketplace_WithAuditEfCore_ServesTheLogOnce_FromTheDatabase()
+    {
+        // audit-efcore only provides the store: the audit plugin's copy (another load context) adds the routes, once.
+        // Each from its own copy, both used to add them (500: the request matched multiple endpoints).
+        var isolated = new IsolatedAuditContext().Load();
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin(isolated.Entry());
+            cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
+        });
+        Assert.All(await States(host), s => Assert.Equal(CliServerPluginStatuses.Loaded, s.Status));
+        Assert.IsType<EfCoreAuditStore>(host.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore"));
+        await host.Services.GetRequiredService<IAuditStore>().LogAsync(new AuditEntry { Event = "note", Username = "alice", Timestamp = 1 });
+
+        var response = await host.GetTestClient().GetAsync("/api/v1/qcli/audit");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("alice", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task AuditEfCore_BeforeTheMarketplaceAudit_IsWrappedOnce()
+    {
+        // The other order: the audit plugin's copy wraps the store audit-efcore set. Each copy used to take the other's
+        // wrapper for the store and wrap it again under the same key: the wrapper resolved itself and the request hung.
+        var isolated = new IsolatedAuditContext().Load();
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
+            cli.AddPlugin(isolated.Entry());
+        });
+
+        // Off the test's thread: a wrapper resolving itself never returns
+        var (inner, response) = await Task.Run(async () =>
+            (host.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore"),
+                await host.GetTestClient().GetAsync("/api/v1/qcli/audit"))).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.IsType<EfCoreAuditStore>(inner);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AuditInCode_WithAuditEfCore_InEitherOrder_KeepsTheDatabaseStore()
+    {
+        var (before, _) = await StartAsync(cli =>
+        {
+            cli.AddAudit();
+            cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
+        });
+        var (after, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
+            cli.AddPlugin<AuditPluginEntry>();
+        });
+        foreach (var host in new[] { before, after })
+        {
+            Assert.IsType<EfCoreAuditStore>(CliEventAuditStore.Unwrap(host.Services.GetRequiredService<IAuditStore>()));
+            Assert.Equal(System.Net.HttpStatusCode.OK, (await host.GetTestClient().GetAsync("/api/v1/qcli/audit")).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task TwoCopiesOfTheAuditPlugin_AddTheRoutesOnce()
+    {
+        // The users plugin from the marketplace adds the audit plugin from its own copy, next to the audit plugin's
+        var isolated = new IsolatedAuditContext().Load();
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddAudit();
+            isolated.AddAudit(cli);
+        });
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await host.GetTestClient().GetAsync("/api/v1/qcli/audit")).StatusCode);
     }
 
     [Fact]
@@ -362,8 +464,7 @@ public class PluginEntriesTests : IAsyncLifetime
         Assert.Equal(("database-sqlite", $"Data Source={shared}"), (driver.Plugin, driver.ConnectionString));
 
         // The audit store keeps its entries in the driver's database, the jobs store in its own
-        var audit = host.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore");
-        Assert.IsType<EfCoreAuditStore>(audit);
+        Assert.IsType<EfCoreAuditStore>(host.Services.GetRequiredService<IAuditStore>());
         Assert.Equal(System.Net.HttpStatusCode.OK, (await host.GetTestClient().GetAsync("/api/v1/qcli/databases")).StatusCode);
         var main = host.Services.GetRequiredService<CliDatabases>().Require("main");
         Assert.NotNull(await main.StatusAsync());
