@@ -841,6 +841,26 @@ public class AdminStatusControllerTests
 
         esm.Dispose();
     }
+
+    [Fact]
+    public async Task Snapshot_ScopedJobManager_ResolvedInAScopeUnderScopeValidation()
+    {
+        // SetJobManager<T>() registers the manager as scoped while ServerStatus is a singleton holding the root provider:
+        // with scope validation on (Development), resolving it from the root throws
+        using var esm = new CliEventSocketManager(NullLogger<CliEventSocketManager>.Instance);
+        var registry = new CliCommandRegistry(NullLogger<CliCommandRegistry>.Instance);
+        var services = new ServiceCollection();
+        services.AddSingleton<ICliEventSocketManager>(esm);
+        services.AddSingleton<ICliCommandRegistry>(registry);
+        services.AddSingleton<ServerStatus>();
+        services.AddScoped<ICliJobManager, FakeJobManager>();
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+
+        var status = await provider.GetRequiredService<ServerStatus>().SnapshotAsync();
+
+        Assert.Equal(1, status.RegisteredJobs);
+        Assert.Contains("jobs", status.EnabledFeatures);
+    }
 }
 
 #endregion
