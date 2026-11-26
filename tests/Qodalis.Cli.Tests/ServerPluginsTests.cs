@@ -317,6 +317,43 @@ public class ServerPluginsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AtStartup_TheFoldersOfVersionsNoLongerListed_AreDeleted_BeforeAnythingLoads()
+    {
+        var dir = TempDir();
+        InstallFixture(dir);
+        var plugins = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir });
+        void Folder(string relative)
+        {
+            var path = Path.Combine(plugins.Dir, relative);
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "Old.dll"), "x");
+        }
+        Folder(Path.Combine(FixturePackage, "0.9.0"));                // updated while it was loaded
+        Folder(Path.Combine(FixturePackage, "1.0.0.0a1b2c3d.tmp"));   // an interrupted install
+        Folder(Path.Combine("Acme.Removed", "2.0.0"));                // removed while it was loaded
+        Directory.CreateDirectory(Path.Combine(plugins.Dir, "Acme.Empty"));
+
+        var host = await StartAsync(dir);
+        Assert.NotNull(Processor(host, "fixture-hello"));
+        Assert.Equal([FixturePackage], Directory.GetDirectories(plugins.Dir).Select(Path.GetFileName));
+        Assert.Equal(["1.0.0"], Directory.GetDirectories(Path.Combine(plugins.Dir, FixturePackage)).Select(Path.GetFileName));
+        Assert.True(File.Exists(Path.Combine(plugins.Dir, CliServerPlugins.InstalledFile)));
+    }
+
+    [Fact]
+    public void WithAnUnreadableList_NoFolderIsDeleted()
+    {
+        var dir = TempDir();
+        InstallFixture(dir);
+        var plugins = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir });
+        Directory.CreateDirectory(Path.Combine(plugins.Dir, "Acme.Old", "1.0.0"));
+        File.WriteAllText(Path.Combine(plugins.Dir, CliServerPlugins.InstalledFile), "{ not json");
+        Assert.Empty(plugins.RemoveStaleVersions());
+        Assert.True(Directory.Exists(Path.Combine(plugins.Dir, "Acme.Old", "1.0.0")));
+        Assert.True(Directory.Exists(plugins.VersionDir(FixturePackage, "1.0.0")));
+    }
+
+    [Fact]
     public async Task MissingFiles_Fail_WithoutStoppingTheServer_OrTheOtherPlugins()
     {
         var dir = TempDir();

@@ -433,6 +433,65 @@ public sealed partial class CliServerPlugins
         return true;
     }
 
+    private readonly List<string> _removed = [];
+
+    /// <summary>
+    /// Deletes the version folders <c>installed.json</c> no longer lists (a plugin updated or removed while it was
+    /// loaded: its folder could not be deleted then), the leftovers of interrupted installs, and package folders left
+    /// empty. Runs at startup before any plugin is loaded; nothing is deleted when the list cannot be read. Returns the
+    /// folders deleted (relative to <see cref="Dir"/>).
+    /// </summary>
+    internal IReadOnlyList<string> RemoveStaleVersions()
+    {
+        var file = Path.Combine(Dir, InstalledFile);
+        if (!Directory.Exists(Dir) || !File.Exists(file)) return [];
+        var keep = new HashSet<string>(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (JsonNode.Parse(File.ReadAllText(file))?["plugins"] is not JsonArray plugins) return [];
+            foreach (var node in plugins)
+            {
+                // Every listed package and version is kept, even a record the loader leaves out
+                if (node?["package"] is JsonValue p && p.TryGetValue<string>(out var package)
+                    && node["version"] is JsonValue v && v.TryGetValue<string>(out var version))
+                    keep.Add($"{package}/{version}");
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return [];
+        }
+        var removed = new List<string>();
+        foreach (var packageDir in Directory.EnumerateDirectories(Dir))
+        {
+            var package = Path.GetFileName(packageDir);
+            if (!IsValidPackage(package)) continue;
+            foreach (var versionDir in Directory.EnumerateDirectories(packageDir))
+            {
+                var version = Path.GetFileName(versionDir);
+                if (keep.Contains($"{package}/{version}")) continue;
+                try
+                {
+                    Directory.Delete(versionDir, recursive: true);
+                    removed.Add($"{package}/{version}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // tried again at the next start
+                }
+            }
+            try
+            {
+                if (!Directory.EnumerateFileSystemEntries(packageDir).Any()) Directory.Delete(packageDir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+        lock (_lock) _removed.AddRange(removed);
+        return removed;
+    }
+
     /// <summary>The installed list (<c>installed.json</c>); empty when there is none or it is not readable.</summary>
     public IReadOnlyList<CliServerPluginRecord> Records()
     {
@@ -541,6 +600,8 @@ public sealed partial class CliServerPlugins
             candidates.Add(new Candidate(null, state, plugin.Entry, attribute?.Order ?? CliPluginOrder.Default, index++, name, package, version,
                 null, CliServerPluginSources.Code, plugin.Options));
         }
+        // Before anything is loaded: the folders of versions updated or removed while the last run had them loaded
+        if (Enabled) RemoveStaleVersions();
         var records = Enabled ? Records() : [];
         foreach (var record in records)
         {
@@ -760,6 +821,9 @@ public sealed partial class CliServerPlugins
             lock (_lock) loggers = [.. _loggers];
             foreach (var logger in loggers) logger.Attach(factory);
             var log = factory.CreateLogger("Qodalis.Cli.Plugins");
+            List<string> removed;
+            lock (_lock) removed = [.. _removed];
+            foreach (var folder in removed) log.LogInformation("Removed {Folder} (no longer installed)", folder);
             foreach (var state in States())
             {
                 if (state.Status == CliServerPluginStatuses.Loaded) log.LogInformation("Loaded {Name} ({Package} {Version})", state.Name, state.Package, state.Version);
