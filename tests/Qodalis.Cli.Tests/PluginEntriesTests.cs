@@ -14,7 +14,12 @@ using Qodalis.Cli.Plugin.Aws;
 using Qodalis.Cli.Plugin.Aws.Processors;
 using Qodalis.Cli.Plugin.DataExplorer.Postgres;
 using Qodalis.Cli.Plugin.DataExplorer.Sql;
+using Qodalis.Cli.Plugin.Audit.EfCore;
+using Qodalis.Cli.Plugin.Config.EfCore;
+using Qodalis.Cli.Plugin.Config.Redis;
 using Qodalis.Cli.Plugin.Docs;
+using Qodalis.Cli.Plugin.Jobs;
+using Qodalis.Cli.Plugin.Jobs.EfCore;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugin.FileSystem.Json;
 using Qodalis.Cli.Plugin.FileSystem.S3;
@@ -242,5 +247,68 @@ public class PluginEntriesTests : IAsyncLifetime
         var own = registry.Get("host")!.Value.Options;
         Assert.Equal((false, 5000, null), (own.ReadOnly, own.MaxRows, own.RateLimit));
         Assert.True(File.Exists(Path.Combine(dir, "plugin-data", "data-explorer-sql", "data.db")) || registry.Get("local") != null);
+    }
+
+    [Fact]
+    public async Task Jobs_AndItsDatabaseStorage_FromTheirEntries()
+    {
+        var (host, dir) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<JobsPluginEntry>();
+            cli.AddPlugin<JobsEfCorePluginEntry>(new { connectionString = "jobs.db" });
+        });
+        Assert.NotNull(host.Services.GetService<ICliJobScheduler>());
+        Assert.IsType<EfCoreJobStorageProvider>(host.Services.GetRequiredService<Qodalis.Cli.Abstractions.Jobs.ICliJobStorageProvider>());
+        Assert.All(await States(host), s => Assert.Equal(CliServerPluginStatuses.Loaded, s.Status));
+
+        var (memory, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<JobsPluginEntry>();
+            cli.AddPlugin<JobsEfCorePluginEntry>();
+        });
+        Assert.IsNotType<EfCoreJobStorageProvider>(memory.Services.GetRequiredService<Qodalis.Cli.Abstractions.Jobs.ICliJobStorageProvider>());
+        var storage = (await States(memory)).Single(s => s.Name == "jobs-efcore");
+        Assert.Equal(["jobs-efcore.settings.connectionString"], storage.Missing);
+    }
+
+    [Fact]
+    public async Task EfStores_ReadTheirConnectionAtStart_FromPluginSettingsJson_AfterASavedSetting()
+    {
+        var dir = TempDir();
+        var (first, _) = await StartAsync(cli => cli.AddPlugin<AuditEfCorePluginEntry>(), dir);
+        Assert.Null(first.Services.GetService<IAuditStore>());
+        Assert.Equal(CliServerPluginStatuses.NeedsConfiguration, (await States(first)).Single().Status);
+        await SetAsync(first, "audit-efcore", "connectionString", "audit.db");
+        Assert.Contains("audit-efcore", File.ReadAllText(Path.Combine(dir, CliServerPlugins.SettingsFile)));
+
+        var (next, _) = await StartAsync(cli => cli.AddPlugin<AuditEfCorePluginEntry>(), dir);
+        Assert.IsType<EfCoreAuditStore>(next.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore"));
+        Assert.Equal(CliServerPluginStatuses.Loaded, (await States(next)).Single().Status);
+    }
+
+    [Fact]
+    public async Task ConfigStores_BecomeTheDefaultStore_TheirOwnSettingsStayInTheFile()
+    {
+        var dir = TempDir();
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<ConfigEfCorePluginEntry>(new { connectionString = "config.db" });
+            cli.AddPlugin<WeatherPluginEntry>();
+        }, dir);
+        Assert.IsType<EfCoreConfigStore>(host.Services.GetRequiredService<CliConfigRegistry>().DefaultStore);
+        await SetAsync(host, "weather", "defaultLocation", "Rome");
+        Assert.False(File.Exists(Path.Combine(dir, CliServerPlugins.SettingsFile)) &&
+            File.ReadAllText(Path.Combine(dir, CliServerPlugins.SettingsFile)).Contains("Rome"));
+        var (again, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<ConfigEfCorePluginEntry>(new { connectionString = "config.db" });
+            cli.AddPlugin<WeatherPluginEntry>();
+        }, dir);
+        var weather = again.Services.GetServices<ICliConfigProvider>().OfType<CliStoredConfigProvider>().Single(p => p.Id == "weather");
+        Assert.Equal("Rome", weather.Text("defaultLocation"));
+
+        var (redis, _) = await StartAsync(cli => cli.AddPlugin<RedisConfigPluginEntry>());
+        Assert.IsType<InMemoryConfigStore>(redis.Services.GetRequiredService<CliConfigRegistry>().DefaultStore);
+        Assert.Equal(["config-redis.settings.url"], (await States(redis)).Single().Missing);
     }
 }
