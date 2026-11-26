@@ -38,7 +38,7 @@ internal sealed class FakeServerMarketplaceNet : HttpMessageHandler
 
     /// <summary>A .nupkg: its nuspec (with one dependency group for net10.0) and <c>lib/&lt;tfm&gt;/</c> files.</summary>
     public static byte[] Nupkg(string id, string version, Dictionary<string, byte[]>? lib = null, IEnumerable<(string Id, string Range)>? dependencies = null,
-        string tfm = "net10.0", string? nuspecId = null)
+        string tfm = "net10.0", string? nuspecId = null, Dictionary<string, byte[]>? other = null)
     {
         using var buffer = new MemoryStream();
         using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -56,6 +56,12 @@ internal sealed class FakeServerMarketplaceNet : HttpMessageHandler
             foreach (var (name, bytes) in lib ?? [])
             {
                 using var s = zip.CreateEntry($"lib/{tfm}/{name}").Open();
+                s.Write(bytes);
+            }
+            // other files at their full path (runtimes/<rid>/native/..., satellites)
+            foreach (var (name, bytes) in other ?? [])
+            {
+                using var s = zip.CreateEntry(name).Open();
                 s.Write(bytes);
             }
         }
@@ -437,6 +443,70 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.True(!Directory.Exists(pluginDir) || Directory.GetFileSystemEntries(pluginDir).Length == 0);
         Assert.Empty(Directory.GetFiles(dir, "*appsettings*", SearchOption.AllDirectories));
     }
+
+    [Fact]
+    public async Task ThisRuntimesAssets_AndSatellites_AreExtracted_OtherRuntimesNot()
+    {
+        var rid = CliPluginLoadContext.RuntimeIdentifiers[0];
+        var family = CliPluginLoadContext.RuntimeIdentifiers[1];
+        var other = rid.StartsWith("win", StringComparison.Ordinal) ? "linux-x64" : "win-x64";
+        var pkg = FakeServerMarketplaceNet.Nupkg(Fixture, "1.0.0",
+            new() { [$"{Fixture}.dll"] = FixtureBytes, ["fr/Fixture.resources.dll"] = [7] }, [("Qodalis.Cli", "[1.0.0-beta.1, )")], other: new()
+            {
+                [$"runtimes/{rid}/native/libfake.dylib"] = [1],
+                [$"runtimes/{family}/native/libfamily.so"] = [2],
+                [$"runtimes/{other}/native/fake.dll"] = [3],
+                [$"runtimes/{rid}/lib/netstandard2.0/Acme.Rid.dll"] = [4],
+                [$"runtimes/{rid}/lib/net10.0/Acme.Rid.dll"] = [5],
+                [$"runtimes/{other}/lib/net10.0/Acme.Rid.dll"] = [6],
+                ["runtimes/../escape.dll"] = [8],
+            });
+        _net.AddPackage(Fixture, "1.0.0", pkg);
+        _net.Publish("fixture", Fixture, [FakeServerMarketplaceNet.Version("1.0.0", pkg)]);
+        var (host, client, token) = await StartAsync(TempDir());
+        var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
+        Assert.True(status == 202, body?.ToJsonString());
+        var versionDir = Plugins(host).VersionDir(Fixture, "1.0.0");
+        var files = Directory.GetFiles(versionDir, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(versionDir, f).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(new[]
+        {
+            "fr/Fixture.resources.dll",
+            $"{Fixture}.dll",
+            $"runtimes/{family}/native/libfamily.so",
+            $"runtimes/{rid}/lib/net10.0/Acme.Rid.dll",
+            $"runtimes/{rid}/native/libfake.dylib",
+        }.Order(StringComparer.Ordinal), files);
+        Assert.Equal(files, Plugins(host).Records().Single().Files!.Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task ADependencyTheHostHasInAnOlderVersion_IsRefused_AsIncompatible()
+    {
+        var pkg = FakeServerMarketplaceNet.Nupkg(Fixture, "1.0.0", new() { [$"{Fixture}.dll"] = FixtureBytes },
+            [("Qodalis.Cli", "[1.0.0-beta.1, )"), ("Microsoft.Extensions.Logging.Abstractions", "[99.0.0, )")]);
+        _net.AddPackage(Fixture, "1.0.0", pkg);
+        _net.Publish("fixture", Fixture, [FakeServerMarketplaceNet.Version("1.0.0", pkg)]);
+        var (host, client, token) = await StartAsync(TempDir());
+        var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
+        Assert.Equal(400, status);
+        Assert.StartsWith($"incompatible dependency: {Fixture} needs Microsoft.Extensions.Logging.Abstractions [99.0.0, ), the server has 10.",
+            body!["error"]!.GetValue<string>());
+        Assert.Empty(Plugins(host).Records());
+    }
+
+    [Theory]
+    [InlineData("10.0.1", "10.0.0", null)]
+    [InlineData("10.0.1", "[10.0.1, )", null)]
+    [InlineData("10.0.1", "(10.0.1, )", "10.0.1")]
+    [InlineData("10.0.1", "[10.0.2, 11.0.0)", "10.0.1")]
+    [InlineData("9.0.0", "8.0.0", null)]
+    [InlineData("1.0.0-beta.31", "[1.0.0-beta.2, )", null)]
+    [InlineData("1.0.0-beta.2", "[1.0.0-beta.31, )", "1.0.0-beta.2")]
+    [InlineData(null, "[99.0.0, )", null)]
+    [InlineData("10.0.1", null, null)]
+    public void HostBelowRange_ComparesTheHostsVersion_WithTheRangesMinimum(string? host, string? range, string? expected) =>
+        Assert.Equal(expected, ServerPluginMarketplace.HostBelowRange("Acme.Dep", range, _ => host));
 
     [Theory]
     [InlineData("Plugin.dll", true)]

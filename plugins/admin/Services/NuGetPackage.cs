@@ -183,8 +183,49 @@ public static partial class NuGetPackage
     public static IReadOnlyList<ZipArchiveEntry> LibFiles(ZipArchive zip, string folder) =>
         zip.Entries.Where(e => e.FullName.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
                 && e.FullName.Length > folder.Length && !e.FullName[folder.Length..].Contains('/')
-                && Path.GetExtension(e.FullName).ToLowerInvariant() is ".dll" or ".pdb" or ".xml" or ".json")
+                && IsLibAsset(e.FullName))
             .ToList();
+
+    private static bool IsLibAsset(string file) => Path.GetExtension(file).ToLowerInvariant() is ".dll" or ".pdb" or ".xml" or ".json";
+
+    /// <summary>
+    /// The satellite assemblies of the <c>lib/&lt;tfm&gt;</c> folder: <c>lib/&lt;tfm&gt;/&lt;culture&gt;/&lt;name&gt;.resources.dll</c>,
+    /// each with its path in the plugin's folder (<c>&lt;culture&gt;/&lt;name&gt;.resources.dll</c>).
+    /// </summary>
+    public static IReadOnlyList<(ZipArchiveEntry Entry, string Path)> SatelliteFiles(ZipArchive zip, string folder) =>
+        zip.Entries.Where(e => e.FullName.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+                && e.FullName[folder.Length..].Split('/') is [_, var file] && file.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (e, e.FullName[folder.Length..]))
+            .ToList();
+
+    /// <summary>
+    /// The assets of the runtimes in <paramref name="rids"/> (this one and its fallbacks): every file of
+    /// <c>runtimes/&lt;rid&gt;/native/</c>, and the assemblies of <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c> for the
+    /// framework that fits this server best, each with its path in the plugin's folder (the same as in the package).
+    /// </summary>
+    public static IReadOnlyList<(ZipArchiveEntry Entry, string Path)> RuntimeFiles(ZipArchive zip, IReadOnlyList<string> rids)
+    {
+        var files = new List<(ZipArchiveEntry, string)>();
+        var libs = new List<(ZipArchiveEntry Entry, string Rid, string Tfm)>();
+        foreach (var entry in zip.Entries)
+        {
+            var parts = entry.FullName.Split('/');
+            if (parts.Length < 4 || !parts[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)) continue;
+            var rid = rids.FirstOrDefault(r => r.Equals(parts[1], StringComparison.OrdinalIgnoreCase));
+            if (rid == null) continue;
+            if (parts.Length == 4 && parts[2].Equals("native", StringComparison.OrdinalIgnoreCase) && parts[3].Length > 0)
+                files.Add((entry, entry.FullName));
+            else if (parts.Length == 5 && parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase) && IsLibAsset(parts[4]))
+                libs.Add((entry, parts[1], parts[3]));
+        }
+        foreach (var group in libs.GroupBy(l => l.Rid, StringComparer.OrdinalIgnoreCase))
+        {
+            var best = BestTfm(group.Select(l => l.Tfm).Distinct(StringComparer.OrdinalIgnoreCase));
+            if (best == null) continue;
+            files.AddRange(group.Where(l => l.Tfm.Equals(best, StringComparison.OrdinalIgnoreCase)).Select(l => (l.Entry, l.Entry.FullName)));
+        }
+        return files;
+    }
 
     /// <summary>
     /// Reads the plugin's assembly attributes without loading it: <c>[assembly: CliPlugin(...)]</c>, and

@@ -43,8 +43,34 @@ public static class PluginFilePaths
     }
 
     /// <summary>
+    /// The full path of <paramref name="relative"/> (<c>/</c>-separated, every segment a plain file name, as
+    /// <c>runtimes/osx-arm64/native/libe_sqlite3.dylib</c>) in <paramref name="dir"/>, or null when a segment is not a
+    /// plain file name or the path would leave the folder.
+    /// </summary>
+    public static string? ResolveRelative(string dir, string? relative)
+    {
+        if (string.IsNullOrEmpty(relative)) return null;
+        var segments = relative.Split('/');
+        if (segments.Length > 8 || !segments.All(IsSafeFileName)) return null;
+        var parent = Path.GetFullPath(dir);
+        foreach (var folder in segments[..^1])
+            parent = Resolve(parent, folder) ?? string.Empty;
+        if (parent.Length == 0) return null;
+        var path = Resolve(parent, segments[^1]);
+        var root = Path.GetFullPath(dir);
+        return path != null && path.StartsWith(root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar,
+            OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)
+            ? path
+            : null;
+    }
+
+    /// <summary>
     /// <see cref="Resolve"/>, or <see cref="DashboardMarketplaceException"/> 502 <c>invalid package: unsafe file name</c>.
     /// </summary>
     public static string ResolveOrThrow(string dir, string? name, string package) =>
         Resolve(dir, name) ?? throw new DashboardMarketplaceException(502, $"invalid package: unsafe file name in {package}: {name}");
+
+    /// <summary><see cref="ResolveRelative"/>, or <see cref="DashboardMarketplaceException"/> 502 <c>invalid package: unsafe file name</c>.</summary>
+    public static string ResolveRelativeOrThrow(string dir, string? relative, string package) =>
+        ResolveRelative(dir, relative) ?? throw new DashboardMarketplaceException(502, $"invalid package: unsafe file name in {package}: {relative}");
 }

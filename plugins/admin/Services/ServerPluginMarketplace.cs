@@ -776,6 +776,20 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         return versions?.FirstOrDefault() ?? minimum;
     }
 
+    /// <summary>
+    /// The version of the host's copy of <paramref name="id"/> when it is below <paramref name="range"/> (the plugin would
+    /// get an older copy than it needs), else null (in or above the range, or a version the host does not tell).
+    /// </summary>
+    internal static string? HostBelowRange(string id, string? range, Func<string, string?>? hostVersion = null)
+    {
+        var minimum = NuGetPackage.RangeMinimum(range);
+        var version = (hostVersion ?? CliPluginLoadContext.HostVersion)(id);
+        if (minimum == null || version == null || !NuGetPackage.IsVersion(version)) return null;
+        var compared = NuGetPackage.CompareVersions(version, minimum);
+        var exclusive = (range ?? string.Empty).TrimStart().StartsWith('(');
+        return compared < 0 || (compared == 0 && exclusive) ? version : null;
+    }
+
     /// <summary>Packages the server never downloads: the framework's own.</summary>
     private static bool IsFramework(string id) =>
         id.Equals("NETStandard.Library", StringComparison.OrdinalIgnoreCase)
@@ -849,7 +863,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                         throw new DashboardMarketplaceException(400, $"incompatible: {package}@{version} needs server {dependency.Range} (this server has {server})");
                     queue.Enqueue(dependency);
                 }
-                Extract(zip, folder, staging);
+                Extract(zip, folder, staging, package);
                 seen.Add(package);
             }
 
@@ -859,7 +873,15 @@ public sealed partial class ServerPluginMarketplace : IDisposable
             while (queue.Count > 0)
             {
                 var dependency = queue.Dequeue();
-                if (!seen.Add(dependency.Id) || IsFramework(dependency.Id) || CliPluginLoadContext.HostHas(dependency.Id)) continue;
+                if (!seen.Add(dependency.Id) || IsFramework(dependency.Id)) continue;
+                if (CliPluginLoadContext.HostHas(dependency.Id))
+                {
+                    // The plugin gets the host's copy: refused when it is older than the plugin needs
+                    if (HostBelowRange(dependency.Id, dependency.Range) is { } hostVersion)
+                        throw new DashboardMarketplaceException(400,
+                            $"incompatible dependency: {package} needs {dependency.Id} {dependency.Range}, the server has {hostVersion}");
+                    continue;
+                }
                 if (seen.Count > MaxPackages) throw new DashboardMarketplaceException(502, $"too many dependencies: {package}");
                 if (!CliServerPlugins.IsValidPackage(dependency.Id)) throw new DashboardMarketplaceException(502, $"invalid dependency: {dependency.Id}");
                 string resolved;
@@ -898,7 +920,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 if (!string.Equals(nuspec.Id, dependency.Id, StringComparison.OrdinalIgnoreCase))
                     throw new DashboardMarketplaceException(502, $"the package is {nuspec.Id}, not {dependency.Id}");
                 foreach (var next in nuspec.Dependencies) queue.Enqueue(next);
-                if (NuGetPackage.LibFolder(zip) is { } folder) Extract(zip, folder, staging);
+                Extract(zip, NuGetPackage.LibFolder(zip), staging, dependency.Id);
             }
 
             files = CliServerPlugins.FileManifest(staging);
@@ -948,21 +970,33 @@ public sealed partial class ServerPluginMarketplace : IDisposable
     }
 
     /// <summary>
-    /// Extracts the folder's files into <paramref name="dir"/>: a file already there (from the plugin or an earlier
-    /// dependency) wins, and an assembly the host has is never written (the plugin uses the host's: one copy).
+    /// Extracts a package's files into <paramref name="dir"/>: its <c>lib/&lt;tfm&gt;</c> folder's files at the top, its
+    /// satellite assemblies in <c>&lt;culture&gt;/</c>, and the assets of this runtime and its fallbacks as in the package
+    /// (<c>runtimes/&lt;rid&gt;/native/</c>, <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c>). A file already there (from the
+    /// plugin or an earlier dependency) wins, and an assembly the host has is never written (the plugin uses the host's:
+    /// one copy). An entry that is not a plain file name is refused.
     /// </summary>
-    private static void Extract(ZipArchive zip, string folder, string dir)
+    private static void Extract(ZipArchive zip, string? folder, string dir, string package)
     {
-        long total = 0;
-        foreach (var entry in NuGetPackage.LibFiles(zip, folder))
+        var files = new List<(ZipArchiveEntry Entry, string Path, bool Assembly)>();
+        if (folder != null)
         {
             // The name after the folder as it is in the package: a drive (C:x.json), a backslash or a dot name is refused
-            var name = entry.FullName[folder.Length..];
-            var path = PluginFilePaths.ResolveOrThrow(dir, name, folder);
-            if (CliPluginLoadContext.HostHas(Path.GetFileNameWithoutExtension(name))) continue;
+            files.AddRange(NuGetPackage.LibFiles(zip, folder).Select(e => (e, e.FullName[folder.Length..], true)));
+            files.AddRange(NuGetPackage.SatelliteFiles(zip, folder).Select(s => (s.Entry, s.Path, false)));
+        }
+        files.AddRange(NuGetPackage.RuntimeFiles(zip, CliPluginLoadContext.RuntimeIdentifiers)
+            .Select(r => (r.Entry, r.Path, r.Path.Split('/')[2].Equals("lib", StringComparison.OrdinalIgnoreCase))));
+        long total = 0;
+        foreach (var (entry, relative, assembly) in files)
+        {
+            var path = PluginFilePaths.ResolveRelativeOrThrow(dir, relative, package);
+            var fileName = relative.Split('/')[^1];
+            if (assembly && CliPluginLoadContext.HostHas(Path.GetFileNameWithoutExtension(fileName))) continue;
             total += entry.Length;
             if (total > 4 * MaxPackageBytes) throw new DashboardMarketplaceException(502, "package too large unpacked");
             if (File.Exists(path)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             try
             {
                 entry.ExtractToFile(path);

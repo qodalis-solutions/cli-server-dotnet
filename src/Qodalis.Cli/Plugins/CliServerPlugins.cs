@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text;
@@ -37,23 +38,115 @@ public sealed class CliServerPluginsOptions
 /// <summary>
 /// Loads a plugin's assemblies in a collectible context of its own; an assembly the host has (<c>Qodalis.Cli</c>, its
 /// abstractions, the framework, any package the host references) resolves to the host's copy, so there is one copy of the
-/// contracts and of every shared type.
+/// contracts and of every shared type. The plugin's folder holds its <c>lib</c> assemblies, satellite assemblies in
+/// <c>&lt;culture&gt;/</c>, and the assets of this runtime and its fallbacks in <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c>
+/// (preferred over the <c>lib</c> ones) and <c>runtimes/&lt;rid&gt;/native/</c> (native libraries).
 /// </summary>
 public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoadContext($"qcli-plugin:{name}", isCollectible: true)
 {
-    private static readonly Lazy<HashSet<string>> HostAssemblies = new(() =>
+    private static readonly Lazy<Dictionary<string, string>> HostAssemblies = new(() =>
     {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
             foreach (var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-                names.Add(Path.GetFileNameWithoutExtension(path));
-        return names;
+                paths.TryAdd(Path.GetFileNameWithoutExtension(path), path);
+        return paths;
     });
+
+    private static readonly Lazy<IReadOnlyList<string>> CurrentRids = new(() => RuntimeIdentifierChain(RuntimeInformation.RuntimeIdentifier));
 
     /// <summary>True when the host has the assembly (its dependencies, or loaded already).</summary>
     public static bool HostHas(string assemblyName) =>
-        HostAssemblies.Value.Contains(assemblyName)
+        HostAssemblies.Value.ContainsKey(assemblyName)
         || Default.Assemblies.Any(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The version of the host's copy of an assembly: its informational version (the package version, without
+    /// <c>+metadata</c>), else its file version, else its assembly version; null when the host does not have it.
+    /// </summary>
+    public static string? HostVersion(string assemblyName)
+    {
+        var loaded = Default.Assemblies.FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+        if (loaded != null)
+        {
+            var informational = loaded.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? loaded.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
+            return Plain(informational) ?? loaded.GetName().Version?.ToString();
+        }
+        if (!HostAssemblies.Value.TryGetValue(assemblyName, out var path)) return null;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!pe.HasMetadata) return null;
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            string? informational = null, file = null;
+            foreach (var handle in md.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var attribute = md.GetCustomAttribute(handle);
+                if (attribute.Constructor.Kind != System.Reflection.Metadata.HandleKind.MemberReference) continue;
+                var parent = md.GetMemberReference((System.Reflection.Metadata.MemberReferenceHandle)attribute.Constructor).Parent;
+                if (parent.Kind != System.Reflection.Metadata.HandleKind.TypeReference) continue;
+                var typeName = md.GetString(md.GetTypeReference((System.Reflection.Metadata.TypeReferenceHandle)parent).Name);
+                if (typeName is not ("AssemblyInformationalVersionAttribute" or "AssemblyFileVersionAttribute")) continue;
+                var blob = md.GetBlobReader(attribute.Value);
+                if (blob.Length < 2 || blob.ReadUInt16() != 1) continue;
+                var value = blob.ReadSerializedString();
+                if (typeName == "AssemblyInformationalVersionAttribute") informational = value;
+                else file = value;
+            }
+            return Plain(informational) ?? Plain(file) ?? md.GetAssemblyDefinition().Version.ToString();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException)
+        {
+            return null;
+        }
+
+        static string? Plain(string? version) => string.IsNullOrWhiteSpace(version) ? null : version.Split('+')[0].Trim();
+    }
+
+    /// <summary>
+    /// A runtime identifier and the ones it falls back to, most specific first, as NuGet's portable graph has them:
+    /// <c>osx-arm64</c>: osx-arm64, osx, unix, any; <c>linux-musl-x64</c>: linux-musl-x64, linux-musl, linux-x64, linux, unix,
+    /// any; <c>win-x64</c>: win-x64, win, any.
+    /// </summary>
+    public static IReadOnlyList<string> RuntimeIdentifierChain(string rid)
+    {
+        var chain = new List<string>();
+        void Add(string r)
+        {
+            if (!chain.Contains(r, StringComparer.OrdinalIgnoreCase)) chain.Add(r);
+        }
+        rid = rid.Trim().ToLowerInvariant();
+        Add(rid);
+        var dash = rid.LastIndexOf('-');
+        var os = dash > 0 ? rid[..dash] : rid;
+        var arch = dash > 0 ? rid[(dash + 1)..] : null;
+        // A versioned RID (osx.14-arm64, ubuntu.22.04-x64) falls back to its family
+        var family = os.Split('.')[0];
+        if (family != os && arch != null) Add($"{family}-{arch}");
+        if (family == "linux-musl")
+        {
+            Add("linux-musl");
+            if (arch != null) Add($"linux-{arch}");
+            Add("linux");
+        }
+        else if (family is "ubuntu" or "debian" or "rhel" or "fedora" or "centos" or "alpine" or "opensuse" or "sles")
+        {
+            if (arch != null) Add($"linux-{arch}");
+            Add("linux");
+        }
+        else
+        {
+            Add(family);
+        }
+        if (!family.StartsWith("win", StringComparison.Ordinal)) Add("unix");
+        Add("any");
+        return chain;
+    }
+
+    /// <summary>This runtime's identifier and its fallbacks (<see cref="RuntimeIdentifierChain"/>).</summary>
+    public static IReadOnlyList<string> RuntimeIdentifiers => CurrentRids.Value;
 
     public string Dir { get; } = dir;
 
@@ -81,19 +174,83 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
         }
     }
 
-    protected override Assembly? Load(AssemblyName assemblyName)
+    /// <summary>
+    /// The file of a managed assembly in the plugin's folder: a satellite in <c>&lt;culture&gt;/</c>, else this runtime's
+    /// (<c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c>, the most specific RID first), else the <c>lib</c> one; null when the
+    /// host has it or the folder does not.
+    /// </summary>
+    internal string? ResolveManaged(AssemblyName assemblyName)
     {
         var name = assemblyName.Name;
-        if (name == null || HostHas(name)) return null;
+        if (name == null || name.IndexOfAny(['/', '\\']) >= 0 || name.Contains("..", StringComparison.Ordinal)) return null;
+        if (!string.IsNullOrEmpty(assemblyName.CultureName))
+        {
+            var culture = assemblyName.CultureName;
+            if (culture.IndexOfAny(['/', '\\', '.']) >= 0) return null;
+            var satellite = Path.Combine(Dir, culture, name + ".dll");
+            return File.Exists(satellite) ? satellite : null;
+        }
+        if (HostHas(name)) return null;
+        foreach (var rid in RuntimeIdentifiers)
+        {
+            var ridLib = Path.Combine(Dir, "runtimes", rid, "lib");
+            if (!Directory.Exists(ridLib)) continue;
+            foreach (var tfm in Directory.EnumerateDirectories(ridLib))
+            {
+                var candidate = Path.Combine(tfm, name + ".dll");
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
         var path = Path.Combine(Dir, name + ".dll");
-        return File.Exists(path) ? LoadFromAssemblyPath(path) : null;
+        return File.Exists(path) ? path : null;
     }
 
-    protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+    /// <summary>
+    /// The file of a native library in the plugin's folder: <c>runtimes/&lt;rid&gt;/native/</c> for this runtime and its
+    /// fallbacks, then the folder itself, trying the platform's names (<c>e_sqlite3</c>: <c>libe_sqlite3.dylib</c>,
+    /// <c>libe_sqlite3.so</c>, <c>e_sqlite3.dll</c>); null when none is there.
+    /// </summary>
+    internal string? ResolveUnmanaged(string unmanagedDllName)
     {
-        var path = Path.Combine(Dir, unmanagedDllName);
-        return File.Exists(path) ? LoadUnmanagedDllFromPath(path) : IntPtr.Zero;
+        if (string.IsNullOrEmpty(unmanagedDllName) || unmanagedDllName.IndexOfAny(['/', '\\', ':']) >= 0 || unmanagedDllName.Contains("..", StringComparison.Ordinal))
+            return null;
+        var dirs = RuntimeIdentifiers.Select(rid => Path.Combine(Dir, "runtimes", rid, "native")).Append(Dir);
+        foreach (var folder in dirs)
+        {
+            if (!Directory.Exists(folder)) continue;
+            foreach (var candidate in NativeNames(unmanagedDllName))
+            {
+                var path = Path.Combine(folder, candidate);
+                if (File.Exists(path)) return path;
+            }
+        }
+        return null;
     }
+
+    /// <summary>The names a native library may have on this platform.</summary>
+    internal static IEnumerable<string> NativeNames(string name)
+    {
+        yield return name;
+        if (OperatingSystem.IsWindows())
+        {
+            if (!name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) yield return name + ".dll";
+            yield break;
+        }
+        var extension = OperatingSystem.IsMacOS() ? ".dylib" : ".so";
+        var hasPrefix = name.StartsWith("lib", StringComparison.Ordinal);
+        if (!name.EndsWith(extension, StringComparison.Ordinal))
+        {
+            if (!hasPrefix) yield return "lib" + name + extension;
+            yield return name + extension;
+        }
+        if (!hasPrefix) yield return "lib" + name;
+    }
+
+    protected override Assembly? Load(AssemblyName assemblyName) =>
+        ResolveManaged(assemblyName) is { } path ? LoadFromAssemblyPath(path) : null;
+
+    protected override IntPtr LoadUnmanagedDll(string unmanagedDllName) =>
+        ResolveUnmanaged(unmanagedDllName) is { } path ? LoadUnmanagedDllFromPath(path) : IntPtr.Zero;
 }
 
 /// <summary>The restart service until the container exists (the server sets it at startup).</summary>
