@@ -25,7 +25,16 @@ public class OsFileStorageProvider : IFileStorageProvider
     /// <inheritdoc />
     public Task<List<FileEntry>> ListAsync(string path, CancellationToken ct = default)
     {
-        var resolved = ValidatePath(path);
+        string resolved;
+        try
+        {
+            resolved = ValidatePath(path);
+        }
+        catch (FileStoragePermissionError) when (TowardRoots(path) is { Count: > 0 } toward)
+        {
+            // A folder above allowed roots (the Files page opens at "/"): only the folders leading toward them
+            return Task.FromResult(toward);
+        }
         if (!Directory.Exists(resolved))
             throw new FileStorageNotFoundError(path);
 
@@ -231,6 +240,29 @@ public class OsFileStorageProvider : IFileStorageProvider
     public async Task UploadFileAsync(string path, byte[] content, CancellationToken ct = default)
     {
         await WriteFileAsync(path, content, ct);
+    }
+
+    /// <summary>
+    /// For a refused folder above one or more allowed roots, the next folder of the way down to each (<c>ls /</c> with
+    /// <c>/srv/files</c> allowed: <c>srv</c>), as directories without size or date; empty for any other path (a folder
+    /// above no root, a file).
+    /// </summary>
+    private List<FileEntry> TowardRoots(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || _options.AllowedPaths.Count == 0) return [];
+        var folder = Path.GetFullPath(path);
+        var names = new List<string>();
+        foreach (var allowed in _options.AllowedPaths)
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(allowed));
+            if (AllowedPathMatcher.IsAllowed(root, _options.DeniedPaths) || !AllowedPathMatcher.IsAllowed(root, [folder])) continue;
+            var relative = Path.GetRelativePath(folder, root);
+            if (relative == "." || relative.StartsWith("..", StringComparison.Ordinal)) continue;
+            var next = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)[0];
+            if (!names.Contains(next, StringComparer.Ordinal)) names.Add(next);
+        }
+        if (names.Count > 0 && File.Exists(folder)) return [];
+        return names.Select(name => new FileEntry { Name = name, Type = "directory", Size = 0, Modified = "" }).ToList();
     }
 
     private string ValidatePath(string path)
