@@ -12,6 +12,7 @@ using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Logs;
 using Qodalis.Cli.Extensions;
+using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Plugin.Admin.Auth;
 using Qodalis.Cli.Plugin.Admin.Commands;
 using Qodalis.Cli.Plugin.Admin.Controllers;
@@ -116,6 +117,39 @@ public static class CliBuilderAdminExtensions
         });
         builder.AddRoutePermission(ServerPluginMarketplace.ApiPath, Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
             Qodalis.Cli.Security.CliRoutePolicy.PluginsInstall);
+
+        // Updates: the marketplace's newer versions and the server package's (NuGet), checked every 6 hours (a job of
+        // the jobs plugin when it is mounted) and on demand; the last result in <data dir>/updates.json. Off with the marketplace.
+        builder.Services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<AdminConfig>();
+            var options = config.Marketplace;
+            if (!options.Enabled) return null!;
+            var dashboard = sp.GetRequiredService<DashboardMarketplace>();
+            var server = sp.GetService<ServerPluginMarketplace>();
+            var dataDir = sp.GetService<Qodalis.Cli.Plugins.CliServerPlugins>()?.DataDir ?? Qodalis.Cli.Plugins.CliServerPluginsOptions.ResolveDataDir();
+            return new UpdateChecker(new UpdateCheckerSources
+            {
+                DashboardSearch = (page, pageSize, ct) => dashboard.SearchAsync(null, page, pageSize, ct),
+                DashboardInstalled = () => dashboard.Records().Select(r => (r.Name, r.Version)),
+                ServerSearch = server == null ? null : (page, pageSize, ct) => server.SearchAsync(null, page, pageSize, "this", ct),
+                ServerInstalled = server == null ? null : () => server.Plugins.Records().Select(r => (r.Name, r.Version)),
+                ServerVersion = () => sp.GetService<Qodalis.Cli.Models.CliInstalledPlugins>()?.All
+                    .FirstOrDefault(p => p.Id == UpdateChecker.ServerPackage)?.Version,
+                NuGetFeed = options.NuGetFeed ?? ServerPluginMarketplace.DefaultNuGetFeed,
+                HttpHandler = options.HttpHandler,
+                Timeout = options.Timeout,
+                Notifications = () => sp.GetService<Qodalis.Cli.Abstractions.Notifications.ICliNotifications>(),
+                Jobs = () => sp.GetService<Qodalis.Cli.Abstractions.Jobs.ICliJobRegistry>(),
+                File = Path.Combine(dataDir, UpdateChecker.FileName),
+                Time = sp.GetService<TimeProvider>(),
+                Logger = sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin"),
+            }, config.UpdateChecks);
+        });
+        builder.Services.AddHostedService(sp => new UpdateCheckerStartup(sp.GetService<UpdateChecker>(), sp.GetService<ICliEventBus>(),
+            sp.GetService<IHostApplicationLifetime>()));
+        builder.Services.AddMcpToolProvider<UpdatesMcpToolProvider>();
+        builder.AddRoutePermission(UpdateChecker.ApiPath, Qodalis.Cli.Security.CliRoutePolicy.AdminAccess);
 
         // Register the admin plugin controller assembly
         builder.AddApplicationPart(typeof(StatusController).Assembly);

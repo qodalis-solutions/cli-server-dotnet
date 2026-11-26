@@ -67,6 +67,8 @@ cli.AddAdmin(config =>
 | `/api/v1/qcli/ws/clients` | GET | List active WebSocket connections |
 | `/api/v1/qcli/dashboard/extensions` | GET | The dashboard's pages (`{ extensions }`), read on every request; the marketplace's plugins carry `source: "marketplace"` |
 | `/api/v1/qcli/dashboard/marketplace/*` | * | Dashboard plugins from the marketplace (see [Marketplace API](#marketplace-api)) |
+| `/api/v1/qcli/updates` | GET | The last update check (see [Updates](#updates)) |
+| `/api/v1/qcli/updates/check` | POST | Checks for updates now and answers the new result |
 
 `systemMemoryTotalMb` is the RAM the server can use: the container (cgroup) limit when one is set below the installed RAM
 (`memory.max`, v1 `memory.limit_in_bytes`, else the GC's container-aware `TotalAvailableMemoryBytes`; then `memoryLimited`
@@ -598,6 +600,38 @@ An installed plugin as `GET /installed` lists it:
 
 `settings` is the config provider of its settings: `config set <settings>.settings.<key> <value>`.
 Plugins added in code (`cli.AddPlugin`) are not listed here.
+
+## Updates
+
+While the marketplace is on, the plugin checks for newer versions of the dashboard and server plugins installed from it,
+of the plugins the host adds in code, and of the server package (`Qodalis.Cli`'s newest version on the NuGet flat
+container): 60 s after a start (or when the last result is 6 hours old), then every 6 hours, through the jobs plugin's
+system job `updates:check` when it is mounted, else a timer. Every update is a
+[system notification](../../README.md#system-notifications) (`update:*`, permission `updates:read`), resolved once it
+no longer applies; the last result is kept in `<data dir>/updates.json`.
+
+```csharp
+cli.AddAdmin(o => o.UpdateChecks = new AdminUpdateCheckOptions { Enabled = false });   // no periodic checks; Check now still works
+```
+
+`GET /api/v1/qcli/updates` answers the last result, `POST /api/v1/qcli/updates/check` checks first (502 `{ error }` only
+when the check itself throws). Both need the admin sign-in, and `updates:read` or `plugins:install` on a protected server
+(403 `forbidden: missing permission updates:read`); the MCP tool `updates_list` `{ check? }` answers the same.
+
+```json
+{
+  "checkedAt": "2026-11-26T10:00:00.000Z", "checking": false, "error": "dashboard plugins: marketplace unreachable",
+  "server": { "kind": "core", "name": "Qodalis.Cli", "package": "Qodalis.Cli", "title": "Server", "icon": null,
+    "current": "1.0.0-beta.33", "latest": "1.0.0-beta.34", "source": "nuget", "updateAvailable": true, "canUpdate": false,
+    "reason": "update the server packages in code (every Qodalis.Cli* package shares the version)",
+    "install": { "dotnet": "dotnet add package Qodalis.Cli --version 1.0.0-beta.34" } },
+  "dashboardPlugins": [], "serverPlugins": [], "codePlugins": [], "count": 1
+}
+```
+
+Lists hold only packages with a newer version (`serverPlugins` and `dashboardPlugins`: installed from the marketplace,
+`canUpdate` from the trust policy; `codePlugins`: added in code, `install` per platform, this one first). A category
+that does not answer keeps its last items; an install, update or removal drops the updates it applied at once.
 
 ## Without CLI routes
 

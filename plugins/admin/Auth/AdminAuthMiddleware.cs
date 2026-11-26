@@ -176,6 +176,7 @@ public class AdminAuthMiddleware
             "/api/v1/qcli/ws/clients",
             "/api/v1/qcli/dashboard",
             "/api/v1/qcli/server/marketplace",
+            "/api/v1/qcli/updates",
         };
 
         foreach (var prefix in adminPrefixes)

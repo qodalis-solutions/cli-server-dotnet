@@ -24,6 +24,14 @@ public class AdminConfig
     /// </summary>
     public DashboardMarketplaceOptions Marketplace { get; set; } = new();
 
+    /// <summary>
+    /// The periodic check for updates while the marketplace is on (marketplace plugins, plugins added in code, the server
+    /// package): <c>Enabled</c> (default true), <c>Interval</c> (6 hours; a job of the jobs plugin when it is mounted),
+    /// <c>InitialDelay</c> (60 s after a start). <c>Enabled = false</c> turns the periodic check off; "Check now"
+    /// (<c>POST /api/v1/qcli/updates/check</c>) still works.
+    /// </summary>
+    public AdminUpdateCheckOptions UpdateChecks { get; set; } = new();
+
     private readonly ILogger<AdminConfig> _logger;
 
     /// <summary>
@@ -80,6 +88,7 @@ public class AdminConfig
     internal void Validate()
     {
         (Marketplace ?? throw new ArgumentException("AdminConfig.Marketplace must be set", nameof(Marketplace))).Validate();
+        (UpdateChecks ?? throw new ArgumentException("AdminConfig.UpdateChecks must be set", nameof(UpdateChecks))).Validate();
         if (SignInUrl != null && !IsValidSignInUrl(SignInUrl))
         {
             throw new ArgumentException(
