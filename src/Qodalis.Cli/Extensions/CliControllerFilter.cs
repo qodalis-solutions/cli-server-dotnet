@@ -35,3 +35,22 @@ internal sealed class CliControllerFilter : IApplicationFeatureProvider<Controll
                assembly.GetName().Name?.StartsWith(PluginPrefix, StringComparison.Ordinal) == true;
     }
 }
+
+/// <summary>
+/// With the CLI routes on, removes the controllers of a plugin assembly (<c>Qodalis.Cli.Plugin.*</c>) the host references
+/// but no plugin added (<see cref="CliBuilder.AddApplicationPart"/>): a host carrying <c>Qodalis.Cli.Plugin.Databases</c>
+/// as a dependency (an EF Core store) without <c>AddDatabases</c> would otherwise route <c>/api/v1/qcli/databases</c>
+/// to a controller whose services are missing (500 instead of 404, so the dashboard could not tell the plugin is not
+/// installed). Runs after MVC's own provider.
+/// </summary>
+internal sealed class CliUnusedPluginControllerFilter(IReadOnlyCollection<Assembly> pluginParts) : IApplicationFeatureProvider<ControllerFeature>
+{
+    private const string PluginPrefix = "Qodalis.Cli.Plugin.";
+
+    public void PopulateFeature(IEnumerable<ApplicationPart> parts, ControllerFeature feature)
+    {
+        foreach (var controller in feature.Controllers.Where(c =>
+                     c.Assembly.GetName().Name?.StartsWith(PluginPrefix, StringComparison.Ordinal) == true && !pluginParts.Contains(c.Assembly)).ToList())
+            feature.Controllers.Remove(controller);
+    }
+}

@@ -558,6 +558,68 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
     }
 
     [Fact]
+    public void AnIdPinnedAtSeveralVersions_GetsTheNewestInsideTheRange()
+    {
+        // The marketplace pins the dependency tree: one id can be there for the ranges of several packages
+        var version = new JsonObject
+        {
+            ["dependencies"] = new JsonArray(
+                new JsonObject { ["id"] = "Acme.Sts", ["version"] = "3.709.0", ["integrity"] = "sha512-AAAA" },
+                new JsonObject { ["id"] = "Acme.Sts", ["version"] = "3.699.0", ["integrity"] = "sha512-BBBB" },
+                new JsonObject { ["id"] = "Acme.Other", ["version"] = "1.0.0", ["integrity"] = "sha512-CCCC" }),
+        };
+        var pinned = ServerPluginMarketplace.PinnedDependencies(version);
+        Assert.Equal(["3.709.0", "3.699.0"], pinned["Acme.Sts"].Select(p => p.Version));
+        Assert.Equal("3.709.0", ServerPluginMarketplace.PinFor(pinned, "Acme.Sts", "[3.700.0, )")!.Value.Version);
+        Assert.Equal("3.699.0", ServerPluginMarketplace.PinFor(pinned, "Acme.Sts", "[3.699.0]")!.Value.Version);
+        Assert.Equal("3.709.0", ServerPluginMarketplace.PinFor(pinned, "acme.sts", "3.0.0")!.Value.Version);
+        Assert.Null(ServerPluginMarketplace.PinFor(pinned, "Acme.Missing", "1.0.0"));
+        var outside = Assert.Throws<DashboardMarketplaceException>(() => ServerPluginMarketplace.PinFor(pinned, "Acme.Sts", "[4.0.0, )"));
+        Assert.Equal("the marketplace pins Acme.Sts 3.709.0, 3.699.0, outside [4.0.0, )", outside.Message);
+    }
+
+    [Fact]
+    public async Task APluginPackageDependency_IsInstalledFromItsOwnMarketplaceRecord_WithItsPins()
+    {
+        // Acme.Fixture needs Qodalis.Cli.Plugin.Acmebase (another server plugin, which the marketplace does not pin as a
+        // dependency): its own record gives the version, the sha512 and the pins of its dependencies (Acme.Base.Dep)
+        var baseDep = FakeServerMarketplaceNet.Nupkg("Acme.Base.Dep", "1.2.0", new() { ["Acme.Base.Dep.dll"] = [7, 7] });
+        _net.AddPackage("Acme.Base.Dep", "1.2.0", baseDep);
+        const string basePackage = "Qodalis.Cli.Plugin.Acmebase";
+        byte[] BaseNupkg(string v) => FakeServerMarketplaceNet.Nupkg(basePackage, v, new() { [$"{basePackage}.dll"] = [5, 5] },
+            [("Qodalis.Cli", "[1.0.0-beta.1, )"), ("Acme.Base.Dep", "[1.0.0, )")]);
+        var base10 = BaseNupkg("1.0.0");
+        var base20 = BaseNupkg("2.0.0");
+        _net.AddPackage(basePackage, "1.0.0", base10);
+        _net.AddPackage(basePackage, "2.0.0", base20);
+        JsonArray BasePins() => [new JsonObject { ["id"] = "Acme.Base.Dep", ["version"] = "1.2.0", ["integrity"] = FakeServerMarketplaceNet.Sha512Of(baseDep) }];
+        _net.Publish("acmebase", basePackage,
+        [
+            FakeServerMarketplaceNet.Version("2.0.0", base20, dependencies: BasePins()),
+            FakeServerMarketplaceNet.Version("1.0.0", base10, dependencies: BasePins()),
+        ]);
+        var fixture = FakeServerMarketplaceNet.Nupkg(Fixture, "1.0.0", new() { [$"{Fixture}.dll"] = FixtureBytes },
+            [("Qodalis.Cli", "[1.0.0-beta.1, )"), (basePackage, "[1.0.0, 2.0.0)")]);
+        _net.AddPackage(Fixture, "1.0.0", fixture);
+        _net.Publish("fixture", Fixture, [FakeServerMarketplaceNet.Version("1.0.0", fixture)]);
+
+        var (host, client, token) = await StartAsync(TempDir());
+        var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
+        Assert.Equal((202, null), (status, body?["error"]?.GetValue<string>()));
+        var dir = Plugins(host).VersionDir(Fixture, "1.0.0");
+        Assert.Equal(new[] { "Acme.Base.Dep.dll", $"{basePackage}.dll", $"{Fixture}.dll" }, Directory.GetFiles(dir).Select(Path.GetFileName).Order());
+        // 1.0.0: the newest of its records inside the fixture's range
+        Assert.Contains(_net.Calls, c => c.EndsWith("/qodalis.cli.plugin.acmebase/1.0.0/qodalis.cli.plugin.acmebase.1.0.0.nupkg", StringComparison.Ordinal));
+        Assert.DoesNotContain(_net.Calls, c => c.Contains("/qodalis.cli.plugin.acmebase/2.0.0/", StringComparison.Ordinal));
+
+        // A tampered package of the dependency is refused
+        _net.AddPackage(basePackage, "1.0.0", BaseNupkg("1.0.0").Concat(new byte[] { 0 }).ToArray());
+        var (_, other, otherToken) = await StartAsync(TempDir());
+        var (tampered, error) = await Send(other, otherToken, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
+        Assert.Equal((502, $"integrity mismatch: {basePackage}@1.0.0"), (tampered, error!["error"]!.GetValue<string>()));
+    }
+
+    [Fact]
     public async Task ADependencyWithoutAPinnedHash_IsRefused_UnlessTheHostTrustsIt()
     {
         PublishFixture(pinDependency: false);
@@ -618,7 +680,7 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         _net.Publish("fixture", Fixture, [FakeServerMarketplaceNet.Version("1.0.0", pkg)]);
         var (host, client, token) = await StartAsync(TempDir());
         var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
-        Assert.True(status == 202, body?.ToJsonString());
+        Assert.Equal((202, null), (status, body?["error"]?.GetValue<string>()));
         var versionDir = Plugins(host).VersionDir(Fixture, "1.0.0");
         var files = Directory.GetFiles(versionDir, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(versionDir, f).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToList();
@@ -738,9 +800,19 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Contains("has no assemblies for .NET", (await Install("old")).Item2);
         Assert.Equal((502, "the package is Acme.Evil@1.0.0, not Acme.Other@1.0.0"), await Install("other"));
         Assert.Equal((400, "needs setup in code: needs the host's database"), await Install("fixture"));
-        Assert.Equal((409, "already added in code: Qodalis.Cli.Plugin.Weather"), await Install("weather"));
         Assert.Equal((404, "plugin not found: nope"), await Install("nope"));
         Assert.Empty(Plugins(host).Records());
+
+        // The host references Qodalis.Cli.Plugin.Weather without adding it: the install turns the host's copy on (its
+        // [assembly: CliPlugin] entry), with the host's version and nothing downloaded
+        var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "weather" });
+        Assert.Equal(202, status);
+        var record = Plugins(host).Records().Single();
+        Assert.Equal(("weather", "Qodalis.Cli.Plugin.Weather", CliPluginLoadContext.HostVersion("Qodalis.Cli.Plugin.Weather")),
+            (record.Name, record.Package, record.Version));
+        Assert.Empty(record.Files!);
+        Assert.DoesNotContain(_net.Calls, c => c.Contains("/qodalis.cli.plugin.weather/", StringComparison.Ordinal));
+        Assert.Equal("pending", body!["status"]!.GetValue<string>());
     }
 
     [Fact]

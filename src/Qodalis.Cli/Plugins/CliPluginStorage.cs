@@ -53,8 +53,8 @@ public static class CliPluginContextExtensions
 /// The filesystem plugin from the dashboard (or <c>cli.AddPlugin&lt;FileSystemPluginEntry&gt;(new { roots = new[] { "/srv/files" } })</c>):
 /// the filesystem API, the <c>fs_*</c> MCP tools and the dashboard's Files page over folders of the server's disk. The
 /// folders are a required setting (nothing is served until some are set), read-only unless <c>readOnly</c> is turned
-/// off; read on first use (a restart applies a change). On .NET the package is part of the server, so it is added in
-/// code: a copy from the marketplace is skipped.
+/// off; read on first use (a restart applies a change). On .NET the package is part of the server: installing it from the
+/// marketplace turns this entry on (nothing is downloaded), unless the host adds the filesystem in code.
 /// </summary>
 [CliPlugin(typeof(FileSystemPluginEntry), Id = "filesystem")]
 public sealed class FileSystemPluginEntry : ICliPluginEntry

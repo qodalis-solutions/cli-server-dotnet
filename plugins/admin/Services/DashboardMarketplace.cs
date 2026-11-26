@@ -1260,6 +1260,7 @@ public sealed partial class DashboardMarketplace : IDisposable
             return;
         }
         if (records == null) return;
+        var superseded = new List<(string Name, string Version)>();
         foreach (var raw in records)
         {
             var name = Str(raw, "name");
@@ -1281,6 +1282,15 @@ public sealed partial class DashboardMarketplace : IDisposable
                     var path = System.IO.Path.Combine(dir, f.File);
                     if (!File.Exists(path) || Sha384Integrity(File.ReadAllBytes(path)) != f.Integrity)
                         throw new InvalidDataException($"{f.File} is missing or changed on disk");
+                }
+                if (AddedInCode(name, id) is { } code)
+                {
+                    // Installed before the server added the same page in code (a server plugin installed since serves it):
+                    // the server's page is used, and this copy removed so it is not left listed nowhere and kept on disk
+                    _logger.LogWarning("[qcli-admin] dashboard plugin {Name}@{Version} removed: the server adds its page ({Id}) in code{Version2}",
+                        name, version, id, code.Version != null ? $" ({code.Version})" : string.Empty);
+                    superseded.Add((name!, version!));
+                    continue;
                 }
                 if (_extensions.Contains(id)) throw new InvalidDataException($"dashboard extension already registered: {id}");
                 var title = Str(raw, "title");
@@ -1317,6 +1327,21 @@ public sealed partial class DashboardMarketplace : IDisposable
             {
                 _logger.LogWarning("[qcli-admin] dashboard plugin {Name}@{Version} not loaded: {Error}", name, version, ex.Message);
             }
+        }
+        if (superseded.Count == 0) return;
+        try
+        {
+            Save();
+            foreach (var (name, version) in superseded)
+            {
+                DeleteDirectory(VersionDir(name, version));
+                var parent = System.IO.Path.GetDirectoryName(VersionDir(name, version))!;
+                if (Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any()) Directory.Delete(parent);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("[qcli-admin] could not remove superseded dashboard plugins: {Error}", ex.Message);
         }
     }
 

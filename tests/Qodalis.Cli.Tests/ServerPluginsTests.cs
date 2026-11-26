@@ -371,13 +371,42 @@ public class ServerPluginsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task APackageTheHostHas_IsSkipped()
+    public async Task APackageTheHostAddsInCode_IsSkipped()
     {
+        var dir = TempDir();
+        InstallFixture(dir, name: "weather", package: "Qodalis.Cli.Plugin.Weather", copy: false);
+        var host = await StartAsync(dir, cli => cli.AddModule(new Qodalis.Cli.Plugin.Weather.WeatherModule()));
+        var state = host.Services.GetRequiredService<CliServerPlugins>().States().Single();
+        Assert.Equal((CliServerPluginStatuses.Skipped, "already installed by the host"), (state.Status, state.Error));
+    }
+
+    [Fact]
+    public async Task APackageTheHostOnlyReferences_LoadsTheHostsCopy()
+    {
+        // The host has Qodalis.Cli.Plugin.Weather (a dependency) without adding it: the install turns its entry on, from the
+        // host's copy (nothing in the plugin's folder)
         var dir = TempDir();
         InstallFixture(dir, name: "weather", package: "Qodalis.Cli.Plugin.Weather", copy: false);
         var host = await StartAsync(dir);
         var state = host.Services.GetRequiredService<CliServerPlugins>().States().Single();
-        Assert.Equal((CliServerPluginStatuses.Skipped, "already installed by the host"), (state.Status, state.Error));
+        Assert.Equal((CliServerPluginStatuses.Loaded, null), (state.Status, state.Error));
+        Assert.NotNull(Processor(host, "weather"));
+        Assert.Same(typeof(Qodalis.Cli.Plugin.Weather.WeatherPluginEntry).Assembly,
+            Processor(host, "weather")!.GetType().Assembly);
+    }
+
+    [Fact]
+    public async Task TheFilesystemFromTheMarketplace_TurnsTheServersEntryOn()
+    {
+        // On .NET the filesystem package is part of the server: its install loads the server's FileSystemPluginEntry
+        var dir = TempDir();
+        InstallFixture(dir, name: "filesystem", package: "Qodalis.Cli.Plugin.FileSystem", copy: false);
+        var host = await StartAsync(dir);
+        var state = host.Services.GetRequiredService<CliServerPlugins>().States().Single();
+        Assert.Equal(CliServerPluginStatuses.NeedsConfiguration, state.Status);
+        Assert.NotNull(CliServerPlugins.HostEntry("filesystem", "Qodalis.Cli.Plugin.FileSystem"));
+        Assert.Null(CliServerPlugins.HostEntry("filesystem", "Acme.Missing"));
+        Assert.Null(CliServerPlugins.HostEntry("other", "Qodalis.Cli.Plugin.Weather"));
     }
 
     [Fact]

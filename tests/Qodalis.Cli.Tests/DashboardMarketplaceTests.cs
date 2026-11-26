@@ -843,6 +843,27 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task APluginWhosePageTheServerAddsInCodeSinceItsInstall_IsRemovedAtStart()
+    {
+        // Installed while no server plugin served the page; a server plugin installed since (jobs) adds it in code: its
+        // page is used, and the marketplace copy is removed (not left on disk, listed nowhere, unremovable)
+        var net = new FakeMarketplaceNet();
+        net.Publish(Tickets, V("1.0.0"));
+        net.Publish(Jobs, V("1.0.0"));
+        var first = await StartAsync(net);
+        Assert.Equal(201, (int)(await first.Post(new { name = Tickets })).StatusCode);
+        Assert.Equal(201, (int)(await first.Post(new { name = Jobs })).StatusCode);
+
+        var second = await StartAsync(net, dir: first.Dir, configure: cli => cli.AddDashboardExtension(
+            new CliDashboardExtension { Id = "jobs", Title = "Server jobs", Entry = "/qcli/modules/jobs/extension.js", Package = Jobs, Version = "0.9.0" }));
+        Assert.Equal([Tickets], (await Json(await second.Get($"{Base}/installed"))).AsArray().Select(p => p!["name"]!.GetValue<string>()));
+        Assert.DoesNotContain(Jobs, File.ReadAllText(Path.Combine(first.Dir, "installed.json")));
+        Assert.False(Directory.Exists(Path.Combine(first.Dir, "@qodalis+cli-dashboard-module-jobs")));
+        Assert.Equal("Server jobs", (await Extension(second, "jobs"))!["title"]!.GetValue<string>());
+        Assert.NotNull(await Extension(second, "tickets"));
+    }
+
+    [Fact]
     public async Task TurnedOff_ServesNoMarketplaceRoutes_HasNoCommand_AndLoadsNothing()
     {
         var net = new FakeMarketplaceNet();

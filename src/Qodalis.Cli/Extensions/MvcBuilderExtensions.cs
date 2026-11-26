@@ -62,6 +62,8 @@ public static class MvcBuilderExtensions
         {
             builder.PartManager.ApplicationParts
                 .Add(new AssemblyPart(typeof(CliController).Assembly));
+            // A plugin assembly the host merely references (no plugin added it) routes nothing
+            builder.PartManager.FeatureProviders.Add(new CliUnusedPluginControllerFilter(cliBuilder.AdditionalAssemblyParts));
 
             // Add any additional assembly parts registered by plugins
             foreach (var assembly in cliBuilder.AdditionalAssemblyParts)

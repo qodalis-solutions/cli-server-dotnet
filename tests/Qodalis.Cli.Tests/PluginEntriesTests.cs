@@ -18,6 +18,7 @@ using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.Config.EfCore;
 using Qodalis.Cli.Plugin.Config.Redis;
 using Qodalis.Cli.Plugin.Databases;
+using Qodalis.Cli.Plugin.Databases.EfCore;
 using Qodalis.Cli.Plugin.Docs;
 using Qodalis.Cli.Plugin.FileSystem.EfCore;
 using Qodalis.Cli.Plugin.Logs.Seq;
@@ -290,6 +291,49 @@ public class PluginEntriesTests : IAsyncLifetime
         var (next, _) = await StartAsync(cli => cli.AddPlugin<AuditEfCorePluginEntry>(), dir);
         Assert.IsType<EfCoreAuditStore>(next.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore"));
         Assert.Equal(CliServerPluginStatuses.Loaded, (await States(next)).Single().Status);
+    }
+
+    [Fact]
+    public async Task AnEfStoreWhoseProviderIsNotInstalled_Fails_AndTheServerStarts()
+    {
+        // The postgres provider (Npgsql.EntityFrameworkCore.PostgreSQL) is not referenced: the plugin fails while it
+        // registers, instead of the server's start failing when the store is first resolved
+        var (host, _) = await StartAsync(cli => cli.AddPlugin<AuditEfCorePluginEntry>(new { dialect = "postgres", connectionString = "Host=localhost" }));
+        var state = (await States(host)).Single();
+        Assert.Equal(CliServerPluginStatuses.Failed, state.Status);
+        Assert.StartsWith("the postgres provider is not installed", state.Error);
+        Assert.Null(host.Services.GetService<IAuditStore>());
+        // Its settings stay, so the dialect can be corrected before the next restart
+        Assert.Equal("audit-efcore", state.Settings);
+        await SetAsync(host, "audit-efcore", "dialect", "sqlite");
+
+        Assert.Throws<InvalidOperationException>(() => CliEfDialects.EnsureInstalled("postgres"));
+        Assert.Throws<InvalidOperationException>(() => CliEfDialects.EnsureInstalled("oracle"));
+        CliEfDialects.EnsureInstalled("sqlite");
+    }
+
+    [Fact]
+    public async Task APluginAssemblyTheHostOnlyReferences_RoutesNothing()
+    {
+        // The host references Qodalis.Cli.Plugin.Databases (a dependency of the EF Core stores) without adding the
+        // databases plugin: its API is a missing route (404), not a controller without its services (500)
+        var (host, _) = await StartAsync(_ => { });
+        var client = host.GetTestClient();
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/qcli/databases")).StatusCode);
+        var (withDatabases, _) = await StartAsync(cli => cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "sqlite", connectionString = "main.db" }));
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await withDatabases.GetTestClient().GetAsync("/api/v1/qcli/databases")).StatusCode);
+    }
+
+    [Fact]
+    public async Task TheFilesystemApiTurnedOff_AnswersAMissingRoute()
+    {
+        // 404 without "error": the dashboard's Files page then says the filesystem plugin is not installed
+        var (host, _) = await StartAsync(_ => { });
+        var res = await host.GetTestClient().GetAsync("/api/qcli/fs/ls?path=/");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, res.StatusCode);
+        var body = JsonNode.Parse(await res.Content.ReadAsStringAsync())!.AsObject();
+        Assert.False(body.ContainsKey("error"));
+        Assert.Equal("FS_DISABLED", body["code"]!.GetValue<string>());
     }
 
     [Fact]

@@ -25,9 +25,14 @@
     <ProjectReference Include="../databases/Qodalis.Cli.Plugin.Databases.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+    <!-- The EF Core stores' default dialect: works after an install from the marketplace (postgres and mssql are added by the host) -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
     <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
     <AssemblyMetadata Include="QodalisCliIcon" Value="🗄️" />
+    <!-- A library of the EF Core stores (users-efcore, audit-efcore, ...), installed with them: nothing to install alone -->
+    <AssemblyMetadata Include="QodalisCliAutoInstall" Value="false" />
+    <AssemblyMetadata Include="QodalisCliAutoInstallReason" Value="a library of the EF Core stores, installed with them (users-efcore, audit-efcore, jobs-efcore, ...)" />
   </ItemGroup>
 </Project>

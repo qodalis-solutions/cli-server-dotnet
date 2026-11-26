@@ -656,14 +656,55 @@ public sealed partial class CliServerPlugins
         state.Error = message.Length > 500 ? message[..500] : message;
     }
 
+    /// <summary>
+    /// The entry of the marketplace plugin <paramref name="name"/> in the host's own copy of its package: the server's
+    /// entries (<c>filesystem</c>, <c>data-explorer</c>: their packages are part of the server on .NET), else the
+    /// <c>[assembly: CliPlugin]</c> of <paramref name="package"/> when the host references it (as a dependency of
+    /// another package, without adding it). Installing the plugin from the marketplace then turns that copy on (one
+    /// copy of its types: the host's). Null when the host has no entry for it.
+    /// </summary>
+    public static CliPluginAttribute? HostEntry(string? name, string? package)
+    {
+        if (name == null || package == null || !CliPluginLoadContext.HostHas(package)) return null;
+        if (BuiltInEntries.Value.GetValueOrDefault(name) is { } builtIn) return builtIn;
+        try
+        {
+            var assembly = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(package));
+            return assembly.GetCustomAttribute<CliPluginAttribute>() is { } entry
+                   && (entry.Id == null || string.Equals(entry.Id, name, StringComparison.OrdinalIgnoreCase))
+                   && typeof(ICliPluginEntry).IsAssignableFrom(entry.EntryType)
+                ? entry
+                : null;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly Lazy<Dictionary<string, CliPluginAttribute>> BuiltInEntries = new(() =>
+        typeof(CliServerPlugins).Assembly.GetTypes()
+            .Select(t => t.GetCustomAttribute<CliPluginAttribute>())
+            .OfType<CliPluginAttribute>()
+            .Where(a => a.Id != null && typeof(ICliPluginEntry).IsAssignableFrom(a.EntryType))
+            .ToDictionary(a => a.Id!, StringComparer.OrdinalIgnoreCase));
+
     /// <summary>Loads a plugin's assembly in a context of its own and creates its entry. Throws why it cannot.</summary>
     private (ICliPluginEntry Entry, int Order) Prepare(CliBuilder builder, CliServerPluginRecord record)
     {
-        if (builder.InstalledPlugins.Any(p => string.Equals(p.Id, record.Package, StringComparison.OrdinalIgnoreCase) && p.Source != CliInstalledPlugin.MarketplaceSource)
-            || CliPluginLoadContext.HostHas(record.Package))
+        if (builder.InstalledPlugins.Any(p => string.Equals(p.Id, record.Package, StringComparison.OrdinalIgnoreCase) && p.Source != CliInstalledPlugin.MarketplaceSource))
             throw new SkippedException("already installed by the host");
         if (States().Count(s => string.Equals(s.Package, record.Package, StringComparison.OrdinalIgnoreCase)) > 1)
             throw new SkippedException("listed twice");
+        if (CliPluginLoadContext.HostHas(record.Package))
+        {
+            // A package the host carries without adding it (Qodalis.Cli.Plugin.FileSystem, part of the server; a
+            // dependency of another package): its entry in the host's copy, nothing loaded from the plugin's folder
+            if (HostEntry(record.Name, record.Package) is { } builtIn)
+                return ((ICliPluginEntry)(Activator.CreateInstance(builtIn.EntryType)
+                    ?? throw new InvalidOperationException($"could not create {builtIn.EntryType.FullName}")), builtIn.Order);
+            throw new SkippedException("already installed by the host");
+        }
         var dir = VersionDir(record.Package, record.Version);
         var main = Path.Combine(dir, record.Package + ".dll");
         if (!File.Exists(main)) throw new FileNotFoundException($"not installed in {dir}");
@@ -755,9 +796,20 @@ public sealed partial class CliServerPlugins
         }
         catch
         {
-            // Nothing of a failed plugin stays registered
+            // Nothing of a failed plugin stays registered but its settings, so what made it fail (a connection, a
+            // dialect whose provider is missing) can be corrected from the dashboard before the next restart
             while (builder.Services.Count > services) builder.Services.RemoveAt(builder.Services.Count - 1);
             builder.Restore(snapshot);
+            foreach (var provider in providers) builder.AddConfigProvider(provider);
+            lock (_lock)
+            {
+                foreach (var provider in providers)
+                {
+                    _settings.Add((candidate.State, provider));
+                    if (provider.OwnStore == null) _ownStoreless.Add(provider.Id);
+                }
+                candidate.State.Settings = providers.FirstOrDefault()?.Id;
+            }
             throw;
         }
         // An entry of the server itself (the filesystem's) is not a package of its own
