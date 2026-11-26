@@ -3,8 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.34
 
+- The admin plugin embeds dashboard 1.0.0-beta.32: notification bell and page, Plugins → Updates, rendered plugin readmes, a link to the marketplace site.
 **System notifications and the update checker** (the same routes, JSON, keys, events and sources as the Node server; `docs/notifications-spec.md` of `@qodalis/cli-server-node`), for the dashboard's bell, Notifications page and Plugins → Updates:
 
 - **Notifications** (`CliBuilder.Notifications`, `CliPluginContext.Notifications`, `ICliNotifications` / `CliNotificationService` in the container; `Qodalis.Cli.Abstractions.Notifications`): `Notify(new() { Key, Kind, Severity, Title, Message, Link?, RequiredPermission?, Data? })` adds or updates the notification of a key (identical content is a no-op, changed content is unread again for everyone), `Resolve(key)`, `ResolveMissing(prefix, keep)`, `Get(key)`; invalid input throws naming the field. Per-user read and dismissed state, filtered by `RequiredPermission` (one `anonymous` reader on a server without sign-in), kept in `<data dir>/notifications.json` (written atomically; a damaged file or entry is ignored), at most 500 and 30 days after their last change (`cli.ConfigureNotifications(o => ...)`: `File`, `Persist`, `MaxItems`, `MaxAgeDays`).
