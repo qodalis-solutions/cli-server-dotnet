@@ -17,7 +17,13 @@ using Qodalis.Cli.Plugin.DataExplorer.Sql;
 using Qodalis.Cli.Plugin.Audit.EfCore;
 using Qodalis.Cli.Plugin.Config.EfCore;
 using Qodalis.Cli.Plugin.Config.Redis;
+using Qodalis.Cli.Plugin.Databases;
 using Qodalis.Cli.Plugin.Docs;
+using Qodalis.Cli.Plugin.FileSystem.EfCore;
+using Qodalis.Cli.Plugin.Logs.Seq;
+using Qodalis.Cli.Plugin.Portal;
+using Qodalis.Cli.Plugin.PublicApi;
+using Qodalis.Cli.Plugin.Users;
 using Qodalis.Cli.Plugin.Jobs;
 using Qodalis.Cli.Plugin.Jobs.EfCore;
 using Qodalis.Cli.Plugin.FileSystem;
@@ -310,5 +316,62 @@ public class PluginEntriesTests : IAsyncLifetime
         var (redis, _) = await StartAsync(cli => cli.AddPlugin<RedisConfigPluginEntry>());
         Assert.IsType<InMemoryConfigStore>(redis.Services.GetRequiredService<CliConfigRegistry>().DefaultStore);
         Assert.Equal(["config-redis.settings.url"], (await States(redis)).Single().Missing);
+    }
+
+    [Fact]
+    public async Task Users_ProtectsTheServerFromTheFirstRequest_PublicApiAndPortalNeedWhatTheyBuildOn()
+    {
+        var (alone, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<PublicApiPluginEntry>();
+            cli.AddPlugin<PortalPluginEntry>();
+        });
+        var states = await States(alone);
+        Assert.Equal(["users plugin"], states.Single(s => s.Name == "public-api").Missing);
+        Assert.Equal(["docs or public-api plugin"], states.Single(s => s.Name == "portal").Missing);
+        Assert.All(states, s => Assert.Equal(CliServerPluginStatuses.NeedsConfiguration, s.Status));
+
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<PortalPluginEntry>();
+            cli.AddPlugin<PublicApiPluginEntry>(new { requestsPerDay = 100 });
+            cli.AddPlugin<UsersPluginEntry>(new { defaultAdminPassword = "root-password-1" });
+            cli.AddPlugin<DocsPluginEntry>();
+        });
+        states = await States(host);
+        Assert.All(states, s => Assert.Equal(CliServerPluginStatuses.Loaded, s.Status));
+        var client = host.GetTestClient();
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/qcli/commands")).StatusCode);
+        Assert.True(host.Services.GetRequiredService<Qodalis.Cli.Security.CliServerOptions>().RequireAuthentication);
+        Assert.Equal("users-plugin", states.Single(s => s.Name == "users").Settings);
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await client.GetAsync("/qcli/api/openapi.json")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Databases_FromItsSettings_WithTheDriverOfItsDialect_AndLogsSeqNeedsAUrl()
+    {
+        var (host, dir) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "sqlite", connectionString = "app.db", migrationsFolder = "migrations" });
+            cli.AddPlugin<SeqLogsPluginEntry>();
+        });
+        var databases = host.Services.GetRequiredService<CliDatabases>();
+        var main = (await databases.OverviewAsync()).Single();
+        Assert.Equal(("main", "sqlite"), (main.Name, main.Dialect));
+        Assert.True(Directory.Exists(Path.Combine(dir, "plugin-data", "databases", "migrations")));
+        var states = await States(host);
+        Assert.Equal(CliServerPluginStatuses.Loaded, states.Single(s => s.Name == "databases").Status);
+        Assert.Equal(["logs-seq.settings.serverUrl"], states.Single(s => s.Name == "logs-seq").Missing);
+        Assert.Throws<InvalidOperationException>(() => CliDbConnections.Create("oracle", "x"));
+    }
+
+    [Fact]
+    public async Task FileSystemEfCore_KeepsFilesInItsDatabase()
+    {
+        var (host, dir) = await StartAsync(cli => cli.AddPlugin<FileSystemEfCorePluginEntry>(new { connectionString = "files.db", readOnly = false }));
+        var files = host.Services.GetRequiredService<IFileStorageProvider>();
+        await files.WriteFileAsync("/a.txt", "A");
+        Assert.Equal("A", await files.ReadFileAsync("/a.txt"));
+        Assert.True(File.Exists(Path.Combine(dir, "plugin-data", "filesystem-efcore", "files.db")));
     }
 }
