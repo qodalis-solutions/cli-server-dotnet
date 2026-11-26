@@ -25,6 +25,12 @@ namespace Qodalis.Cli.Plugins;
 /// <summary>When a plugin registers among the others (ascending; then in the installed order).</summary>
 public static class CliPluginOrder
 {
+    /// <summary>
+    /// Database drivers (database-postgres, database-mssql): before everything, so the stores and the databases plugin
+    /// find them while they register.
+    /// </summary>
+    public const int Driver = 1;
+
     /// <summary>Authentication (users and its stores): first, the others may need the principal.</summary>
     public const int Auth = 10;
 
@@ -98,12 +104,15 @@ public sealed class CliPluginContext
 {
     private readonly Func<CliPluginSettingsOptions, CliStoredConfigProvider> _settings;
     private readonly ICliConfigStore? _settingsFile;
+    private readonly Func<bool>? _share;
 
     internal CliPluginContext(string pluginId, string packageName, string version, CliBuilder builder, ILogger logger, string dataDir,
         string serverDataDir, ICliServerRestart restart, Func<CliPluginSettingsOptions, CliStoredConfigProvider> settings,
-        string source = CliServerPluginSources.Marketplace, System.Text.Json.Nodes.JsonObject? options = null, ICliConfigStore? settingsFile = null)
+        string source = CliServerPluginSources.Marketplace, System.Text.Json.Nodes.JsonObject? options = null, ICliConfigStore? settingsFile = null,
+        Func<bool>? share = null)
     {
         _settingsFile = settingsFile;
+        _share = share;
         Source = source;
         Options = options ?? [];
         PluginId = pluginId;
@@ -169,6 +178,16 @@ public sealed class CliPluginContext
     /// <c>missing</c>); it should then stay idle until the value is set.
     /// </summary>
     public CliStoredConfigProvider Settings(CliPluginSettingsOptions options) => _settings(options ?? new CliPluginSettingsOptions());
+
+    /// <summary>
+    /// Lets the other installed plugins load the assemblies of this plugin's folder that neither they nor the host have
+    /// (a database driver: <c>Npgsql</c> and its EF Core provider for the databases plugin and the EF Core stores). Each
+    /// plugin loads its own copy in its own context, bound to its copies of what the assembly builds on. Call it first
+    /// thing in <see cref="ICliPluginEntry.Register"/> with an order before the plugins that use it
+    /// (<see cref="CliPluginOrder.Driver"/>). False when nothing is shared: a plugin the host loads (added in code, or a
+    /// package it references) has its assemblies in the host already.
+    /// </summary>
+    public bool ShareAssemblies() => _share?.Invoke() ?? false;
 
     /// <summary>What the plugin still needs (<see cref="NeedsConfiguration"/>).</summary>
     internal List<string> Needs { get; } = [];

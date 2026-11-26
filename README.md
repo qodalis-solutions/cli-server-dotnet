@@ -734,20 +734,34 @@ in the marketplace but never installed.
 | data explorer | `DataExplorerPluginEntry` (in the server) | 30 | forceReadOnly, maxRows, rateLimitQueries, rateLimitWindowSeconds (for the sources added after it) |
 | data-explorer-postgres, -mysql, -mssql, -redis, -mongo, -elasticsearch, -sql | `PostgresPluginEntry`, ... | 70 | name, description, connectionString* (node* for Elasticsearch, database* for MongoDB, filename for SQLite), readOnly, timeoutMs, maxRows |
 | users | `UsersPluginEntry` | 10 | protectServer, allowNonExpiringTokens, defaultAdminPassword (provider `users-plugin`; its middleware first in the pipeline) |
-| users-efcore, audit-efcore, jobs-efcore, public-api-efcore, config-efcore | `UsersEfCorePluginEntry`, ... | 5 / 50 / 50 / 50 / 20 | dialect (sqlite, postgres, mssql), connectionString*, tablePrefix |
+| database-postgres, database-mssql | `PostgresDatabasePluginEntry`, `SqlServerDatabasePluginEntry` | 1 | connectionString* (used by the databases plugin and the EF Core stores of that dialect without a connection of their own) |
+| users-efcore, audit-efcore, jobs-efcore, public-api-efcore, config-efcore | `UsersEfCorePluginEntry`, ... | 5 / 50 / 50 / 50 / 20 | dialect (sqlite, postgres, mssql), connectionString (empty: the driver plugin's), tablePrefix |
 | config-redis | `RedisConfigPluginEntry` | 20 | url*, keyPrefix, ttlSeconds (kept in `plugin-settings.json`, never in Redis) |
-| databases | `DatabasesPluginEntry` | 30 | name, dialect, connectionString*, migrationsFolder, applyOnStartup |
+| databases | `DatabasesPluginEntry` | 30 | name, dialect, connectionString (empty: the driver plugin's), migrationsFolder, applyOnStartup |
 | jobs | `JobsPluginEntry` | 50 | its `jobs` provider (history retention) |
 | public-api | `PublicApiPluginEntry` | 50 | basePath, title, serverUrl, requestsPerDay, requestsPerMinute, usageRetentionDays (needs the users plugin) |
 | portal | `PortalPluginEntry` | 60 | path, name, logoUrl (needs docs or public-api) |
 | logs-seq | `SeqLogsPluginEntry` | 50 | serverUrl*, apiKey, serviceName, minimumLevel, readHistory |
 
-A few entries find what they depend on at runtime, from the host or from packages installed with the plugin:
+A few entries find what they depend on at runtime, from the host, from a driver plugin or from packages installed with
+the plugin:
 
-- The EF Core entries find their dialect's provider (`Microsoft.EntityFrameworkCore.Sqlite`,
+- The EF Core entries find their dialect's provider (`Microsoft.EntityFrameworkCore.Sqlite`, shipped with them;
   `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.EntityFrameworkCore.SqlServer`).
 - The databases entry finds its ADO.NET driver (`Microsoft.Data.Sqlite`, `Npgsql`, `MySqlConnector`,
   `Microsoft.Data.SqlClient`).
+
+**PostgreSQL and SQL Server from the marketplace**: install the driver plugin of the database,
+[database-postgres](plugins/database-postgres) (`Qodalis.Cli.Plugin.Database.Postgres`: Npgsql and its EF Core provider)
+or [database-mssql](plugins/database-mssql) (`Qodalis.Cli.Plugin.Database.SqlServer`: Microsoft.Data.SqlClient and the
+EF Core SQL Server provider), and set its connection. It loads first (order `CliPluginOrder.Driver`), shares its folder's
+assemblies with the other installed plugins (`CliPluginContext.ShareAssemblies()`: each loads the driver in its own load
+context, bound to its own copy of EF Core; code of the host finds them too) and registers its dialect and connection on
+`CliBuilder.DatabaseDrivers`. The databases plugin and the stores then take `dialect` `postgres` or `mssql` and use that
+connection unless they set their own; with neither they are `needs-configuration` (`settings.connectionString or the
+database-postgres plugin's connection`), and without the driver they fail with `the postgres provider is not installed
+(Npgsql.EntityFrameworkCore.PostgreSQL: install the database-postgres plugin, or add the package to the host)`. A
+driver plugin of your own derives from `CliDatabaseDriverPluginEntry`.
 
 Packages that are part of the server (`Qodalis.Cli`, and with it the filesystem and data explorer) are added in code only.
 
@@ -907,6 +921,8 @@ sign-out, expiry and revocation. The control messages `connected`, `disconnect` 
 | [`Qodalis.Cli.Plugin.Databases`](plugins/databases) | Databases (PostgreSQL, MySQL, SQL Server, SQLite): size, connections, load and largest tables, and migrations applied under a lock, tracked, run from the dashboard, terminal, MCP and API | `cli.AddDatabases(...)` |
 | [`Qodalis.Cli.Plugin.Config.EfCore`](plugins/config-efcore) | The config providers' settings in a database (table `QcliConfig`) | `cli.AddEfCoreConfigStore(..., providerId?)` |
 | [`Qodalis.Cli.Plugin.Config.Redis`](plugins/config-redis) | The config providers' settings in Redis: one hash per section, versioned writes checked atomically | `cli.AddRedisConfigStore(o => o.Url = ..., providerId?)` |
+| [`Qodalis.Cli.Plugin.Database.Postgres`](plugins/database-postgres) | The PostgreSQL driver of the databases plugin and the EF Core stores installed from the marketplace (Npgsql and its EF Core provider) | `cli.AddPlugin<PostgresDatabasePluginEntry>(...)` |
+| [`Qodalis.Cli.Plugin.Database.SqlServer`](plugins/database-mssql) | The SQL Server driver of the databases plugin and the EF Core stores installed from the marketplace (Microsoft.Data.SqlClient and its EF Core provider) | `cli.AddPlugin<SqlServerDatabasePluginEntry>(...)` |
 | [`Qodalis.Cli.Plugin.Databases.EfCore`](plugins/databases-efcore) | A DbContext's EF Core migrations in the databases plugin; the EF Core stores' schemas as sources | `d.AddEfCore<AppDbContext>("main")` |
 | [`Qodalis.Cli.Plugin.Users`](plugins/users) | Users, sessions, groups, permissions, API tokens | `cli.AddUsers(...)` + `app.UseQodalisUsers()` |
 | [`Qodalis.Cli.Plugin.Audit`](plugins/audit) | Audit log: who did what and when (the users plugin adds it) | `cli.AddAudit()` |

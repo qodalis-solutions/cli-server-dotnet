@@ -54,7 +54,7 @@ cli.AddPlugin<FileSystemEfCorePluginEntry>(new { connectionString = "files.db" }
 ```
 
 Its settings (config provider `filesystem-efcore` unless noted; code options are their defaults, saved settings override them):
-`dialect` (sqlite, postgres, mssql), `connectionString` (required secret; for SQLite a file in the plugin's data folder), `tablePrefix`, `readOnly` (default true); kept in `plugin-settings.json` and read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+`dialect` (sqlite, postgres, mssql), `connectionString` (secret; for SQLite a file in the plugin's data folder; empty: the connection of the dialect's driver plugin, database-postgres or database-mssql), `tablePrefix`, `readOnly` (default true); kept in `plugin-settings.json` and read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
 [Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
 
 ## License

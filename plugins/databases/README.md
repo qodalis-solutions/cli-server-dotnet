@@ -148,5 +148,5 @@ cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "sqlite", connectionString =
 ```
 
 Its settings (config provider `databases` unless noted; code options are their defaults, saved settings override them):
-`name`, `dialect` (postgres, mysql, mssql, sqlite), `connectionString` (required secret), `migrationsFolder`, `applyOnStartup`; order Core (30); the driver (Npgsql, MySqlConnector, Microsoft.Data.SqlClient, Microsoft.Data.Sqlite) comes from the host or is installed with the plugin. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+`name`, `dialect` (postgres, mysql, mssql, sqlite), `connectionString` (secret; empty: the connection of the dialect's driver plugin), `migrationsFolder`, `applyOnStartup`; order Core (30); the driver (Npgsql, MySqlConnector, Microsoft.Data.SqlClient, Microsoft.Data.Sqlite) comes from the host, from the driver plugin installed from the marketplace (database-postgres, database-mssql) or is installed with the plugin. Without any connection it is `needs-configuration` (`settings.connectionString or the database-postgres plugin's connection`). A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
 [Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

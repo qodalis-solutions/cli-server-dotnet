@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Qodalis.Cli.Plugin.Database.Postgres</RootNamespace>
+    <Version>1.0.0-beta.34</Version>
+    <Description>The PostgreSQL driver of Qodalis CLI Server: Npgsql (ADO.NET, for the databases plugin) and Npgsql.EntityFrameworkCore.PostgreSQL (EF Core, for the EF Core stores), so the databases plugin and the EF Core stores installed from the marketplace can keep their data in PostgreSQL</Description>
+    <Authors>Nicolae Lupei</Authors>
+    <Company>Qodalis Solutions</Company>
+    <PackageProjectUrl>https://qodalis.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qodalis-solutions/cli-server-dotnet</RepositoryUrl>
+    <PackageTags>cli;qodalis;database;postgres;postgresql;npgsql;efcore;driver;plugin</PackageTags>
+    <PackageOutputPath>nupkg\</PackageOutputPath>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\assets\logo.png" Pack="True" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="True" PackagePath="\" />
+    <None Include="README.md" Pack="True" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qodalis.Cli\Qodalis.Cli.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The package's icon on the admin dashboard's plugins page (CliInstalledPlugin.Icon) -->
+    <AssemblyMetadata Include="QodalisCliIcon" Value="🐘" />
+  </ItemGroup>
+</Project>

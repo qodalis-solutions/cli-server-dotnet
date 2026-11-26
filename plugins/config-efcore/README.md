@@ -75,5 +75,5 @@ cli.AddPlugin<ConfigEfCorePluginEntry>(new { connectionString = "config.db" });
 ```
 
 Its settings (config provider `config-efcore` unless noted; code options are their defaults, saved settings override them):
-`dialect`, `connectionString` (required secret), `tablePrefix`; order ConfigStore (20): the default config store; its own settings stay in `plugin-settings.json`. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+`dialect`, `connectionString` (secret; empty: the connection of the dialect's driver plugin, database-postgres or database-mssql, which also brings the postgres and mssql providers when installed from the marketplace), `tablePrefix`; order ConfigStore (20): the default config store; its own settings stay in `plugin-settings.json`. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
 [Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
