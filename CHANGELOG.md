@@ -3,7 +3,7 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.35
 
 **PostgreSQL and SQL Server for the plugins installed from the marketplace.** The databases plugin and the EF Core stores (audit, config, filesystem, jobs, public-api, users) installed at runtime worked with SQLite only: each runs in a load context of its own with its own dependencies, and nothing brought a PostgreSQL or SQL Server driver.
 

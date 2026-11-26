@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.PublicApi</RootNamespace>
-    <Version>1.0.0-beta.34</Version>
+    <Version>1.0.0-beta.35</Version>
     <Description>Public API plugin for Qodalis CLI Server: host routes guarded by host tokens with per-account quotas, usage per token, the public OpenAPI document and Swagger UI</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>

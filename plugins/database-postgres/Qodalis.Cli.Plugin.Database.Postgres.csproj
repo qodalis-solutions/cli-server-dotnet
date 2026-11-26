@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Database.Postgres</RootNamespace>
-    <Version>1.0.0-beta.34</Version>
+    <Version>1.0.0-beta.35</Version>
     <Description>The PostgreSQL driver of Qodalis CLI Server: Npgsql (ADO.NET, for the databases plugin) and Npgsql.EntityFrameworkCore.PostgreSQL (EF Core, for the EF Core stores), so the databases plugin and the EF Core stores installed from the marketplace can keep their data in PostgreSQL</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
