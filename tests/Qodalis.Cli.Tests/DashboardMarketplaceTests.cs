@@ -488,13 +488,28 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task EveryMarketplaceCall_AsksForDashboardPlugins()
+    {
+        // The marketplace answers /plugins/{name} and its versions only for the kind asked for (default web)
+        var net = new FakeMarketplaceNet { FilesOnlyInVersionRecord = true };
+        net.Publish(Tickets, [new FakeVersion("1.0.0")]);
+        var h = await StartAsync(net);
+        Assert.Equal(201, (int)(await h.Post(new { name = Tickets })).StatusCode);
+        Assert.Equal(200, (int)(await h.Get($"{Base}/plugins/{Uri.EscapeDataString(Tickets)}")).StatusCode);
+        var calls = net.Calls.Where(c => c.StartsWith(Market, StringComparison.Ordinal)).Select(c => new Uri(c)).ToList();
+        Assert.Contains(calls, c => Uri.UnescapeDataString(c.AbsolutePath) == $"/api/v1/qcli/marketplace/plugins/{Tickets}");
+        Assert.Contains(calls, c => Uri.UnescapeDataString(c.AbsolutePath) == $"/api/v1/qcli/marketplace/plugins/{Tickets}/versions/1.0.0");
+        Assert.All(calls, c => Assert.Equal("dashboard", System.Web.HttpUtility.ParseQueryString(c.Query)["kind"]));
+    }
+
+    [Fact]
     public async Task ReadsTheFilesFromTheVersionRecord_WhenTheDetailsLeaveThemOut()
     {
         var net = new FakeMarketplaceNet { FilesOnlyInVersionRecord = true };
         net.Publish(Tickets, [new FakeVersion("1.0.0", Css: null)]);
         var h = await StartAsync(net);
         Assert.Equal(201, (int)(await h.Post(new { name = Tickets })).StatusCode);
-        Assert.Contains(net.Calls, c => Uri.UnescapeDataString(c) == $"{Api}/plugins/{Tickets}/versions/1.0.0");
+        Assert.Contains(net.Calls, c => Uri.UnescapeDataString(c) == $"{Api}/plugins/{Tickets}/versions/1.0.0?kind=dashboard");
         Assert.Equal(["extension.js"], Entries(Path.Combine(h.Dir, "@acme+cli-dashboard-tickets", "1.0.0")));
     }
 

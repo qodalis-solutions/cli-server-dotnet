@@ -162,6 +162,10 @@ internal sealed class FakeMarketplaceNet : HttpMessageHandler
         if (!m.Success) return Json(HttpStatusCode.NotFound, new JsonObject { ["error"] = "not found" });
         if (!Plugins.TryGetValue(Uri.UnescapeDataString(m.Groups[1].Value), out var plugin))
             return Json(HttpStatusCode.NotFound, new JsonObject { ["error"] = "plugin not found" });
+        // As the marketplace: a plugin of another kind than the query's (default web) is not found
+        var pluginKind = plugin["kind"]!.GetValue<string>();
+        if (!IgnoresKind && (query["kind"] ?? "web") != pluginKind)
+            return Json(HttpStatusCode.NotFound, new JsonObject { ["error"] = "plugin not found", ["kind"] = pluginKind });
         var versions = plugin["versions"]!.AsArray();
         if (m.Groups[2].Success)
         {

@@ -225,7 +225,7 @@ public sealed class DashboardPluginConfigTests : IAsyncLifetime
         Assert.Equal(J("""{"values":{},"version":null}"""), await Values(h));
         Assert.Null(InstalledJson(h)["plugins"]![0]!["config"]);
         // the settings were looked up in the version record: the details had none
-        Assert.Contains($"{Market}/api/v1/qcli/marketplace/plugins/{Uri.EscapeDataString(Tickets)}/versions/1.0.0", net.Calls);
+        Assert.Contains($"{Market}/api/v1/qcli/marketplace/plugins/{Uri.EscapeDataString(Tickets)}/versions/1.0.0?kind=dashboard", net.Calls);
     }
 
     [Fact]

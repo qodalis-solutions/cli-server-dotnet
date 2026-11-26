@@ -525,7 +525,7 @@ public sealed partial class DashboardMarketplace : IDisposable
     /// <summary><c>GET /plugins</c>: the marketplace's dashboard plugins, annotated. Throws 502 when it is unreachable.</summary>
     public async Task<JsonObject> SearchAsync(string? query = null, int? page = null, int? pageSize = null, CancellationToken cancellationToken = default)
     {
-        var qs = new List<string> { "kind=dashboard", $"dashboardApi={DashboardApiVersion}" };
+        var qs = new List<string> { KindQuery, $"dashboardApi={DashboardApiVersion}" };
         var q = query?.Trim();
         if (!string.IsNullOrEmpty(q)) qs.Add($"query={Uri.EscapeDataString(q.Length > 200 ? q[..200] : q)}");
         if (page != null) qs.Add($"page={page}");
@@ -628,14 +628,35 @@ public sealed partial class DashboardMarketplace : IDisposable
     }
 
     /// <summary>GETs a path of the marketplace's public API: its JSON, null for a 404, 502 <c>marketplace unreachable</c> otherwise.</summary>
-    private async Task<JsonNode?> GetJsonAsync(string path, CancellationToken cancellationToken)
+    /// <summary>
+    /// The kind every marketplace call names: the marketplace answers <c>/plugins/{name}</c> and its versions only for
+    /// the kind asked for (default <c>web</c>), 404 for a dashboard plugin without it.
+    /// </summary>
+    internal const string KindQuery = "kind=dashboard";
+
+    private async Task<JsonNode?> GetJsonAsync(string path, CancellationToken cancellationToken, Action<JsonNode?>? notFound = null)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{Url}{MarketplaceApiPath}{path}");
             request.Headers.Accept.ParseAdd("application/json");
             using var response = await _http.SendAsync(request, cancellationToken);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                if (notFound != null)
+                {
+                    JsonNode? body = null;
+                    try
+                    {
+                        body = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                    }
+                    notFound(body);
+                }
+                return null;
+            }
             if (!response.IsSuccessStatusCode) throw new DashboardMarketplaceException(502, "marketplace unreachable");
             return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         }
@@ -649,8 +670,14 @@ public sealed partial class DashboardMarketplace : IDisposable
     private async Task<JsonObject> FetchPluginAsync(string? name, CancellationToken cancellationToken)
     {
         if (!IsValidName(name)) throw new DashboardMarketplaceException(400, "invalid package name");
-        if (await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name!)}", cancellationToken) is not JsonObject plugin)
+        // A listed plugin of another kind: the marketplace's 404 names its kind
+        string? otherKind = null;
+        if (await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name!)}?{KindQuery}", cancellationToken,
+                body => otherKind = body is JsonObject o ? Str(o, "kind") : null) is not JsonObject plugin)
+        {
+            if (otherKind != null && otherKind != "dashboard") throw new DashboardMarketplaceException(400, $"not a dashboard plugin: {name}");
             throw new DashboardMarketplaceException(404, $"plugin not found: {name}");
+        }
         if (Str(plugin, "name") != name) throw new DashboardMarketplaceException(502, "marketplace unreachable");
         if (plugin["versions"] is not JsonArray) plugin["versions"] = new JsonArray();
         return plugin;
@@ -955,7 +982,7 @@ public sealed partial class DashboardMarketplace : IDisposable
         {
             // A details view without files (an older marketplace) or settings: the version record has them
             var targetVersion = Str(target, "version")!;
-            var record = await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name)}/versions/{Uri.EscapeDataString(targetVersion)}", cancellationToken) as JsonObject;
+            var record = await GetJsonAsync($"/plugins/{Uri.EscapeDataString(name)}/versions/{Uri.EscapeDataString(targetVersion)}?{KindQuery}", cancellationToken) as JsonObject;
             if (record == null && target["files"] is not JsonArray)
                 throw new DashboardMarketplaceException(404, $"version not found: {name}@{targetVersion}");
             if (target["files"] is not JsonArray) target["files"] = record!["files"]?.DeepClone();

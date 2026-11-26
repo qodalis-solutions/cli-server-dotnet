@@ -127,6 +127,9 @@ internal sealed class FakeServerMarketplaceNet : HttpMessageHandler
                 return Task.FromResult(Json(HttpStatusCode.OK, new JsonObject { ["items"] = items, ["total"] = items.Count, ["page"] = 1, ["pageSize"] = 50 }));
             }
             var name = Uri.UnescapeDataString(path[(api.Length + 1)..]);
+            // As the marketplace: without kind=server (the default is web) a server plugin is not found
+            if (System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query)["kind"] != "server")
+                return Task.FromResult(Json(HttpStatusCode.NotFound, new JsonObject { ["error"] = "plugin not found", ["kind"] = "server" }));
             return Task.FromResult(Plugins.TryGetValue(name, out var plugin)
                 ? Json(HttpStatusCode.OK, plugin.DeepClone())
                 : Json(HttpStatusCode.NotFound, new JsonObject { ["error"] = "not found" }));
@@ -368,6 +371,10 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(versionDir)!).Where(d => d.EndsWith(".tmp", StringComparison.Ordinal)));
         // The host's packages are never downloaded
         Assert.DoesNotContain(_net.Calls, c => c.Contains("/qodalis.cli/", StringComparison.Ordinal) || c.Contains("microsoft.extensions", StringComparison.Ordinal));
+        // The plugin's details are asked for as a server plugin of this platform (the marketplace answers 404 otherwise)
+        var detail = new Uri(_net.Calls.First(c => c.StartsWith($"{FakeServerMarketplaceNet.Market}/api/v1/qcli/marketplace/plugins/", StringComparison.Ordinal)));
+        var detailQuery = System.Web.HttpUtility.ParseQueryString(detail.Query);
+        Assert.Equal(("server", "dotnet"), (detailQuery["kind"], detailQuery["platform"]));
 
         var record = Plugins(host).Records().Single();
         Assert.Equal((FakeServerMarketplaceNet.Sha512Of(_net.Packages[$"{Fixture.ToLowerInvariant()}/1.0.0"]), "admin", "Fixture", "🧪"),
