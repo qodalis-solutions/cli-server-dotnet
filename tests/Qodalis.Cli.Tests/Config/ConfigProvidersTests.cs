@@ -188,10 +188,10 @@ public class ConfigProvidersTests
     [Fact]
     public async Task Host_ThroughTheServer_OptionsTyped_SecretsNeverInTheResponse()
     {
-        Environment.SetEnvironmentVariable("QCLI_TEST_SECRET_TOKEN", "do-not-show-me");
+        Environment.SetEnvironmentVariable("QCLI_CFGTEST_SECRET_TOKEN", "do-not-show-me");
         try
         {
-            await using var host = await ConfigTestHost.StartAsync(cli => cli.ConfigureConfig(o => o.Environment.Include = ["QCLI_TEST_*"]));
+            await using var host = await ConfigTestHost.StartAsync(cli => cli.ConfigureConfig(o => o.Environment.Include = ["QCLI_CFGTEST_*"]));
             var view = await host.Config.GetAsync("host", All);
             var options = Section(view, "options");
             var rows = options.Entries.Single(e => e.Key == "maxTableRows");
@@ -199,12 +199,12 @@ public class ConfigProvidersTests
             var shell = options.Entries.Single(e => e.Key == "enableShell");
             Assert.Equal(("boolean", false), (shell.Type, CliConfigValues.AsBoolean(shell.Value)));
             var secret = Assert.Single(Section(view, "environment").Entries);
-            Assert.Equal(("QCLI_TEST_SECRET_TOKEN", null, true, true), (secret.Key, secret.Value, secret.IsSet, secret.Sensitive));
+            Assert.Equal(("QCLI_CFGTEST_SECRET_TOKEN", null, true, true), (secret.Key, secret.Value, secret.IsSet, secret.Sensitive));
             Assert.DoesNotContain("do-not-show-me", JsonSerializer.Serialize(view));
         }
         finally
         {
-            Environment.SetEnvironmentVariable("QCLI_TEST_SECRET_TOKEN", null);
+            Environment.SetEnvironmentVariable("QCLI_CFGTEST_SECRET_TOKEN", null);
         }
     }
 
