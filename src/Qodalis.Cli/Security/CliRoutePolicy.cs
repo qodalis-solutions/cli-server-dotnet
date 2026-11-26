@@ -44,6 +44,10 @@ public static class CliRoutePolicy
     public const string ServerRestart = "server:restart";
     /// <summary>Install, update and remove server plugins from the marketplace (the admin plugin; a restart loads them).</summary>
     public const string PluginsInstall = "plugins:install";
+    /// <summary>See the available updates and check for them (<c>/api/v1/qcli/updates</c>, the admin plugin; <c>plugins:install</c> may too).</summary>
+    public const string UpdatesRead = Qodalis.Cli.Abstractions.Notifications.CliNotificationConstants.UpdatesReadPermission;
+    /// <summary>Clear a system notification for every user (<c>DELETE /api/v1/qcli/notifications/{id}?scope=all</c>).</summary>
+    public const string NotificationsManage = Qodalis.Cli.Abstractions.Notifications.CliNotificationConstants.ManagePermission;
 
     /// <summary>The MCP endpoint (Streamable HTTP, stateless).</summary>
     public const string McpPath = "/api/qcli/mcp";

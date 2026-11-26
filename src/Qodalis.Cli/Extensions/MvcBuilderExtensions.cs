@@ -17,6 +17,7 @@ using Qodalis.Cli.Logging;
 using Qodalis.Cli.Mcp;
 using Qodalis.Cli.Restart;
 using Qodalis.Cli.Models;
+using Qodalis.Cli.Notifications;
 using Qodalis.Cli.Plugin.FileSystem;
 using Qodalis.Cli.Plugins;
 using Qodalis.Cli.Security;
@@ -39,6 +40,8 @@ public static class MvcBuilderExtensions
     {
         var cliBuilder = new CliBuilder(builder.Services);
         configure?.Invoke(cliBuilder);
+        // Notifications: their file is known now (the data directory), before the plugins publish
+        ConfigureNotifications(cliBuilder);
 
         // The plugins added in code (cli.AddPlugin) and those installed at runtime from the marketplace, in their declared
         // order after the host's own registrations (a failing one is left out and its error kept; the server starts all the same)
@@ -88,11 +91,18 @@ public static class MvcBuilderExtensions
                 registry.Register(new CliConfigCommandProcessor(sp.GetRequiredService<ICliConfigService>(),
                     () => CliConfigContexts.Of(sp.GetService<IHttpContextAccessor>()?.HttpContext, cliBuilder.ServerOptions, "terminal")));
             }
+            // The notifications command (unless the host registered its own)
+            if (cliBuilder.ServerOptions.CliRoutes && registry.FindProcessor("notifications") == null)
+            {
+                registry.Register(new CliNotificationsCommandProcessor(cliBuilder.Notifications,
+                    () => CliNotificationViewer.Of(sp.GetService<IHttpContextAccessor>()?.HttpContext?.GetCliPrincipal(), cliBuilder.ServerOptions)));
+            }
             return registry;
         });
 
         AddConfigServices(builder.Services, cliBuilder);
         AddRestartServices(builder.Services, cliBuilder);
+        AddNotificationServices(builder.Services, cliBuilder);
 
         builder.Services.AddSingleton(new CliInstalledPlugins(cliBuilder.InstalledPlugins));
         // The runtime registry: the builder's extensions when first resolved, then pages added and removed at runtime
@@ -234,6 +244,29 @@ public static class MvcBuilderExtensions
         services.AddHostedService<CliServerRestartStartup>();
     }
 
+    /// <summary>The notifications' file (the options', else <c>&lt;data dir&gt;/notifications.json</c>) and limits.</summary>
+    private static void ConfigureNotifications(CliBuilder cliBuilder)
+    {
+        var options = cliBuilder.NotificationsOptions;
+        options.Validate();
+        cliBuilder.Notifications.Configure(new CliNotificationsOptions
+        {
+            Persist = options.Persist,
+            File = options.File ?? Path.Combine(cliBuilder.ServerPlugins.DataDir, CliNotificationsOptions.FileName),
+            MaxItems = options.MaxItems,
+            MaxAgeDays = options.MaxAgeDays,
+        });
+    }
+
+    /// <summary>Notifications: the builder's service in the container, its MCP tool and its startup (events, the server's own sources).</summary>
+    private static void AddNotificationServices(IServiceCollection services, CliBuilder cliBuilder)
+    {
+        services.AddSingleton(cliBuilder.Notifications);
+        services.AddSingleton<Qodalis.Cli.Abstractions.Notifications.ICliNotifications>(cliBuilder.Notifications);
+        services.AddMcpToolProvider<NotificationsMcpToolProvider>();
+        services.AddHostedService(sp => new CliNotificationsStartup(cliBuilder.Notifications, sp));
+    }
+
     private static IEnumerable<CliHostOption> HostOptions(CliServerOptions options) =>
     [
         new("cliRoutes", "CLI routes", "The CLI's routes and sockets are served", options.CliRoutes),
@@ -284,6 +317,45 @@ internal sealed class CliServerRestartStartup(CliServerRestart restart) : IHoste
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+/// <summary>
+/// When the server starts: the notifications publish on the server's bus, the events socket personalises
+/// <c>notification:changed</c> per reader, and the server's own sources are synced: the security warning, and restart
+/// required (now and on every <c>server:restart-required</c>). The plugins' are synced by the server plugins once their
+/// settings were checked.
+/// </summary>
+internal sealed class CliNotificationsStartup(CliNotificationService notifications, IServiceProvider services) : IHostedService
+{
+    private IDisposable? _subscription;
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        var bus = services.GetService<ICliEventBus>();
+        var options = services.GetService<CliServerOptions>();
+        notifications.EventBus = () => bus;
+        if (services.GetService<TimeProvider>() is { } time) notifications.Time = time;
+        if (services.GetService<ILoggerFactory>() is { } factory) notifications.Logger = factory.CreateLogger("Qodalis.Cli.Notifications");
+        services.GetService<ICliEventSocketManager>()?.SetPersonalizer(Qodalis.Cli.Abstractions.Notifications.CliNotificationConstants.ChangedEvent,
+            (e, principal) => notifications.Personalize(e, CliNotificationViewer.Of(principal, options)));
+        CliSystemNotifications.SyncAnonymousAdmin(notifications, options is { AllowAnonymousAdmin: true, RequireAuthentication: false });
+        if (services.GetService<CliServerRestart>() is { } restart)
+        {
+            CliSystemNotifications.SyncRestart(notifications, restart.Pending());
+            _subscription = bus?.Subscribe(Qodalis.Cli.Abstractions.Restart.CliServerRestartConstants.RequiredEvent, (_, _) =>
+            {
+                CliSystemNotifications.SyncRestart(notifications, restart.Pending());
+                return Task.CompletedTask;
+            });
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _subscription?.Dispose();
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Loads and applies the stored settings when the server starts.</summary>

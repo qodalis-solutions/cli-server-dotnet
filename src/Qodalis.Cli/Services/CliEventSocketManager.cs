@@ -45,6 +45,7 @@ public class CliEventSocketManager : ICliEventSocketManager
     private readonly ILogger<CliEventSocketManager> _logger;
     private readonly CliServerOptions? _serverOptions;
     private readonly IDisposable? _subscription;
+    private readonly ConcurrentDictionary<string, Func<CliEvent, CliPrincipal?, CliEvent?>> _personalizers = new();
 
     /// <summary>
     /// Initializes a new instance of <see cref="CliEventSocketManager"/>.
@@ -142,16 +143,42 @@ public class CliEventSocketManager : ICliEventSocketManager
     /// </summary>
     public Task SendEventAsync(CliEvent cliEvent)
     {
-        var bytes = CliEventBus.SerializeToUtf8Bytes(cliEvent);
+        var personalize = _personalizers.GetValueOrDefault(cliEvent.Type);
+        var bytes = personalize == null ? CliEventBus.SerializeToUtf8Bytes(cliEvent) : null;
 
         foreach (var (id, sender) in _clients)
         {
             if (sender.Socket.State != WebSocketState.Open) continue;
-            if (!CanReceive(cliEvent.Audience, _principals.GetValueOrDefault(id))) continue;
-            _ = SendQuietlyAsync(id, sender, bytes);
+            var principal = _principals.GetValueOrDefault(id);
+            if (!CanReceive(cliEvent.Audience, principal)) continue;
+            var data = bytes;
+            if (personalize != null)
+            {
+                CliEvent? own;
+                try
+                {
+                    own = personalize(cliEvent, _serverOptions?.RequireAuthentication == true ? principal : null);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Personalizing {Type} for WebSocket client {ClientId} failed", cliEvent.Type, id);
+                    own = cliEvent;
+                }
+                if (own == null) continue;
+                data = CliEventBus.SerializeToUtf8Bytes(own);
+            }
+            _ = SendQuietlyAsync(id, sender, data!);
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public void SetPersonalizer(string type, Func<CliEvent, CliPrincipal?, CliEvent?>? personalizer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (personalizer != null) _personalizers[type] = personalizer;
+        else _personalizers.TryRemove(type, out _);
     }
 
     /// <summary>Whether a socket authenticated as <paramref name="principal"/> (null: none) receives an event for <paramref name="audience"/>.</summary>
