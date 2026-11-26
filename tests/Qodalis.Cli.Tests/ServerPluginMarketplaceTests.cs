@@ -414,6 +414,53 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Contains(_net.Calls, c => c.EndsWith("/acme.dep/index.json", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("C:appsettings.Production.json")]
+    [InlineData("..\\..\\evil.dll")]
+    [InlineData("evil<1>.dll")]
+    public async Task AnEntryThatIsNoPlainFileName_IsRefused_LeavingNothing(string entry)
+    {
+        var evil = FakeServerMarketplaceNet.Nupkg(Fixture, "1.0.0",
+            new() { [$"{Fixture}.dll"] = FixtureBytes, [entry] = "{}"u8.ToArray() }, [("Qodalis.Cli", "[1.0.0-beta.1, )")]);
+        _net.AddPackage(Fixture, "1.0.0", evil);
+        _net.Publish("fixture", Fixture, [FakeServerMarketplaceNet.Version("1.0.0", evil)]);
+        var dir = TempDir();
+        var (host, client, token) = await StartAsync(dir);
+        var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture" });
+        Assert.Equal(502, status);
+        Assert.StartsWith("invalid package: unsafe file name", body!["error"]!.GetValue<string>());
+        Assert.Empty(Plugins(host).Records());
+        var pluginDir = Path.GetDirectoryName(Plugins(host).VersionDir(Fixture, "1.0.0"))!;
+        Assert.True(!Directory.Exists(pluginDir) || Directory.GetFileSystemEntries(pluginDir).Length == 0);
+        Assert.Empty(Directory.GetFiles(dir, "*appsettings*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData("Plugin.dll", true)]
+    [InlineData("Plugin.xml", true)]
+    [InlineData("C:appsettings.Production.json", false)]
+    [InlineData("C:\\Windows\\x.dll", false)]
+    [InlineData("\\\\server\\share\\x.dll", false)]
+    [InlineData("..\\x.dll", false)]
+    [InlineData("../x.dll", false)]
+    [InlineData("a/b.dll", false)]
+    [InlineData("..", false)]
+    [InlineData(".", false)]
+    [InlineData("", false)]
+    [InlineData("x.dll.", false)]
+    [InlineData("x.dll ", false)]
+    [InlineData("x<y>.dll", false)]
+    [InlineData("nul\u0000.dll", false)]
+    public void PluginFilePaths_OnlyAPlainFileNameInTheFolder(string name, bool safe)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "qcli-plugin-dir");
+        Assert.Equal(safe, PluginFilePaths.IsSafeFileName(name));
+        var resolved = PluginFilePaths.Resolve(dir, name);
+        if (safe) Assert.Equal(Path.Combine(Path.GetFullPath(dir), name), resolved);
+        else Assert.Null(resolved);
+        if (!safe) Assert.Throws<DashboardMarketplaceException>(() => PluginFilePaths.ResolveOrThrow(dir, name, "Acme.Plugin"));
+    }
+
     [Fact]
     public async Task IntegrityMismatches_AreRefused_StoringNothing()
     {

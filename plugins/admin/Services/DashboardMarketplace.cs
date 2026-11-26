@@ -1011,7 +1011,7 @@ public sealed partial class DashboardMarketplace : IDisposable
         {
             Directory.CreateDirectory(staging);
             foreach (var (file, bytes) in downloaded)
-                await File.WriteAllBytesAsync(System.IO.Path.Combine(staging, file.File), bytes, CancellationToken.None);
+                await File.WriteAllBytesAsync(PluginFilePaths.ResolveOrThrow(staging, file.File, name), bytes, CancellationToken.None);
             Directory.CreateDirectory(System.IO.Path.Combine(Dir, DirName(name)));
             DeleteDirectory(final);
             Directory.Move(staging, final);
@@ -1297,7 +1297,8 @@ public sealed partial class DashboardMarketplace : IDisposable
         byte[] bytes;
         try
         {
-            bytes = await File.ReadAllBytesAsync(System.IO.Path.Combine(VersionDir(record.Name, record.Version), file.File), context.RequestAborted);
+            bytes = await File.ReadAllBytesAsync(PluginFilePaths.Resolve(VersionDir(record.Name, record.Version), file.File)
+                ?? throw new FileNotFoundException(file.File), context.RequestAborted);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

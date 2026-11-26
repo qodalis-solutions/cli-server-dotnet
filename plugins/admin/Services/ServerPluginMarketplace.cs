@@ -953,14 +953,29 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         long total = 0;
         foreach (var entry in NuGetPackage.LibFiles(zip, folder))
         {
-            var name = Path.GetFileName(entry.FullName);
-            if (string.IsNullOrEmpty(name) || name.Contains("..", StringComparison.Ordinal)) continue;
+            // The name after the folder as it is in the package: a drive (C:x.json), a backslash or a dot name is refused
+            var name = entry.FullName[folder.Length..];
+            var path = PluginFilePaths.ResolveOrThrow(dir, name, folder);
             if (CliPluginLoadContext.HostHas(Path.GetFileNameWithoutExtension(name))) continue;
             total += entry.Length;
             if (total > 4 * MaxPackageBytes) throw new DashboardMarketplaceException(502, "package too large unpacked");
-            var path = Path.Combine(dir, name);
             if (File.Exists(path)) continue;
-            entry.ExtractToFile(path);
+            try
+            {
+                entry.ExtractToFile(path);
+            }
+            catch
+            {
+                // no partial file left behind (the caller removes the staging folder too)
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (IOException)
+                {
+                }
+                throw;
+            }
         }
     }
 
