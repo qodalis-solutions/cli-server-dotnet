@@ -57,6 +57,11 @@ public sealed class InstalledServerPlugin
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Missing { get; init; }
 
+    /// <summary>The config provider of its settings (<c>config set &lt;settings&gt;.settings.&lt;key&gt;</c>), once it ran.</summary>
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Settings { get; init; }
+
     [JsonPropertyName("updateAvailable")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? UpdateAvailable { get; init; }
@@ -79,7 +84,7 @@ public sealed class InstalledServerPlugin
         string? status = null, bool? updateAvailable = null) => new()
     {
         Name = Name, Package = Package, Version = Version, Title = Title, Icon = Icon, Description = Description,
-        InstalledAt = InstalledAt, InstalledBy = InstalledBy, Status = status ?? Status, LoadedVersion = LoadedVersion, Error = Error, Missing = Missing,
+        InstalledAt = InstalledAt, InstalledBy = InstalledBy, Status = status ?? Status, LoadedVersion = LoadedVersion, Error = Error, Missing = Missing, Settings = Settings,
         UpdateAvailable = updateAvailable ?? UpdateAvailable, RestartRequired = restartRequired ?? RestartRequired,
         Changed = changed ?? Changed, PreviousVersion = previousVersion ?? PreviousVersion,
     };
@@ -562,6 +567,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
             LoadedVersion = loaded,
             Error = status is CliServerPluginStatuses.Loaded or "pending" ? null : error,
             Missing = status == CliServerPluginStatuses.NeedsConfiguration ? state?.Missing : null,
+            Settings = state?.Settings ?? record.Settings,
         };
     }
 
