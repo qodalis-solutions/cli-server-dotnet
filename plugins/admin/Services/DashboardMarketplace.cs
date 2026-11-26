@@ -579,7 +579,9 @@ public sealed partial class DashboardMarketplace : IDisposable
     /// <summary>Adds the annotations of <paramref name="item"/> to <paramref name="target"/>.</summary>
     private void Annotate(JsonObject target, JsonObject item)
     {
-        var installed = RecordOf(Str(item, "name"));
+        var record = RecordOf(Str(item, "name"));
+        var code = record == null ? AddedInCode(Str(item, "name"), Str(item["extension"], "id")) : null;
+        var installedVersion = record?.Version ?? code?.Version;
         string? latest;
         int api;
         if (item["versions"] is JsonArray)
@@ -595,8 +597,11 @@ public sealed partial class DashboardMarketplace : IDisposable
         }
         var blocked = BlockedReason(item, api);
         var serverPackage = DotnetServerPackage(item["serverPackages"]);
-        target["installed"] = installed == null ? null : new JsonObject { ["version"] = installed.Version };
-        target["updateAvailable"] = installed != null && IsValidVersion(latest) && CompareVersions(latest!, installed.Version) > 0;
+        target["installed"] = record != null
+            ? new JsonObject { ["version"] = record.Version, ["source"] = "marketplace" }
+            : code != null ? new JsonObject { ["version"] = code.Version, ["source"] = "code" } : null;
+        target["updateAvailable"] = (record != null || code != null) && IsValidVersion(installedVersion) && IsValidVersion(latest)
+            && CompareVersions(latest!, installedVersion!) > 0;
         target["allowed"] = blocked == null;
         if (blocked != null) target["blockedReason"] = blocked;
         else target.Remove("blockedReason");
@@ -691,6 +696,22 @@ public sealed partial class DashboardMarketplace : IDisposable
         lock (_lock) return _plugins.ToArray();
     }
 
+    /// <summary>
+    /// The page the host adds in code for the package <paramref name="name"/>: one whose <c>package</c> is it, else (a
+    /// page without one) the page of an official module's id (<c>@qodalis/cli-dashboard-module-&lt;id&gt;</c>).
+    /// Marketplace installs are not code.
+    /// </summary>
+    public CliDashboardExtension? AddedInCode(string? name, string? extensionId = null)
+    {
+        if (name == null) return null;
+        var pages = _extensions.All.Where(e => !HasExtension(e.Id)).ToList();
+        var byPackage = pages.FirstOrDefault(e => e.Package == name);
+        if (byPackage != null) return byPackage;
+        if (!OfficialModule().IsMatch(name)) return null;
+        var id = PluginId(name, extensionId);
+        return pages.FirstOrDefault(e => e.Package == null && e.Id == id);
+    }
+
     private InstalledDashboardPluginRecord? RecordOf(string? name)
     {
         lock (_lock) return _plugins.FirstOrDefault(p => p.Name == name);
@@ -733,6 +754,8 @@ public sealed partial class DashboardMarketplace : IDisposable
             CheckNameAndVersion(name, version);
             var values = ConfigValuesOf(config);
             if (RecordOf(name) is { } existing) throw new DashboardMarketplaceException(409, $"already installed: {name}@{existing.Version}");
+            if (AddedInCode(name) is { } code)
+                throw new DashboardMarketplaceException(409, $"already added in code: {name}{(code.Version != null ? $"@{code.Version}" : "")}");
             var (plugin, target) = await ResolveAsync(name!, version, cancellationToken);
             var settings = SettingsOf(name!, target);
             CheckConfigValues(settings.Config, values);
@@ -1105,6 +1128,7 @@ public sealed partial class DashboardMarketplace : IDisposable
             Title = record.Title,
             Icon = icon,
             Version = record.Version,
+            Package = record.Name,
             Entry = $"{prefix}/extension.js?v={Hash("extension.js")}",
             Styles = css == null ? null : [$"{prefix}/extension.css?v={css}"],
         };

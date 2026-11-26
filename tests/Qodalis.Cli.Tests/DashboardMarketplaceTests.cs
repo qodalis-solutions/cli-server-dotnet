@@ -325,7 +325,8 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
 
         // live in the extensions list, marked as from the marketplace
         var page = (await Extension(h, "jobs"))!;
-        Assert.Equal(["id", "title", "icon", "entry", "styles", "version", "source"], page.Select(p => p.Key));
+        Assert.Equal(["id", "title", "icon", "entry", "styles", "version", "package", "source"], page.Select(p => p.Key));
+        Assert.Equal(Jobs, page["package"]!.GetValue<string>());
         Assert.Equal("Jobs", page["title"]!.GetValue<string>());
         Assert.Equal("⏱️", page["icon"]!.GetValue<string>());
         Assert.Equal("1.1.0", page["version"]!.GetValue<string>());
@@ -514,6 +515,39 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task APageAddedInCode_IsInstalledWithSourceCode_AndItsInstallIsRefused()
+    {
+        var net = new FakeMarketplaceNet();
+        net.Publish(Jobs, V("1.0.0", "1.1.0"));
+        net.Publish("@qodalis/cli-dashboard-module-users", V("1.1.0"));
+        net.Publish(Tickets, V("2.0.0"));
+        net.Publish("@acme/cli-dashboard-billing", V("1.0.0"), extensionId: "billing");
+        var h = await StartAsync(net, configure: cli =>
+        {
+            cli.AddDashboardExtension(new CliDashboardExtension { Id = "jobs", Title = "Jobs", Entry = "/qcli/modules/jobs/extension.js", Package = Jobs, Version = "1.0.0" });
+            // no package: an official module's page by its id
+            cli.AddDashboardExtension(new CliDashboardExtension { Id = "users", Title = "Users", Entry = "/qcli/modules/users/extension.js" });
+            // a third-party page without a package is not matched by its id
+            cli.AddDashboardExtension(new CliDashboardExtension { Id = "billing", Title = "Billing", Entry = "/x/billing.js" });
+        });
+        var items = (await Json(await h.Get($"{Base}/plugins")))["items"]!.AsArray().ToDictionary(i => i!["name"]!.GetValue<string>(), i => i!);
+        Assert.Equal(("1.0.0", "code", true), (items[Jobs]["installed"]!["version"]!.GetValue<string>(), items[Jobs]["installed"]!["source"]!.GetValue<string>(), items[Jobs]["updateAvailable"]!.GetValue<bool>()));
+        var users = items["@qodalis/cli-dashboard-module-users"];
+        Assert.Equal(("code", false), (users["installed"]!["source"]!.GetValue<string>(), users["updateAvailable"]!.GetValue<bool>()));
+        Assert.Null(users["installed"]!["version"]);
+        Assert.Null(items[Tickets]["installed"]);
+        Assert.Null(items["@acme/cli-dashboard-billing"]["installed"]);
+        Assert.Equal("code", (await Json(await h.Get($"{Base}/plugins/{Jobs}")))["installed"]!["source"]!.GetValue<string>());
+        var res = await h.Post(new { name = Jobs });
+        Assert.Equal(409, (int)res.StatusCode);
+        Assert.Equal($"already added in code: {Jobs}@1.0.0", await Error(res));
+        Assert.Empty(Entries(h.Dir));
+        // not a marketplace install: nothing to update or remove here
+        Assert.Equal(404, (int)(await h.Put(Uri.EscapeDataString(Jobs))).StatusCode);
+        Assert.Equal(404, (int)(await h.Delete(Uri.EscapeDataString(Jobs))).StatusCode);
+    }
+
+    [Fact]
     public async Task AnIdTakenByAnotherExtension_Is409()
     {
         var net = new FakeMarketplaceNet();
@@ -522,7 +556,8 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
         var h = await StartAsync(net, configure: cli => cli.AddDashboardExtension(new CliDashboardExtension { Id = "jobs", Title = "Jobs", Entry = "/qcli/modules/jobs/extension.js" }));
         var res = await h.Post(new { name = Jobs });
         Assert.Equal(409, (int)res.StatusCode);
-        Assert.Equal("dashboard extension already registered: jobs", await Error(res));
+        // jobs is the official module's page: added in code
+        Assert.Equal($"already added in code: {Jobs}", await Error(res));
         Assert.Empty(Entries(h.Dir));
         // the extension's own id; a second package with that id clashes with the first
         Assert.Equal("billing", (await Json(await h.Post(new { name = "@acme/cli-dashboard-billing" })))["id"]!.GetValue<string>());
@@ -564,7 +599,7 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
         net.Publish(Tickets, V("1.0.0", "1.2.0"));
         Assert.True((await Json(await h.Get($"{Base}/installed")))[0]!["updateAvailable"]!.GetValue<bool>());
         var item = (await Json(await h.Get($"{Base}/plugins")))["items"]![0]!;
-        Assert.Equal("1.0.0", item["installed"]!["version"]!.GetValue<string>());
+        Assert.Equal(("1.0.0", "marketplace"), (item["installed"]!["version"]!.GetValue<string>(), item["installed"]!["source"]!.GetValue<string>()));
         Assert.True(item["updateAvailable"]!.GetValue<bool>());
 
         var res = await h.Put(Uri.EscapeDataString(Tickets));

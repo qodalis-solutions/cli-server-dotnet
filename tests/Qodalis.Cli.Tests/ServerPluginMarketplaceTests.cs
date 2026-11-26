@@ -18,6 +18,7 @@ using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Admin.Extensions;
 using Qodalis.Cli.Plugin.Admin.Services;
+using Qodalis.Cli.Plugin.Weather;
 using Qodalis.Cli.Plugins;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Config;
@@ -215,7 +216,7 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
     }
 
     private async Task<(IHost Host, HttpClient Client, string Token)> StartAsync(string dataDir, string install = "verified",
-        IList<string>? trusted = null, bool enabled = true)
+        IList<string>? trusted = null, bool enabled = true, Action<CliBuilder>? configure = null)
     {
         var host = await new HostBuilder().ConfigureWebHost(web =>
         {
@@ -223,6 +224,7 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
             web.ConfigureServices(s => s.AddControllers().AddCli(cli =>
             {
                 cli.ConfigureServerPlugins(o => o.DataDir = dataDir);
+                configure?.Invoke(cli);
                 cli.Services.AddSingleton<IAuditStore>(new AuditList(_audit));
                 cli.AddAdmin(o =>
                 {
@@ -585,7 +587,7 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Contains("has no assemblies for .NET", (await Install("old")).Item2);
         Assert.Equal((502, "the package is Acme.Evil@1.0.0, not Acme.Other@1.0.0"), await Install("other"));
         Assert.Equal((400, "needs setup in code: needs the host's database"), await Install("fixture"));
-        Assert.Equal((409, "already installed by the host: Qodalis.Cli.Plugin.Weather"), await Install("weather"));
+        Assert.Equal((409, "already added in code: Qodalis.Cli.Plugin.Weather"), await Install("weather"));
         Assert.Equal((404, "plugin not found: nope"), await Install("nope"));
         Assert.Empty(Plugins(host).Records());
     }
@@ -610,6 +612,10 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         var dir = TempDir();
         var (host, client, token) = await StartAsync(dir);
         await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture", version = "1.0.0" });
+        // installed from the marketplace: source marketplace, updatable here
+        var (_, list) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins");
+        var listed = list!["items"]!.AsArray().Single(i => i!["name"]!.GetValue<string>() == "fixture")!;
+        Assert.Equal(("marketplace", "1.0.0", true), (listed["installed"]!["source"]!.GetValue<string>(), listed["installed"]!["version"]!.GetValue<string>(), listed["updateAvailable"]!.GetValue<bool>()));
 
         var (status, body) = await Send(client, token, HttpMethod.Put, $"{Base}/installed/fixture", new { });
         Assert.Equal(202, status);
@@ -643,6 +649,24 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         var (_, installed) = await Send(runningClient, runningToken, HttpMethod.Get, $"{Base}/installed");
         Assert.Equal("removed", installed!.AsArray().Single()!["status"]!.GetValue<string>());
         Assert.Contains(running.Services.GetRequiredService<ICliServerRestart>().Pending(), p => p.Id == "plugin:fixture");
+    }
+
+    [Fact]
+    public async Task APluginAddedInCode_IsInstalledWithSourceCode_AndItsInstallIsRefused()
+    {
+        PublishFixture();
+        _net.Publish("weather", "Qodalis.Cli.Plugin.Weather", [FakeServerMarketplaceNet.Version("1.0.0", [1])]);
+        var (_, client, token) = await StartAsync(TempDir(), configure: cli => cli.AddInstalledPlugin(typeof(WeatherModule).Assembly));
+        var (_, body) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins");
+        var weather = body!["items"]!.AsArray().Single(i => i!["name"]!.GetValue<string>() == "weather")!;
+        var version = CliInstalledPlugin.FromAssembly(typeof(WeatherModule).Assembly).Version;
+        Assert.Equal(("code", version), (weather["installed"]!["source"]!.GetValue<string>(), weather["installed"]!["version"]?.GetValue<string>()));
+        Assert.Null(weather["platform"]!["installed"]);
+        Assert.Null(body["items"]!.AsArray().Single(i => i!["name"]!.GetValue<string>() == "fixture")!["installed"]);
+        var (_, details) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins/weather");
+        Assert.Equal("code", details!["installed"]!["source"]!.GetValue<string>());
+        var (status, error) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "weather" });
+        Assert.Equal((409, $"already added in code: Qodalis.Cli.Plugin.Weather@{version}"), (status, error!["error"]!.GetValue<string>()));
     }
 
     [Fact]

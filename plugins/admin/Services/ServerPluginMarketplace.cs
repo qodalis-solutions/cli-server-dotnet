@@ -468,7 +468,12 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         target["otherPlatforms"] = new JsonArray(platforms.Keys.Where(p => p != Platform).Select(p => (JsonNode?)p).ToArray());
         target["autoInstall"] = auto.AutoInstall;
         if (auto.Reason != null) target["autoInstallReason"] = auto.Reason;
-        target["updateAvailable"] = record != null && latest != null && NuGetPackage.CompareVersions(latest, record.Version) > 0;
+        var code = record == null && own != null ? AddedInCode(Str(own, "package")!) : null;
+        var installedVersion = record?.Version ?? code?.Version;
+        target["installed"] = record != null
+            ? new JsonObject { ["version"] = record.Version, ["source"] = "marketplace" }
+            : code != null ? new JsonObject { ["version"] = code.Value.Version, ["source"] = "code" } : null;
+        target["updateAvailable"] = installedVersion != null && latest != null && NuGetPackage.CompareVersions(latest, installedVersion) > 0;
         target["allowed"] = blocked == null;
         if (blocked != null) target["blockedReason"] = blocked;
     }
@@ -720,10 +725,20 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         if (server != null && !SatisfiesServerRange(server, range))
             throw new DashboardMarketplaceException(400, $"incompatible: {Str(own, "package")}@{Str(target, "version")} needs server {range} (this server has {server})");
         var package = Str(own, "package")!;
-        if (_installed().Any(p => string.Equals(p.Id, package, StringComparison.OrdinalIgnoreCase) && p.Source != CliInstalledPlugin.MarketplaceSource)
-            || CliPluginLoadContext.HostHas(package))
-            throw new DashboardMarketplaceException(409, $"already installed by the host: {package}");
+        if (AddedInCode(package) is { } code)
+            throw new DashboardMarketplaceException(409, $"already added in code: {package}{(code.Version != null ? $"@{code.Version}" : "")}");
         return (plugin, own, target);
+    }
+
+    /// <summary>
+    /// The package as the host adds it in its code: listed among the installed plugins not from the marketplace, or an
+    /// assembly the host references; its version when listed. Null when the host does not have it.
+    /// </summary>
+    private (string? Version, bool Listed)? AddedInCode(string package)
+    {
+        var listed = _installed().FirstOrDefault(p => string.Equals(p.Id, package, StringComparison.OrdinalIgnoreCase) && p.Source != CliInstalledPlugin.MarketplaceSource);
+        if (listed != null) return (string.IsNullOrEmpty(listed.Version) ? null : listed.Version, true);
+        return CliPluginLoadContext.HostHas(package) ? (null, false) : null;
     }
 
     /// <summary>The flat container URL of a package (<c>{feed}/{id}/{version}/{id}.{version}.nupkg</c>, lower case).</summary>

@@ -63,7 +63,7 @@ public partial class CliDashboardExtension
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Styles { get; init; }
 
-    /// <summary>Shown in the page's error panel.</summary>
+    /// <summary>Shown in the page's error panel, and as the version added in code on the dashboard's Marketplace tab.</summary>
     [JsonPropertyName("version")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Version { get; init; }
@@ -85,6 +85,14 @@ public partial class CliDashboardExtension
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Search { get; init; }
 
+    /// <summary>
+    /// The npm package the page comes from (<c>@qodalis/cli-dashboard-module-jobs</c>): the dashboard's Marketplace tab
+    /// shows that package as added in code, and the server refuses to install it from the marketplace.
+    /// </summary>
+    [JsonPropertyName("package")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Package { get; init; }
+
     /// <summary>The slots a module can fill (<see cref="Widgets"/>).</summary>
     public static readonly IReadOnlyList<string> WidgetSlots = ["overview", "palette"];
 
@@ -102,6 +110,9 @@ public partial class CliDashboardExtension
 
     [GeneratedRegex("^https?://[^/]", RegexOptions.IgnoreCase)]
     private static partial Regex HttpUrl();
+
+    [GeneratedRegex(@"^(?:@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*\z")]
+    private static partial Regex PackagePattern();
 
     private static ArgumentException Invalid(string reason) => new($"invalid dashboard extension: {reason}");
 
@@ -141,6 +152,8 @@ public partial class CliDashboardExtension
             throw Invalid($"{Id}: widgets must be among {string.Join(", ", WidgetSlots)}");
         if (Search is not null && (!Search.StartsWith('/') || Search.Length > 200 || WhitespaceOrControl().IsMatch(Search)))
             throw Invalid($"{Id}: search must be a path below the page starting with /");
+        if (Package is not null && (Package.Length > 214 || !PackagePattern().IsMatch(Package)))
+            throw Invalid($"{Id}: package must be an npm package name");
         return new CliDashboardExtension
         {
             Id = Id,
@@ -155,6 +168,7 @@ public partial class CliDashboardExtension
             Version = Version,
             Widgets = Widgets is { Count: > 0 } ? Widgets.Distinct().ToList() : null,
             Search = Search,
+            Package = Package,
         };
     }
 }

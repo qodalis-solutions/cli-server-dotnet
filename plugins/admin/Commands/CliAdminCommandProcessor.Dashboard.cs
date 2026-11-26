@@ -151,7 +151,12 @@ public sealed partial class CliAdminCommandProcessor
             static string Status(JsonObject p)
             {
                 string status;
-                if (p["installed"] is JsonObject installed)
+                if (p["installed"] is JsonObject code && Text(code["source"]) == "code")
+                {
+                    var version = Text(code["version"]);
+                    status = $"added in code{(version != null ? $" {version}" : "")}{(p["updateAvailable"]?.GetValue<bool>() == true ? ", newer version in the marketplace" : "")}";
+                }
+                else if (p["installed"] is JsonObject installed)
                 {
                     var version = Text(installed["version"]);
                     status = p["updateAvailable"]?.GetValue<bool>() == true ? $"installed {version}, update available" : $"installed {version}";

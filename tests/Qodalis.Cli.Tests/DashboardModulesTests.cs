@@ -75,6 +75,23 @@ public sealed class DashboardModulesTests : IDisposable
     }
 
     [Fact]
+    public void ThePackageAndVersionOfABuild_ComeFromItsBanner_OrItsPackageJson()
+    {
+        var builder = new CliBuilder(new ServiceCollection())
+            .AddDashboardModule(Billing, Build("/*! @qodalis/cli-dashboard-module-billing 1.0.0-beta.29 */\nexport default {};"));
+        var extension = Assert.Single(builder.DashboardExtensions);
+        Assert.Equal(("@qodalis/cli-dashboard-module-billing", "1.0.0-beta.29"), (extension.Package, extension.Version));
+        Assert.Contains("\"package\":\"@qodalis/cli-dashboard-module-billing\"", JsonSerializer.Serialize(extension));
+
+        var npm = Build();
+        File.WriteAllText(Path.Combine(npm.Root, "package.json"), "{\"name\":\"@qodalis/cli-dashboard-module-audit\",\"version\":\"1.0.0-beta.28\"}");
+        Assert.Equal(("@qodalis/cli-dashboard-module-audit", "1.0.0-beta.28"), CliBuilder.DashboardModuleIdentity(npm));
+        Assert.Null(CliBuilder.DashboardModuleIdentity(Build()));
+        var invalid = new CliDashboardExtension { Id = "x", Title = "X", Entry = "/x.js", Package = "Not A Package" };
+        Assert.Contains("package must be an npm package name", Assert.Throws<ArgumentException>(() => invalid.Validate()).Message);
+    }
+
+    [Fact]
     public void LeavesThePageOutWithoutABuild_WithoutCliRoutes_AndRegistersItOnce()
     {
         Assert.Empty(new CliBuilder(new ServiceCollection()).AddDashboardModule(Billing, (IFileProvider?)null).DashboardExtensions);

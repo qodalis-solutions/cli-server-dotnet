@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +12,46 @@ namespace Qodalis.Cli.Extensions;
 
 public partial class CliBuilder
 {
+    /// <summary><c>/*! &lt;package&gt; &lt;version&gt; */</c>, the first line of a module's <c>extension.js</c> (the dashboard repo's module builds).</summary>
+    private static readonly Regex ModuleBanner = new(@"^/\*!\s+((?:@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*)\s+(\S{1,50})\s+\*/", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The npm package and version of a module's build: the banner of its <c>extension.js</c>, else its
+    /// <c>package.json</c>. Null when neither says.
+    /// </summary>
+    public static (string Package, string Version)? DashboardModuleIdentity(IFileProvider files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        try
+        {
+            var js = files.GetFileInfo("extension.js");
+            if (js.Exists)
+            {
+                using var reader = new StreamReader(js.CreateReadStream());
+                var head = new char[300];
+                var read = reader.ReadBlock(head, 0, head.Length);
+                var banner = ModuleBanner.Match(new string(head, 0, read));
+                if (banner.Success) return (banner.Groups[1].Value, banner.Groups[2].Value);
+            }
+            var pkg = files.GetFileInfo("package.json");
+            if (pkg.Exists)
+            {
+                using var stream = pkg.CreateReadStream();
+                using var doc = JsonDocument.Parse(stream);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
+                    && doc.RootElement.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String
+                    && name.GetString()!.Contains("cli-dashboard-", StringComparison.Ordinal))
+                    return (name.GetString()!, version.GetString()!);
+            }
+        }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // Unreadable: no identity
+        }
+        return null;
+    }
+
     private readonly Dictionary<string, (CliDashboardModule Module, IFileProvider Files)> _dashboardModules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IFileProvider?> _dashboardModuleOverrides = new(StringComparer.Ordinal);
     // Every module a plugin added, with or without a build, so ConfigureDashboardModule can register one later
@@ -90,7 +132,8 @@ public partial class CliBuilder
     }
 
     /// <summary>
-    /// The module's dashboard extension; the URLs carry the files' hash (<c>?v=</c>), so a new build loads at once.
+    /// The module's dashboard extension; the URLs carry the files' hash (<c>?v=</c>), so a new build loads at once. Its
+    /// <c>package</c> and <c>version</c> come from the build (<see cref="DashboardModuleIdentity"/>).
     /// </summary>
     public static CliDashboardExtension DashboardModuleExtension(CliDashboardModule module, IFileProvider files)
     {
@@ -104,8 +147,11 @@ public partial class CliBuilder
 
         var prefix = module.ResolvedPrefix;
         var css = Version("extension.css");
+        var identity = DashboardModuleIdentity(files);
         return new CliDashboardExtension
         {
+            Package = identity?.Package,
+            Version = identity?.Version,
             Id = module.Id,
             Title = module.Title,
             Titles = module.Titles,

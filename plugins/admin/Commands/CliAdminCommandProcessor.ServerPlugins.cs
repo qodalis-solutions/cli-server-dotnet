@@ -52,7 +52,10 @@ public sealed partial class CliAdminCommandProcessor
                 var installed = Str(platform, "installed");
                 var update = p["updateAvailable"] is JsonValue u && u.TryGetValue<bool>(out var b) && b;
                 var allowed = p["allowed"] is JsonValue a && a.TryGetValue<bool>(out var ok) && ok;
-                var status = installed != null
+                var code = p["installed"] is JsonObject i && Str(i, "source") == "code" ? i : null;
+                var status = code != null
+                    ? $"added in code{(Str(code, "version") is { } cv ? $" {cv}" : "")}{(update ? ", newer version in the marketplace" : "")}"
+                    : installed != null
                     ? update ? $"installed {installed}, update available" : $"installed {installed}"
                     : allowed ? "installable" : $"blocked: {Str(p, "blockedReason")}{(Str(p, "autoInstallReason") is { } why ? $" ({why})" : "")}";
                 var platforms = (platform != null ? new[] { ServerPluginMarketplace.Platform } : [])
