@@ -18,6 +18,7 @@ using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugin.Admin.Extensions;
 using Qodalis.Cli.Plugin.Admin.Services;
+using Qodalis.Cli.Plugins;
 using Qodalis.Cli.Services;
 using Qodalis.Cli.Tests.Config;
 using Qodalis.Cli.Tests.Helpers;
@@ -129,11 +130,132 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TheDefaultDirectory_IsQcliDataInTheContentRoot()
+    public async Task TheDefaultDirectory_IsDashboardPluginsInTheServersDataDir()
     {
         var root = TempDir();
-        var h = await StartAsync(contentRoot: root, setDir: false);
-        Assert.Equal(Path.Combine(Path.GetFullPath(root), "qcli-data", "dashboard-plugins"), h.Service<DashboardMarketplace>().Dir);
+        var dataDir = Path.Combine(root, "data");
+        var h = await StartAsync(setDir: false, configure: cli => cli.ConfigureServerPlugins(o => o.DataDir = dataDir));
+        Assert.Equal(Path.Combine(Path.GetFullPath(dataDir), "dashboard-plugins"), h.Service<DashboardMarketplace>().Dir);
+        Assert.Equal(PluginsFolder.DataDirHint, h.Service<DashboardMarketplace>().FolderHint);
+        // An explicit Dir wins
+        var dir = Path.Combine(root, "mine");
+        var own = await StartAsync(dir: dir, configure: cli => cli.ConfigureServerPlugins(o => o.DataDir = dataDir));
+        Assert.Equal(Path.GetFullPath(dir), own.Service<DashboardMarketplace>().Dir);
+        Assert.Equal(PluginsFolder.MarketplaceDirHint, own.Service<DashboardMarketplace>().FolderHint);
+    }
+
+    [Fact]
+    public void PluginsFolder_NamesTheFolderTheReasonAndTheHint_OnlyForFileSystemErrorsOnIt()
+    {
+        var folder = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "app", "qcli-data", "dashboard-plugins"));
+        var parent = Path.GetDirectoryName(folder)!;
+        var message = $"cannot write the plugins folder {folder}: permission denied (EACCES). {PluginsFolder.DataDirHint}";
+        Assert.Equal(message, PluginsFolder.ErrorFor(new UnauthorizedAccessException($"Access to the path '{parent}' is denied."), folder, PluginsFolder.DataDirHint));
+        Assert.Equal(message, PluginsFolder.ErrorFor(new UnauthorizedAccessException($"Access to the path '{Path.Combine(folder, "installed.json")}' is denied."), folder, PluginsFolder.DataDirHint));
+        Assert.Equal($"cannot write the plugins folder {folder}: read-only file system (EROFS). {PluginsFolder.DataDirHint}",
+            PluginsFolder.ErrorFor(new IOException($"Read-only file system : '{folder}'", 30), folder, PluginsFolder.DataDirHint));
+        Assert.Contains("no space left on device (ENOSPC)", PluginsFolder.ErrorFor(new IOException($"No space left on device : '{folder}'", 28), folder, PluginsFolder.DataDirHint));
+        // Not about the folder: another path, an IOException without a path, anything else
+        Assert.Null(PluginsFolder.ErrorFor(new UnauthorizedAccessException("Access to the path '/etc/other' is denied."), folder, PluginsFolder.DataDirHint));
+        Assert.Null(PluginsFolder.ErrorFor(new IOException("Unable to read data from the transport connection", 104), folder, PluginsFolder.DataDirHint));
+        Assert.Null(PluginsFolder.ErrorFor(new InvalidOperationException("boom"), folder, PluginsFolder.DataDirHint));
+    }
+
+    [Fact]
+    public void PluginsFolder_FindsAFolderThatCannotBeCreatedOrWritten_WithoutCreatingIt()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return; // needs Unix permissions and a non-root user
+        var root = TempDir();
+        var folder = Path.Combine(root, "a", "b");
+        Assert.Null(PluginsFolder.UnwritableCode(folder));
+        Assert.False(Directory.Exists(Path.Combine(root, "a")));
+        Assert.Empty(Directory.GetFileSystemEntries(root));
+        try
+        {
+            File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            Assert.Equal("EACCES", PluginsFolder.UnwritableCode(folder));
+            Assert.Equal($"the marketplace cannot write the plugins folder {folder}: permission denied (EACCES). Installing, updating and removing plugins will fail. {PluginsFolder.DataDirHint}.",
+                PluginsFolder.UnwritableWarning([(folder, PluginsFolder.DataDirHint)]));
+            Assert.Null(PluginsFolder.UnwritableWarning([]));
+        }
+        finally
+        {
+            File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public void QcliDataDir_MovesTheDataDirectory_WhenDataDirIsNotSet()
+    {
+        var root = TempDir();
+        // The environment is not changed: other tests run in parallel
+        Assert.Equal(Path.GetFullPath(root), CliServerPluginsOptions.ResolveDataDir(null, root));
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, "own")), CliServerPluginsOptions.ResolveDataDir(Path.Combine(root, "own"), root));
+        Assert.Equal(Path.Combine(Directory.GetCurrentDirectory(), "qcli-data"), CliServerPluginsOptions.ResolveDataDir(null, null));
+        Assert.Equal(Path.Combine(Directory.GetCurrentDirectory(), "qcli-data"), CliServerPluginsOptions.ResolveDataDir("", ""));
+        Assert.Equal("QCLI_DATA_DIR", CliServerPluginsOptions.DataDirEnvironmentVariable);
+        var own = Path.Combine(root, "own");
+        Assert.Equal(Path.Combine(Path.GetFullPath(own), "server-plugins"), new CliServerPlugins(new CliServerPluginsOptions { DataDir = own }).Dir);
+    }
+
+    [Fact]
+    public async Task UnwritableFolder_InstallUpdateAndRemove_Answer500NamingTheFolder_AndTheCommandPrintsIt()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return; // needs Unix permissions and a non-root user
+        var net = new FakeMarketplaceNet();
+        net.Publish(Tickets, V("1.0.0", "1.1.0"), title: "Tickets");
+        var parent = TempDir();
+        var dataDir = Path.Combine(parent, "qcli-data");
+        var h = await StartAsync(net, setDir: false, install: "verified", configure: cli => cli.ConfigureServerPlugins(o => o.DataDir = dataDir));
+        var folder = Path.Combine(dataDir, "dashboard-plugins");
+        var expected = $"cannot write the plugins folder {folder}: permission denied (EACCES). {PluginsFolder.DataDirHint}";
+        try
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var install = await h.Post(new { name = Tickets, version = "1.0.0" });
+            Assert.Equal(500, (int)install.StatusCode);
+            Assert.Equal(expected, await Error(install));
+            Assert.Equal($"Error: {expected}", await h.Run($"admin dashboard install {Tickets}@1.0.0"));
+
+            // Installed while writable, then the folder turns read-only
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Assert.Equal(201, (int)(await h.Post(new { name = Tickets, version = "1.0.0" })).StatusCode);
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var update = await h.Put(Tickets);
+            Assert.Equal(500, (int)update.StatusCode);
+            Assert.Equal(expected, await Error(update));
+            var remove = await h.Delete(Tickets);
+            Assert.Equal(500, (int)remove.StatusCode);
+            Assert.Equal(expected, await Error(remove));
+        }
+        finally
+        {
+            var all = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            File.SetUnixFileMode(parent, all);
+            if (Directory.Exists(folder)) File.SetUnixFileMode(folder, all);
+        }
+    }
+
+    [Fact]
+    public async Task UnwritableExplicitDir_NamesTheMarketplacesDir()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return; // needs Unix permissions and a non-root user
+        var net = new FakeMarketplaceNet();
+        net.Publish(Tickets, V("1.0.0"), title: "Tickets");
+        var parent = TempDir();
+        var dir = Path.Combine(parent, "plugins");
+        var h = await StartAsync(net, dir: dir);
+        try
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var res = await h.Post(new { name = Tickets });
+            Assert.Equal(500, (int)res.StatusCode);
+            Assert.Equal($"cannot write the plugins folder {dir}: permission denied (EACCES). {PluginsFolder.MarketplaceDirHint}", await Error(res));
+        }
+        finally
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     // ---------------------------------------------------------------- browsing

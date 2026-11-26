@@ -664,7 +664,13 @@ has an origin too, and its value is never returned.
   "status": "loaded", "settings": "weather" } ] }
 ```
 
-The data directory defaults to `qcli-data` in the working directory; set it with `cli.ConfigureServerPlugins(o => ...)`.
+The data directory defaults to the `QCLI_DATA_DIR` environment variable, else `qcli-data` in the working directory; set
+it with `cli.ConfigureServerPlugins(o => o.DataDir = ...)`. It holds everything the server writes at runtime:
+`server-plugins/`, the admin plugin's `dashboard-plugins/`, `plugin-data/<id>/` and `plugin-settings.json`, so it must be
+writable. In a container that runs as a non-root user, point it at a volume. When the admin marketplace is on and a
+plugins folder cannot be created or written, the server logs one startup WARNING naming it, and installing, updating or
+removing a plugin answers 500 with `{ "error": "cannot write the plugins folder <folder>: permission denied (EACCES).
+Set DataDir (or QCLI_DATA_DIR) to a writable folder" }` (the `admin dashboard|plugins install` commands print the same).
 The admin plugin's marketplace writes this file. Each package's assemblies live in `server-plugins/<package>/<version>/`.
 
 At startup, every package loads into a collectible `CliPluginLoadContext`. An assembly the host already has

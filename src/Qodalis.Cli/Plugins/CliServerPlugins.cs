@@ -22,13 +22,30 @@ namespace Qodalis.Cli.Plugins;
 /// <summary>Where the runtime-installed plugins are kept and whether they are loaded (<c>cli.ConfigureServerPlugins(o =&gt; ...)</c>).</summary>
 public sealed class CliServerPluginsOptions
 {
-    /// <summary>The server's data directory unless set: <c>qcli-data</c> in the working directory.</summary>
+    /// <summary>The server's data directory unless set: <c>QCLI_DATA_DIR</c>, else <c>qcli-data</c> in the working directory.</summary>
     public const string DefaultDataDir = "qcli-data";
+
+    /// <summary>The environment variable that moves the data directory when <see cref="DataDir"/> is not set.</summary>
+    public const string DataDirEnvironmentVariable = "QCLI_DATA_DIR";
+
+    /// <summary>The server's data directory: <paramref name="dataDir"/> when set, else <c>QCLI_DATA_DIR</c>, else <c>qcli-data</c> in the working directory (absolute).</summary>
+    public static string ResolveDataDir(string? dataDir = null) =>
+        ResolveDataDir(dataDir, Environment.GetEnvironmentVariable(DataDirEnvironmentVariable));
+
+    /// <summary>The server's data directory from <paramref name="dataDir"/>, else <paramref name="environmentValue"/> (the value of <c>QCLI_DATA_DIR</c>), else <c>qcli-data</c> in the working directory (absolute).</summary>
+    public static string ResolveDataDir(string? dataDir, string? environmentValue) =>
+        Path.GetFullPath(!string.IsNullOrEmpty(dataDir) ? dataDir
+            : !string.IsNullOrEmpty(environmentValue) ? environmentValue
+            : Path.Combine(Directory.GetCurrentDirectory(), DefaultDataDir));
 
     /// <summary>False: installed plugins are not loaded, and the server marketplace cannot install any.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>The server's data directory (default <c>&lt;working directory&gt;/qcli-data</c>).</summary>
+    /// <summary>
+    /// The server's data directory (default: the <c>QCLI_DATA_DIR</c> environment variable, else
+    /// <c>&lt;working directory&gt;/qcli-data</c>): runtime-installed server plugins, their data and settings, and the
+    /// admin plugin's dashboard plugins. It must be writable.
+    /// </summary>
     public string? DataDir { get; set; }
 
     /// <summary>The plugins directory (default <c>&lt;data dir&gt;/server-plugins</c>).</summary>
@@ -354,7 +371,7 @@ public sealed partial class CliServerPlugins
     {
         options ??= new CliServerPluginsOptions();
         Enabled = options.Enabled;
-        DataDir = Path.GetFullPath(options.DataDir ?? Path.Combine(Directory.GetCurrentDirectory(), CliServerPluginsOptions.DefaultDataDir));
+        DataDir = CliServerPluginsOptions.ResolveDataDir(options.DataDir);
         Dir = Path.GetFullPath(options.Dir ?? Path.Combine(DataDir, DirName));
     }
 

@@ -88,9 +88,13 @@ public static class CliBuilderAdminExtensions
             () => sp.GetService<IAuditStore>(),
             () => sp.GetService<ICliEventBus>(),
             sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin"),
-            sp.GetService<TimeProvider>()));
+            sp.GetService<TimeProvider>(),
+            // Kept in the server's data directory unless the marketplace names its own folder
+            sp.GetService<Qodalis.Cli.Plugins.CliServerPlugins>()?.DataDir ?? Qodalis.Cli.Plugins.CliServerPluginsOptions.ResolveDataDir()));
         builder.Services.AddHostedService(sp => new DashboardMarketplaceStartup(sp.GetRequiredService<DashboardMarketplace>(),
-            sp.GetService<Qodalis.Cli.Config.CliConfigRegistry>()));
+            sp.GetService<Qodalis.Cli.Config.CliConfigRegistry>(),
+            sp.GetService<ServerPluginMarketplace>(),
+            sp.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugin.Admin")));
         builder.Services.AddTransient<IStartupFilter, DashboardMarketplaceAssets>();
         builder.AddRoutePermission("/api/v1/qcli/dashboard/marketplace", Qodalis.Cli.Security.CliRoutePolicy.AdminAccess,
             Qodalis.Cli.Security.CliRoutePolicy.DashboardInstall);

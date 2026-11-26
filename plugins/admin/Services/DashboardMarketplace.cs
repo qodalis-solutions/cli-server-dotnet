@@ -37,7 +37,11 @@ public sealed class DashboardMarketplaceOptions
     /// </summary>
     public string Install { get; set; } = "verified";
 
-    /// <summary>Where installed plugins are kept (default <c>&lt;content root&gt;/qcli-data/dashboard-plugins</c>).</summary>
+    /// <summary>
+    /// Where installed plugins are kept (default <c>&lt;data dir&gt;/dashboard-plugins</c>: the server's data directory,
+    /// <c>ConfigureServerPlugins(o =&gt; o.DataDir = ...)</c>, else <c>QCLI_DATA_DIR</c>, else <c>qcli-data</c> in the
+    /// working directory).
+    /// </summary>
     public string? Dir { get; set; }
 
     /// <summary>The HTTP handler for the marketplace and the CDNs (default: a <see cref="SocketsHttpHandler"/>); tests pass a fake.</summary>
@@ -263,6 +267,9 @@ public sealed partial class DashboardMarketplace : IDisposable
     /// <summary>Below the content root.</summary>
     public static readonly string DefaultDir = System.IO.Path.Combine("qcli-data", "dashboard-plugins");
 
+    /// <summary>The folder of the dashboard plugins in the server's data directory.</summary>
+    public const string DashboardPluginsDirName = "dashboard-plugins";
+
     /// <summary>jsDelivr, then unpkg.</summary>
     public static readonly IReadOnlyList<string> DefaultCdns = ["https://cdn.jsdelivr.net/npm", "https://unpkg.com"];
 
@@ -295,13 +302,17 @@ public sealed partial class DashboardMarketplace : IDisposable
         Func<IAuditStore?>? audit = null,
         Func<ICliEventBus?>? bus = null,
         ILogger? logger = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        string? dataDir = null)
     {
         options.Validate();
         Enabled = options.Enabled;
         Url = (options.Url ?? DashboardMarketplaceOptions.DefaultUrl).Trim().TrimEnd('/');
         Install = options.Install;
-        Dir = System.IO.Path.GetFullPath(options.Dir ?? System.IO.Path.Combine(contentRoot, DefaultDir));
+        // The server's data directory unless the host names the folder
+        Dir = System.IO.Path.GetFullPath(options.Dir
+            ?? (dataDir != null ? System.IO.Path.Combine(dataDir, DashboardPluginsDirName) : System.IO.Path.Combine(contentRoot, DefaultDir)));
+        FolderHint = options.Dir != null ? PluginsFolder.MarketplaceDirHint : PluginsFolder.DataDirHint;
         _extensions = extensions;
         _serverPlugins = serverPlugins;
         _audit = audit ?? (() => null);
@@ -331,6 +342,9 @@ public sealed partial class DashboardMarketplace : IDisposable
 
     /// <summary>Where installed plugins are kept (absolute).</summary>
     public string Dir { get; }
+
+    /// <summary>What to do when <see cref="Dir"/> cannot be written (named in the 500 and the startup WARNING).</summary>
+    public string FolderHint { get; }
 
     /// <summary><c>GET /</c>: the marketplace, the install policy and the dashboard API this server runs.</summary>
     public JsonObject Info() => new()
@@ -961,13 +975,18 @@ public sealed partial class DashboardMarketplace : IDisposable
         if (version != null && !IsValidVersion(version)) throw new DashboardMarketplaceException(400, "invalid version");
     }
 
-    /// <summary>Runs changes one at a time.</summary>
+    /// <summary>Runs changes one at a time; a file system error on the plugins folder becomes a 500 naming the folder.</summary>
     private async Task<T> ExclusiveAsync<T>(Func<Task<T>> change)
     {
         await _changes.WaitAsync();
         try
         {
             return await change();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && PluginsFolder.ErrorFor(ex, Dir, FolderHint) != null)
+        {
+            _logger.LogError(ex, "[qcli-admin] dashboard marketplace: the plugins folder cannot be written");
+            throw new DashboardMarketplaceException(500, PluginsFolder.ErrorFor(ex, Dir, FolderHint)!);
         }
         finally
         {
