@@ -24,6 +24,9 @@ public partial class CliBuilder
     private readonly HashSet<string> _permissionSources = new(StringComparer.Ordinal);
 
     internal IFileStorageProvider? FileStorageProvider { get; private set; }
+
+    /// <summary>True once the filesystem storage is set (<see cref="AddFileSystem"/>, by the host or a plugin).</summary>
+    public bool HasFileStorage => FileStorageProvider != null;
     internal bool HasDataExplorer { get; private set; }
     internal List<Assembly> AdditionalAssemblyParts { get; } = [];
 

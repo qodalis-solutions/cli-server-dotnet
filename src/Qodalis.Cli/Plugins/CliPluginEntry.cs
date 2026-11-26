@@ -45,7 +45,8 @@ public static class CliPluginOrder
 /// Declares an assembly's entry point for installs from the marketplace: <c>[assembly: CliPlugin(typeof(MyPluginEntry))]</c>,
 /// the type implementing <see cref="ICliPluginEntry"/> with a public parameterless constructor.
 /// </summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
+// Also on an entry class (its id and order when added in code), for an assembly with several entries
+[AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Class, AllowMultiple = false)]
 public sealed class CliPluginAttribute(Type entryType) : Attribute
 {
     public Type EntryType { get; } = entryType;

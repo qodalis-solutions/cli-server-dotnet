@@ -32,7 +32,17 @@ public class FileStoragePermissionError : Exception
     /// </summary>
     /// <param name="path">The path that triggered the permission error.</param>
     public FileStoragePermissionError(string path) : base($"Access denied: {path}") { Path = path; }
+
+    /// <summary>Initializes a new instance with its own message.</summary>
+    protected FileStoragePermissionError(string path, string message) : base(message) { Path = path; }
 }
+
+/// <summary>Thrown by a storage whose settings are not set yet (a plugin that needs configuration).</summary>
+public class FileStorageNotConfiguredError(string path, string storage)
+    : FileStoragePermissionError(path, $"the {storage} storage needs configuration");
+
+/// <summary>Thrown by a read-only storage on a write.</summary>
+public class FileStorageReadOnlyError(string path) : FileStoragePermissionError(path, $"read-only storage: {path}");
 
 /// <summary>
 /// Thrown when attempting to create a file or directory at a path that already exists.

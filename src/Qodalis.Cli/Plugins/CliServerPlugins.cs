@@ -308,7 +308,8 @@ public sealed partial class CliServerPlugins
         {
             var type = plugin.Entry.GetType();
             var assembly = type.Assembly;
-            var attribute = assembly.GetCustomAttribute<CliPluginAttribute>() is { } a && a.EntryType == type ? a : null;
+            var attribute = type.GetCustomAttribute<CliPluginAttribute>()
+                ?? (assembly.GetCustomAttribute<CliPluginAttribute>() is { } a && a.EntryType == type ? a : null);
             var package = assembly.GetName().Name ?? type.Name;
             var version = (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                 ?? assembly.GetName().Version?.ToString() ?? "0.0.0").Split('+')[0];
@@ -460,7 +461,9 @@ public sealed partial class CliServerPlugins
             builder.Restore(snapshot);
             throw;
         }
-        var listed = builder.InstalledPlugins.FirstOrDefault(p => string.Equals(p.Id, candidate.Package, StringComparison.OrdinalIgnoreCase));
+        // An entry of the server itself (the filesystem's) is not a package of its own
+        var listed = candidate.Entry.GetType().Assembly == typeof(CliBuilder).Assembly ? null
+            : builder.InstalledPlugins.FirstOrDefault(p => string.Equals(p.Id, candidate.Package, StringComparison.OrdinalIgnoreCase));
         if (listed != null && candidate.Source == CliServerPluginSources.Code) listed.Source = CliInstalledPlugin.CodeSource;
         lock (_lock)
         {
