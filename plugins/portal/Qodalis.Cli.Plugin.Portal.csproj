@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Portal</RootNamespace>
-    <Version>1.0.0-beta.34</Version>
+    <Version>1.0.0-beta.35</Version>
     <Description>Portal plugin for Qodalis CLI Server: the prebuilt documentation site (guides and API reference) at one mount</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>

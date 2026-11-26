@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Database.SqlServer</RootNamespace>
-    <Version>1.0.0-beta.34</Version>
+    <Version>1.0.0-beta.35</Version>
     <Description>The SQL Server driver of Qodalis CLI Server: Microsoft.Data.SqlClient (ADO.NET, for the databases plugin) and Microsoft.EntityFrameworkCore.SqlServer (EF Core, for the EF Core stores), so the databases plugin and the EF Core stores installed from the marketplace can keep their data in SQL Server</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
