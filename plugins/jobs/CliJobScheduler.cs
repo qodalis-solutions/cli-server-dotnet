@@ -13,7 +13,7 @@ namespace Qodalis.Cli.Plugin.Jobs;
 /// Supports pause, resume, stop, manual trigger, cancellation, configurable retry policies and up to
 /// <see cref="CliJobOptions.MaxConcurrentRuns"/> runs of a job at a time.
 /// </summary>
-public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
+public class CliJobScheduler : ICliJobScheduler, ICliJobRegistry, IHostedService, IDisposable
 {
     private readonly Dictionary<string, JobRegistration> _jobs = new();
     private readonly ICliJobStorageProvider _storage;
@@ -209,7 +209,7 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         return deleted;
     }
 
-    internal void Register(ICliJob job, CliJobOptions options)
+    internal JobRegistration Register(ICliJob job, CliJobOptions options)
     {
         var name = options.Name ?? job.GetType().Name;
         options.Name ??= name;
@@ -253,6 +253,31 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
             Status = options.Enabled ? JobStatus.Active : JobStatus.Stopped,
         };
         _jobs[id] = registration;
+        return registration;
+    }
+
+    /// <inheritdoc />
+    public bool IsRegistered(string id)
+    {
+        lock (_jobs) return _jobs.ContainsKey(id);
+    }
+
+    /// <summary>
+    /// Registers a job at runtime (<see cref="ICliJobRegistry"/>): before the scheduler started it is scheduled by
+    /// <see cref="StartAsync"/> with the others; registered after (a plugin that starts once the server runs, such as the
+    /// admin plugin's update check), it is scheduled at once.
+    /// </summary>
+    string ICliJobRegistry.Register(ICliJob job, CliJobOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentNullException.ThrowIfNull(options);
+        lock (_jobs)
+        {
+            var reg = Register(job, options);
+            // Registered after start: StartAsync will not see it, so it is scheduled here
+            if (_running && !_stopping && reg.Status == JobStatus.Active) StartTimer(reg);
+            return reg.Id;
+        }
     }
 
     /// <inheritdoc />
@@ -263,29 +288,33 @@ public class CliJobScheduler : ICliJobScheduler, IHostedService, IDisposable
         await FinishInterruptedRunsAsync(cancellationToken);
         var now = Now;
 
-        foreach (var (id, reg) in _jobs)
+        // Under the lock with _running set, so a job registered meanwhile (ICliJobRegistry) is scheduled either here or there
+        lock (_jobs)
         {
-            // Restore the saved state: the last run, and a pause or stop made at run time. A job the code disables
-            // (Enabled = false) stays stopped whatever was saved.
-            if (states.TryGetValue(id, out var state))
+            foreach (var (id, reg) in _jobs)
             {
-                reg.LastRunAt = state.LastRunAt is { } last ? JobExecutionQuery.AsUtc(last) : null;
-                if (reg.Options.Enabled)
-                    reg.Status = state.Status;
+                // Restore the saved state: the last run, and a pause or stop made at run time. A job the code disables
+                // (Enabled = false) stays stopped whatever was saved.
+                if (states.TryGetValue(id, out var state))
+                {
+                    reg.LastRunAt = state.LastRunAt is { } last ? JobExecutionQuery.AsUtc(last) : null;
+                    if (reg.Options.Enabled)
+                        reg.Status = state.Status;
+                }
+
+                if (reg.Status != JobStatus.Active) continue;
+
+                // An interval job runs on start through its timer (due now), so the two never overlap. One that ran
+                // before is due one interval after its last run anyway: the timer keeps that rhythm.
+                var isInterval = reg.Options.Schedule == null && reg.Options.Interval != null;
+                StartTimer(reg, runNow: isInterval && reg.Options.RunOnStart && reg.LastRunAt == null);
+
+                if (!isInterval && reg.Options.RunOnStart && IsDueOnStart(reg, now))
+                    RunDue(reg);
             }
 
-            if (reg.Status != JobStatus.Active) continue;
-
-            // An interval job runs on start through its timer (due now), so the two never overlap. One that ran
-            // before is due one interval after its last run anyway: the timer keeps that rhythm.
-            var isInterval = reg.Options.Schedule == null && reg.Options.Interval != null;
-            StartTimer(reg, runNow: isInterval && reg.Options.RunOnStart && reg.LastRunAt == null);
-
-            if (!isInterval && reg.Options.RunOnStart && IsDueOnStart(reg, now))
-                RunDue(reg);
+            _running = true;
         }
-
-        _running = true;
         _logger.LogInformation("Job scheduler started with {Count} jobs", _jobs.Count);
     }
 

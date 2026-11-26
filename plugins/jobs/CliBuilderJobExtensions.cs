@@ -176,6 +176,8 @@ public static class CliBuilderJobExtensions
         });
 
         builder.Services.AddSingleton<ICliJobScheduler>(sp => sp.GetRequiredService<CliJobScheduler>());
+        // Other plugins schedule their own jobs on it at runtime (the admin plugin's update check)
+        builder.Services.AddSingleton<ICliJobRegistry>(sp => sp.GetRequiredService<CliJobScheduler>());
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<CliJobScheduler>());
 
         // What the API, MCP tools and dashboard work on (replaceable with SetJobManager)
