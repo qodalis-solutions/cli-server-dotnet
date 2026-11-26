@@ -46,6 +46,10 @@ public static class MvcBuilderExtensions
         foreach (var (entry, id, options) in cliBuilder.CodePlugins) serverPlugins.AddCode(entry, id, options);
         serverPlugins.Load(cliBuilder);
         builder.Services.AddSingleton(serverPlugins);
+        // The data directory (installed plugins and their file manifests, the plugins' settings) is never served by the
+        // filesystem API, even below an allowed path
+        if (cliBuilder.FileSystemApiOptions is { } fileSystem && !fileSystem.DeniedPaths.Contains(serverPlugins.DataDir))
+            fileSystem.DeniedPaths.Add(serverPlugins.DataDir);
         builder.Services.AddHostedService(sp => new CliServerPluginsStartup(serverPlugins, sp));
 
         // Without CLI routes neither core's controllers nor any plugin's are added, and those MVC discovers on its own

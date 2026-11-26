@@ -94,18 +94,18 @@ public class ServerPluginsTests : IAsyncLifetime
         bool copy = true, IEnumerable<CliServerPluginRecord>? more = null)
     {
         var plugins = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dataDir });
+        var dir = plugins.VersionDir(package, version);
         if (copy)
         {
-            var dir = plugins.VersionDir(package, version);
             Directory.CreateDirectory(dir);
             File.Copy(FixtureDll, Path.Combine(dir, $"{package}.dll"), overwrite: true);
         }
-        plugins.Save([.. more ?? [], Record(name, package, version)]);
+        plugins.Save([.. more ?? [], Record(name, package, version, Directory.Exists(dir) ? CliServerPlugins.FileManifest(dir) : null)]);
     }
 
-    public static CliServerPluginRecord Record(string name, string package, string version) => new()
+    public static CliServerPluginRecord Record(string name, string package, string version, IReadOnlyDictionary<string, string>? files = null) => new()
     {
-        Name = name, Package = package, Version = version, Integrity = "sha512-AAAA", Title = "Fixture",
+        Name = name, Package = package, Version = version, Integrity = "sha512-AAAA", Title = "Fixture", Files = files,
         InstalledAt = "2026-11-26T10:00:00.000Z", InstalledBy = "admin",
     };
 
@@ -224,6 +224,63 @@ public class ServerPluginsTests : IAsyncLifetime
         var again = await StartAsync(dir);
         Assert.NotNull(Processor(again, "fixture-hello"));
         Assert.Null(plugins.Records().Single().Error);
+    }
+
+    [Theory]
+    [InlineData("changed")]
+    [InlineData("added")]
+    [InlineData("removed")]
+    [InlineData("no manifest")]
+    public async Task FilesChangedSinceInstall_AreNotLoaded_Failed(string change)
+    {
+        var dir = TempDir();
+        InstallFixture(dir);
+        var plugins = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir });
+        var versionDir = plugins.VersionDir(FixturePackage, "1.0.0");
+        var record = plugins.Records().Single();
+        Assert.Equal([$"{FixturePackage}.dll"], record.Files!.Keys);
+        Assert.StartsWith("sha256-", record.Files![$"{FixturePackage}.dll"]);
+        switch (change)
+        {
+            case "changed":
+                File.AppendAllText(Path.Combine(versionDir, $"{FixturePackage}.dll"), "x");
+                break;
+            case "added":
+                File.WriteAllBytes(Path.Combine(versionDir, "Evil.dll"), [1, 2, 3]);
+                break;
+            case "removed":
+                plugins.Save([Record("fixture", FixturePackage, "1.0.0",
+                    new Dictionary<string, string>(record.Files!) { ["Acme.Dep.dll"] = "sha256-AAAA" })]);
+                break;
+            default:
+                plugins.Save([Record("fixture", FixturePackage, "1.0.0")]);
+                break;
+        }
+        var host = await StartAsync(dir);
+        var state = host.Services.GetRequiredService<CliServerPlugins>().States().Single();
+        Assert.Equal((CliServerPluginStatuses.Failed, "files changed since install"), (state.Status, state.Error));
+        Assert.Null(Processor(host, "fixture-hello"));
+        Assert.Equal("files changed since install", new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir }).Records().Single().Error);
+    }
+
+    [Fact]
+    public async Task TheFilesystemApi_NeverServesTheDataDirectory_EvenBelowAnAllowedPath()
+    {
+        var root = TempDir();
+        var dataDir = Path.Combine(root, "qcli-data");
+        InstallFixture(dataDir);
+        File.WriteAllText(Path.Combine(root, "notes.txt"), "hi");
+        var host = await StartAsync(dataDir, cli => cli.AddFileSystem(o => o.AllowedPaths.Add(root)));
+        var client = host.GetTestClient();
+        Assert.Equal(200, (int)(await client.GetAsync($"/api/qcli/fs/cat?path={Uri.EscapeDataString(Path.Combine(root, "notes.txt"))}")).StatusCode);
+        foreach (var path in new[] { dataDir, Path.Combine(dataDir, "server-plugins", "installed.json") })
+        {
+            var res = await client.GetAsync($"/api/qcli/fs/{(path == dataDir ? "ls" : "cat")}?path={Uri.EscapeDataString(path)}");
+            Assert.Equal(403, (int)res.StatusCode);
+        }
+        var validator = host.Services.GetRequiredService<Qodalis.Cli.FileSystem.FileSystemPathValidator>();
+        Assert.NotNull(validator.Validate(Path.Combine(root, "notes.txt")));
+        Assert.Null(validator.Validate(Path.Combine(dataDir, "plugin-settings.json")));
     }
 
     [Fact]

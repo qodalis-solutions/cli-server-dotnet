@@ -11,6 +11,12 @@ public class FileSystemOptions
     public List<string> AllowedPaths { get; set; } = [];
 
     /// <summary>
+    /// Paths never served, even below an allowed one (the server adds its data directory: installed plugins, their
+    /// file manifests and the plugins' settings).
+    /// </summary>
+    public List<string> DeniedPaths { get; set; } = [];
+
+    /// <summary>
     /// Gets or sets the file storage provider to use for file operations.
     /// </summary>
     public IFileStorageProvider? Provider { get; set; }

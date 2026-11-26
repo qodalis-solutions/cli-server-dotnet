@@ -215,6 +215,43 @@ public sealed partial class CliServerPlugins
         return path;
     }
 
+    /// <summary>
+    /// The files of an installed plugin's folder: each path relative to <paramref name="dir"/> (<c>/</c>-separated) with
+    /// <c>sha256-&lt;base64&gt;</c> of its bytes (<see cref="CliServerPluginRecord.Files"/>).
+    /// </summary>
+    public static Dictionary<string, string> FileManifest(string dir)
+    {
+        var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            files[Path.GetRelativePath(dir, path).Replace(Path.DirectorySeparatorChar, '/')] = Sha256Of(path);
+        return new Dictionary<string, string>(files, StringComparer.Ordinal);
+    }
+
+    private static string Sha256Of(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return $"sha256-{Convert.ToBase64String(SHA256.HashData(stream))}";
+    }
+
+    /// <summary>
+    /// True when <paramref name="dir"/> holds exactly the files of <paramref name="manifest"/> with their hashes (none
+    /// missing, none added, none changed); false without a manifest.
+    /// </summary>
+    public static bool FilesUnchanged(string dir, IReadOnlyDictionary<string, string>? manifest)
+    {
+        if (manifest == null || manifest.Count == 0 || !Directory.Exists(dir)) return false;
+        var actual = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(dir, p).Replace(Path.DirectorySeparatorChar, '/')).ToList();
+        if (actual.Count != manifest.Count) return false;
+        foreach (var relative in actual)
+        {
+            if (!manifest.TryGetValue(relative, out var expected)) return false;
+            var hash = Sha256Of(Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(hash), Encoding.ASCII.GetBytes(expected))) return false;
+        }
+        return true;
+    }
+
     /// <summary>The installed list (<c>installed.json</c>); empty when there is none or it is not readable.</summary>
     public IReadOnlyList<CliServerPluginRecord> Records()
     {
@@ -371,6 +408,8 @@ public sealed partial class CliServerPlugins
         var dir = VersionDir(record.Package, record.Version);
         var main = Path.Combine(dir, record.Package + ".dll");
         if (!File.Exists(main)) throw new FileNotFoundException($"not installed in {dir}");
+        // Nothing is loaded from a folder that differs from what was verified and extracted at install
+        if (!FilesUnchanged(dir, record.Files)) throw new InvalidOperationException("files changed since install");
         var context = new CliPluginLoadContext(record.Name, dir);
         var assembly = context.LoadFromAssemblyPath(main);
         var attribute = assembly.GetCustomAttribute<CliPluginAttribute>()

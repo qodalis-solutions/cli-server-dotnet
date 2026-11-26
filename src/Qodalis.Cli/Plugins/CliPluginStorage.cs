@@ -83,5 +83,10 @@ public sealed class FileSystemPluginEntry : ICliPluginEntry
         {
             Id = "filesystem-os", Title = "Filesystem (server disk)", Description = "Folders of the server's disk served by the filesystem API",
             Settings = [.. Settings],
-        }, "os", settings => new OsFileStorageProvider(new OsProviderOptions { AllowedPaths = [.. settings.List("roots")] }));
+        }, "os", settings => new OsFileStorageProvider(new OsProviderOptions
+        {
+            AllowedPaths = [.. settings.List("roots")],
+            // never the server's data directory (installed plugins, their manifests, the plugins' settings)
+            DeniedPaths = [context.ServerDataDir],
+        }));
 }

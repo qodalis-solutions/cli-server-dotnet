@@ -377,6 +377,9 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Equal(("server", "dotnet"), (detailQuery["kind"], detailQuery["platform"]));
 
         var record = Plugins(host).Records().Single();
+        // Every extracted file with its sha256, checked again before it is loaded
+        Assert.Equal(new[] { "Acme.Dep.dll", $"{Fixture}.dll", $"{Fixture}.xml" }, record.Files!.Keys.Order());
+        Assert.Equal(CliServerPlugins.FileManifest(versionDir), record.Files);
         Assert.Equal((FakeServerMarketplaceNet.Sha512Of(_net.Packages[$"{Fixture.ToLowerInvariant()}/1.0.0"]), "admin", "Fixture", "🧪"),
             (record.Integrity, record.InstalledBy, record.Title, record.Icon));
         var restart = host.Services.GetRequiredService<ICliServerRestart>();

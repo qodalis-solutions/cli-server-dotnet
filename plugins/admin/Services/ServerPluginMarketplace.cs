@@ -802,6 +802,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         var finalDir = _plugins.VersionDir(package, version);
         var staging = $"{finalDir}.{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}.tmp";
         Directory.CreateDirectory(staging);
+        Dictionary<string, string> files;
         try
         {
             var server = ServerVersion;
@@ -900,6 +901,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 if (NuGetPackage.LibFolder(zip) is { } folder) Extract(zip, folder, staging);
             }
 
+            files = CliServerPlugins.FileManifest(staging);
             if (Directory.Exists(finalDir)) Directory.Delete(finalDir, recursive: true);
             Directory.Move(staging, finalDir);
         }
@@ -924,6 +926,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
             Package = package,
             Version = version,
             Integrity = integrity,
+            Files = files,
             Title = title.Length > 60 ? title[..60] : title,
             Icon = Str(plugin, "icon"),
             Description = description != null && description.Length > 500 ? description[..500] : description,

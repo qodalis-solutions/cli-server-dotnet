@@ -242,7 +242,7 @@ public class OsFileStorageProvider : IFileStorageProvider
             throw new FileStoragePermissionError("No allowed paths configured.");
 
         var fullPath = Path.GetFullPath(path);
-        if (AllowedPathMatcher.IsAllowed(fullPath, _options.AllowedPaths))
+        if (AllowedPathMatcher.IsAllowed(fullPath, _options.AllowedPaths) && !AllowedPathMatcher.IsAllowed(fullPath, _options.DeniedPaths))
             return fullPath;
 
         throw new FileStoragePermissionError(path);

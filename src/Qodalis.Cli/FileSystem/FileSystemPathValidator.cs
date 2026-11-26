@@ -37,7 +37,9 @@ public class FileSystemPathValidator
 
         // Symlinks are resolved and roots match whole segments only
         var fullPath = Path.GetFullPath(path);
-        return AllowedPathMatcher.IsAllowed(fullPath, _options.AllowedPaths) ? fullPath : null;
+        return AllowedPathMatcher.IsAllowed(fullPath, _options.AllowedPaths) && !AllowedPathMatcher.IsAllowed(fullPath, _options.DeniedPaths)
+            ? fullPath
+            : null;
     }
 
     /// <summary>

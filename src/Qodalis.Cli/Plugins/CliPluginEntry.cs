@@ -240,6 +240,15 @@ public sealed class CliServerPluginRecord
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Description { get; init; }
 
+    /// <summary>
+    /// Every file of its folder (paths relative to it, <c>/</c>-separated) with its <c>sha256-…</c>, written when it was
+    /// extracted: at startup the folder must hold exactly these files with these hashes, or the plugin is not loaded
+    /// (<c>failed</c>, "files changed since install").
+    /// </summary>
+    [JsonPropertyName("files")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? Files { get; init; }
+
     /// <summary>ISO 8601 UTC.</summary>
     [JsonPropertyName("installedAt")] public required string InstalledAt { get; init; }
 

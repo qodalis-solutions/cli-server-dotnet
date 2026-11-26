@@ -328,6 +328,9 @@ public partial class CliBuilder
         return this;
     }
 
+    /// <summary>The filesystem API's options once <see cref="AddFileSystem"/> ran (the last call wins).</summary>
+    internal FileSystemOptions? FileSystemApiOptions { get; private set; }
+
     /// <summary>
     /// Enables the filesystem API with optional configuration for allowed paths and custom providers.
     /// </summary>
@@ -346,7 +349,9 @@ public partial class CliBuilder
         {
             FileStorageProvider = new OsFileStorageProvider(new OsProviderOptions
             {
-                AllowedPaths = options.AllowedPaths
+                AllowedPaths = options.AllowedPaths,
+                // the same list: AddCli adds the server's data directory to it
+                DeniedPaths = options.DeniedPaths,
             });
         }
         else
@@ -354,6 +359,7 @@ public partial class CliBuilder
             FileStorageProvider = new InMemoryFileStorageProvider();
         }
 
+        FileSystemApiOptions = options;
         Services.AddSingleton(options);
         Services.AddSingleton<FileSystemPathValidator>();
         AddInstalledPlugin(typeof(FileSystemOptions).Assembly);
