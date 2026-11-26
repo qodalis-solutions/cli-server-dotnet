@@ -142,6 +142,17 @@ public sealed partial class ServerPluginMarketplace : IDisposable
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _changes = new(1, 1);
 
+    /// <summary>What to do when the plugins folder cannot be written (named in the 500 and the startup WARNING).</summary>
+    public string FolderHint => Path.GetFullPath(_plugins.Dir).StartsWith(Path.GetFullPath(_plugins.DataDir) + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        ? PluginsFolder.DataDirHint
+        : PluginsFolder.ServerPluginsDirHint;
+
+    /// <summary>Where the plugins are installed (absolute).</summary>
+    public string Dir => _plugins.Dir;
+
+    /// <summary>False when the host turned the runtime plugins off (nothing can be installed).</summary>
+    public bool PluginsEnabled => _plugins.Enabled;
+
     public ServerPluginMarketplace(
         DashboardMarketplaceOptions options,
         CliServerPlugins plugins,
@@ -644,12 +655,18 @@ public sealed partial class ServerPluginMarketplace : IDisposable
 
     // ---------------------------------------------------------------- changes
 
+    /// <summary>Runs changes one at a time; a file system error on the plugins folder becomes a 500 naming the folder.</summary>
     private async Task<T> ExclusiveAsync<T>(Func<Task<T>> action)
     {
         await _changes.WaitAsync();
         try
         {
             return await action();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && PluginsFolder.ErrorFor(ex, _plugins.Dir, FolderHint) != null)
+        {
+            _logger.LogError(ex, "[qcli-admin] server marketplace: the plugins folder cannot be written");
+            throw new DashboardMarketplaceException(500, PluginsFolder.ErrorFor(ex, _plugins.Dir, FolderHint)!);
         }
         finally
         {

@@ -288,7 +288,7 @@ cli.AddAdmin(config =>
 {
     config.Marketplace.Url = "https://plugins.qodalis.com"; // default
     config.Marketplace.Install = "verified"; // default; "listed": any listed version; "off": browse only
-    config.Marketplace.Dir = "/var/lib/myapp/dashboard-plugins"; // default: <content root>/qcli-data/dashboard-plugins
+    config.Marketplace.Dir = "/var/lib/myapp/dashboard-plugins"; // default: <data dir>/dashboard-plugins
 });
 ```
 
@@ -297,10 +297,17 @@ cli.AddAdmin(config =>
 | `Enabled` | `true` | `false` serves none of the routes below, leaves out `admin dashboard` and loads no installed plugin |
 | `Url` | `https://plugins.qodalis.com` | The marketplace (its public API at `/api/v1/qcli/marketplace`) |
 | `Install` | `verified` | `verified`: listed versions of verified publishers only; `listed`: any listed version; `off`: browse only |
-| `Dir` | `<content root>/qcli-data/dashboard-plugins` | Where installed plugins are kept (add `qcli-data/` to your `.gitignore`) |
+| `Dir` | `<data dir>/dashboard-plugins` | Where installed plugins are kept: the server's data directory (`cli.ConfigureServerPlugins(o => o.DataDir = ...)`, else `QCLI_DATA_DIR`, else `qcli-data` in the working directory), so one option moves every folder; an explicit `Dir` wins (add `qcli-data/` to your `.gitignore`) |
 | `HttpHandler` | a `SocketsHttpHandler` | The `HttpMessageHandler` for the marketplace and the CDNs (a proxy, or a fake in tests) |
 | `Cdns` | jsDelivr, unpkg | Where bundles are downloaded from, in order |
 | `Timeout` | 15 s | Timeout of each request |
+
+The folders must be writable. When one cannot be created or written (a container running as a non-root user with the
+default `qcli-data` in a read-only app folder), the plugin logs one WARNING at startup naming it, and installing,
+updating or removing a dashboard or server plugin answers 500 with the folder and what to set:
+`{ "error": "cannot write the plugins folder /app/qcli-data/dashboard-plugins: permission denied (EACCES). Set DataDir (or QCLI_DATA_DIR) to a writable folder" }`
+(with an explicit `Dir`: `Set the marketplace's Dir to a writable folder`). `admin dashboard install` and `admin
+plugins install` print it as `Error: ...`. Only the folder and the error code are named.
 
 An invalid `Url` or `Install` throws `ArgumentException` (`invalid marketplace url: ...`,
 `invalid marketplace install policy: ...`) when the server starts.

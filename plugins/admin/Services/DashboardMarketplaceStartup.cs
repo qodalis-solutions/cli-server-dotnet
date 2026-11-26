@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Qodalis.Cli.Config;
 
 namespace Qodalis.Cli.Plugin.Admin.Services;
@@ -11,13 +13,28 @@ namespace Qodalis.Cli.Plugin.Admin.Services;
 /// provider (their settings; its store: the host's store for <c>dashboard-plugins</c>, else the default store), unless
 /// the marketplace is off or the host registered a provider with that id.
 /// </summary>
-internal sealed class DashboardMarketplaceStartup(DashboardMarketplace marketplace, CliConfigRegistry? registry) : IHostedService
+internal sealed class DashboardMarketplaceStartup(
+    DashboardMarketplace marketplace,
+    CliConfigRegistry? registry,
+    ServerPluginMarketplace? serverMarketplace = null,
+    ILogger? logger = null) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
         marketplace.Load();
         if (marketplace.Enabled && registry != null && !registry.Has(marketplace.Config.Id)) registry.Add(marketplace.Config);
+        WarnIfUnwritable();
         return Task.CompletedTask;
+    }
+
+    /// <summary>One WARNING when installing would fail: a plugins folder that cannot be created or written.</summary>
+    private void WarnIfUnwritable()
+    {
+        var folders = new List<(string Dir, string Hint)>();
+        if (marketplace.Enabled && marketplace.Install != "off") folders.Add((marketplace.Dir, marketplace.FolderHint));
+        if (serverMarketplace is { PluginsEnabled: true } server && server.Install != "off") folders.Add((server.Dir, server.FolderHint));
+        if (PluginsFolder.UnwritableWarning(folders) is { } warning)
+            (logger ?? NullLogger.Instance).LogWarning("[qcli-admin] WARNING: {Warning}", warning);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

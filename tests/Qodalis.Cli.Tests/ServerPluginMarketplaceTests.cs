@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Qodalis.Cli.Abstractions.Audit;
 using Qodalis.Cli.Abstractions.Events;
 using Qodalis.Cli.Abstractions.Restart;
@@ -901,5 +902,60 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         Assert.Equal($"Removed fixture ({Fixture}@1.1.0).\nNo restart needed: the server already runs this.", await Run("admin plugins remove fixture"));
         Assert.Equal("Error: not installed: fixture", await Run("admin plugins remove fixture"));
         Assert.Equal("Error: name one plugin: admin plugins install <name>[@version]", await Run("admin plugins install a b"));
+    }
+
+    // ---------------------------------------------------------------- the plugins folder
+
+    [Fact]
+    public async Task UnwritableFolder_InstallAnswers500NamingTheFolder_AndTheCommandPrintsIt()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return; // needs Unix permissions and a non-root user
+        PublishFixture();
+        var parent = TempDir();
+        var dataDir = Path.Combine(parent, "data");
+        var (host, client, token) = await StartAsync(dataDir);
+        var folder = Path.Combine(Path.GetFullPath(dataDir), "server-plugins");
+        var expected = $"cannot write the plugins folder {folder}: permission denied (EACCES). {PluginsFolder.DataDirHint}";
+        try
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var (status, body) = await Send(client, token, HttpMethod.Post, $"{Base}/installed", new { name = "fixture", version = "1.0.0" });
+            Assert.Equal(500, status);
+            Assert.Equal(expected, body!["error"]!.GetValue<string>());
+            var run = await ConfigCommands.RunAsync(client, host.Services.GetRequiredService<ICliCommandRegistry>(), "admin plugins install fixture@1.0.0", token);
+            Assert.Equal($"Error: {expected}", run.Text);
+        }
+        finally
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task Startup_LogsOneWarning_WhenAPluginsFolderCannotBeWritten_NoneWhenItCan()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return; // needs Unix permissions and a non-root user
+        var parent = TempDir();
+        var dataDir = Path.Combine(parent, "data");
+        var fine = new Qodalis.Cli.Tests.Helpers.CapturingLoggerProvider();
+        await StartAsync(dataDir, configure: cli => cli.Services.AddLogging(l => l.AddProvider(fine)));
+        Assert.DoesNotContain(fine.Messages, m => m.Contains("plugins folder", StringComparison.Ordinal));
+
+        var logs = new Qodalis.Cli.Tests.Helpers.CapturingLoggerProvider();
+        try
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            await StartAsync(dataDir, configure: cli => cli.Services.AddLogging(l => l.AddProvider(logs)));
+        }
+        finally
+        {
+            File.SetUnixFileMode(parent, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var full = Path.GetFullPath(dataDir);
+        Assert.Equal(
+            [$"[qcli-admin] WARNING: the marketplace cannot write the plugins folders {Path.Combine(full, "dashboard-plugins")}: permission denied (EACCES); "
+             + $"{Path.Combine(full, "server-plugins")}: permission denied (EACCES). Installing, updating and removing plugins will fail. "
+             + $"Set the marketplace's Dir to a writable folder; {PluginsFolder.DataDirHint}."],
+            logs.Messages.Where(m => m.Contains("plugins folder", StringComparison.Ordinal)).ToArray());
     }
 }
