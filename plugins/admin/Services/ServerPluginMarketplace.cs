@@ -102,6 +102,12 @@ public sealed partial class ServerPluginMarketplace : IDisposable
     /// <summary>This server's platform in the marketplace (<c>platforms.dotnet</c>).</summary>
     public const string Platform = "dotnet";
 
+    /// <summary>
+    /// What <see cref="SearchAsync"/> lists: <c>this</c> (default) this server's platform, <c>all</c> every server plugin,
+    /// or one platform's (the marketplace's <c>platform</c> filter).
+    /// </summary>
+    public static readonly IReadOnlyList<string> PlatformFilters = ["this", "all", "node", "python", "dotnet"];
+
     /// <summary>The permission to install, update and remove server plugins.</summary>
     public const string InstallPermission = CliRoutePolicy.PluginsInstall;
 
@@ -366,6 +372,20 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         return (true, null);
     }
 
+    /// <summary>The fields of a list item that describe the platform the marketplace was asked for.</summary>
+    private static readonly string[] PlatformViewFields = ["latest", "version", "compatible", "reason", "autoInstall", "autoInstallReason", "autoInstallDerived", "needsConfiguration"];
+
+    /// <summary>
+    /// A list item without the marketplace's view of the platform it was asked for (another one's, or none), so this
+    /// server's annotation comes from its own package only.
+    /// </summary>
+    private static JsonObject WithoutPlatformView(JsonObject item)
+    {
+        var copy = item.DeepClone().AsObject();
+        foreach (var key in PlatformViewFields) copy.Remove(key);
+        return copy;
+    }
+
     private static string? RangeOf(JsonObject? version, JsonObject own) => Str(version, "serverRange") ?? Str(own, "serverRange");
 
     // ---------------------------------------------------------------- browsing
@@ -376,10 +396,21 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         return ServerVersion is { } server ? $"{qs}&serverVersion={Uri.EscapeDataString(server)}" : qs;
     }
 
-    /// <summary><c>GET /plugins</c>: the marketplace's server plugins, annotated. Throws 502 when it is unreachable.</summary>
-    public async Task<JsonObject> SearchAsync(string? query = null, int? page = null, int? pageSize = null, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// <c>GET /plugins</c>: the marketplace's server plugins, annotated for this server. Throws 502 when it is unreachable.
+    /// <paramref name="platform"/>: <c>this</c> (default) the ones with a .NET package, checked against this server's
+    /// version; <c>all</c> every server plugin; or <c>node</c>, <c>python</c>, <c>dotnet</c>, passed on to the marketplace
+    /// (anything else: 400). Plugins without a .NET package are listed but not installable (<c>not available for dotnet</c>),
+    /// also when the marketplace ignores the filter.
+    /// </summary>
+    public async Task<JsonObject> SearchAsync(string? query = null, int? page = null, int? pageSize = null, string? platform = null, CancellationToken cancellationToken = default)
     {
-        var qs = PlatformQuery();
+        var filter = string.IsNullOrEmpty(platform) ? "this" : platform;
+        if (!PlatformFilters.Contains(filter)) throw new DashboardMarketplaceException(400, $"invalid platform: {filter} ({string.Join(", ", PlatformFilters)})");
+        var asked = filter == "this" ? Platform : filter == "all" ? null : filter;
+        // The marketplace's view of an item (latest, compatible, reason, autoInstall) is this server's only when it was asked for this platform
+        var ownView = asked == Platform;
+        var qs = ownView ? PlatformQuery() : asked != null ? $"kind=server&platform={asked}" : "kind=server";
         var q = query?.Trim();
         if (!string.IsNullOrEmpty(q)) qs += $"&query={Uri.EscapeDataString(q.Length > 200 ? q[..200] : q)}";
         if (page != null) qs += $"&page={page}";
@@ -392,7 +423,7 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         foreach (var item in items)
         {
             var copy = item.DeepClone().AsObject();
-            Annotate(copy, item);
+            Annotate(copy, ownView ? item : WithoutPlatformView(item));
             annotated.Add(copy);
         }
         static bool IsNum(JsonNode? n) => n is JsonValue v && v.GetValueKind() == JsonValueKind.Number;

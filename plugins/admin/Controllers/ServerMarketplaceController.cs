@@ -16,7 +16,7 @@ namespace Qodalis.Cli.Plugin.Admin.Controllers;
 /// <c>restartRequired</c>. 404 when the marketplace is off.
 /// <list type="bullet">
 /// <item><c>GET /</c>: <c>{ marketplaceUrl, install, platform: 'dotnet', serverVersion, enabled }</c></item>
-/// <item><c>GET /plugins?query=&amp;page=&amp;pageSize=</c>: the marketplace's server plugins, annotated (<c>platform</c>, <c>otherPlatforms</c>, <c>autoInstall</c>, <c>updateAvailable</c>, <c>allowed</c>, <c>blockedReason</c>)</item>
+/// <item><c>GET /plugins?query=&amp;page=&amp;pageSize=&amp;platform=</c>: the marketplace's server plugins, annotated (<c>platform</c>, <c>otherPlatforms</c>, <c>autoInstall</c>, <c>updateAvailable</c>, <c>allowed</c>, <c>blockedReason</c>); <c>platform</c>: <c>this</c> (default: the ones with a .NET package), <c>all</c>, <c>node</c>, <c>python</c> or <c>dotnet</c> (400 for anything else). Plugins without a .NET package are not installable here.</item>
 /// <item><c>GET /plugins/{name}</c>: one plugin with its platforms and versions</item>
 /// <item><c>GET /installed</c>: the installed plugins and how they run (<c>status</c>, <c>loadedVersion</c>, <c>error</c>, <c>updateAvailable</c>)</item>
 /// <item><c>POST /installed</c> <c>{ name, version? }</c>: 202, the installed plugin with <c>restartRequired</c></item>
@@ -121,7 +121,9 @@ public class ServerMarketplaceController(IServiceProvider services, ILogger<Serv
     public Task<IActionResult> Search(CancellationToken cancellationToken) => Run(async m =>
     {
         var query = Request.Query.TryGetValue("query", out var q) ? q.ToString() : null;
-        return Send(200, await m.SearchAsync(query, IntParam("page", 1_000_000), IntParam("pageSize", 100), cancellationToken));
+        // platform=all&platform=node is "all,node": invalid
+        var platform = Request.Query.TryGetValue("platform", out var p) ? p.ToString() : null;
+        return Send(200, await m.SearchAsync(query, IntParam("page", 1_000_000), IntParam("pageSize", 100), platform, cancellationToken));
     });
 
     [HttpGet("plugins/{**name}")]

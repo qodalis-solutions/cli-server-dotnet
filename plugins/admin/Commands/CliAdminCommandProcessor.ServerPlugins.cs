@@ -36,13 +36,27 @@ public sealed partial class CliAdminCommandProcessor
         public override string Description { get; set; } =
             "Searches the marketplace's server plugins: this server's package, version, platforms, whether it can be installed";
         public override string? Module { get; set; } = ModuleName;
-        public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } = [JsonParam];
-        public override IEnumerable<CliCommandExample>? Examples { get; set; } = [new("admin plugins search jobs", "Server plugins about jobs")];
+        public override IEnumerable<ICliCommandParameterDescriptor>? Parameters { get; set; } =
+        [
+            new CliCommandParameterDescriptor
+            {
+                Name = "platform",
+                Description = $"Whose plugins: {string.Join(", ", ServerPluginMarketplace.PlatformFilters)} (default this: the ones for this server)",
+                Type = CommandParameterType.String,
+            },
+            JsonParam,
+        ];
+        public override IEnumerable<CliCommandExample>? Examples { get; set; } =
+        [
+            new("admin plugins search jobs", "Server plugins about jobs"),
+            new("admin plugins search --platform=all", "Every server plugin, also the ones for other platforms"),
+        ];
 
         public override Task<string> HandleAsync(CliProcessCommand command, CancellationToken cancellationToken = default) => MarketplaceCall(async () =>
         {
             var query = string.Join(' ', CliValueHelpers.GetPositionals(command));
-            var result = await marketplace.SearchAsync(query, pageSize: 50, cancellationToken: cancellationToken);
+            var platform = command.Args.TryGetValue("platform", out var raw) && raw != null ? raw.ToString() : null;
+            var result = await marketplace.SearchAsync(query, pageSize: 50, platform: platform, cancellationToken: cancellationToken);
             if (Flag(command, "json")) return result.ToJsonString(Json);
             var items = (result["items"] as JsonArray)?.OfType<JsonObject>().ToList() ?? [];
             if (items.Count == 0) return query.Length > 0 ? $"No server plugins match \"{query}\"." : "The marketplace lists no server plugins.";

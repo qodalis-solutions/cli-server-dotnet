@@ -560,7 +560,7 @@ answer 404 when the marketplace is off.
 | Route | Does |
 |---|---|
 | `GET /` | `{ marketplaceUrl, install, platform: "dotnet", serverVersion, enabled }` |
-| `GET /plugins?query=&page=&pageSize=` | Fetched with `kind=server&platform=dotnet&serverVersion=<this server's>`, each item annotated with `platform: { package, latest, installed, compatible, reason? }`, `otherPlatforms`, `autoInstall`, `updateAvailable`, `allowed`, `blockedReason` |
+| `GET /plugins?query=&page=&pageSize=&platform=` | `platform`: `this` (default: fetched with `kind=server&platform=dotnet&serverVersion=<this server's>`), `all` (`kind=server`, every server plugin), `node`, `python` or `dotnet` (passed on as `platform=`), 400 for anything else; a plugin without a .NET package is listed with `platform: null`, `allowed: false`, `blockedReason: "not available for dotnet"`. Each item annotated with `platform: { package, latest, installed, compatible, reason? }`, `otherPlatforms`, `autoInstall`, `updateAvailable`, `allowed`, `blockedReason` |
 | `GET /plugins/{name}` | One plugin with its platforms and versions (this platform's with `allowed` and `blockedReason`) |
 | `GET /installed` | The installed plugins and how they run |
 | `POST /installed` `{ name, version? }` | 202: the installed plugin with `restartRequired` |
@@ -613,7 +613,7 @@ route).
 | `admin status --history [--minutes 60] [--json]` | `admin:access` | Summary of the status samples of the last minutes (1-1440): count, min/avg/max memory and CPU, peak connections (`GET /status/history`) |
 | `admin plugins`, `admin plugins list [--json]` | `admin:access` | Command modules: id, name, version, enabled or disabled, commands (`GET /plugins`) |
 | `admin plugins enable <id>`, `admin plugins disable <id>` | `admin:access` | Turns a module's commands on or off, like `POST /plugins/{id}/toggle` but idempotent (`... is already enabled.`); the `admin` module itself cannot be disabled from the terminal |
-| `admin plugins search [<query>] [--json]` | `admin:access` | The marketplace's server plugins: package, version, platforms, publisher, installable or blocked and why (`GET /server/marketplace/plugins`) |
+| `admin plugins search [<query>] [--platform this\|all\|node\|python\|dotnet] [--json]` | `admin:access` | The marketplace's server plugins: package, version, platforms, publisher, installable or blocked and why (`GET /server/marketplace/plugins`) |
 | `admin plugins installed [--json]` | `admin:access` | The server plugins installed from the marketplace: package, version (update available), status (loaded, needs-configuration, pending restart, failed with the reason), when and by whom |
 | `admin plugins install <name>[@version]` | `admin:access`, `plugins:install` | Installs this server's package (the newest compatible version, or the one given); runs after a restart (`POST /server/marketplace/installed`) |
 | `admin plugins update <name>[@version]` | `admin:access`, `plugins:install` | Updates an installed server plugin; runs after a restart |

@@ -35,6 +35,9 @@ internal sealed class FakeServerMarketplaceNet : HttpMessageHandler
     public readonly ConcurrentDictionary<string, byte[]> Packages = new(StringComparer.OrdinalIgnoreCase);
     public readonly ConcurrentQueue<string> Calls = new();
 
+    /// <summary>As the marketplace before <c>platform</c> filtered the list: every server plugin, whatever <c>platform</c> says.</summary>
+    public bool IgnorePlatformFilter { get; set; }
+
     public static string Sha512Of(byte[] bytes) => $"sha512-{Convert.ToBase64String(SHA512.HashData(bytes))}";
 
     /// <summary>A .nupkg: its nuspec (with one dependency group for net10.0) and <c>lib/&lt;tfm&gt;/</c> files.</summary>
@@ -121,14 +124,21 @@ internal sealed class FakeServerMarketplaceNet : HttpMessageHandler
             if (path == api)
             {
                 var items = new JsonArray();
+                var platform = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query)["platform"];
                 foreach (var p in Plugins.Values)
                 {
                     var item = (JsonObject)p.DeepClone();
                     var latest = (item["versions"] as JsonArray)!.OfType<JsonObject>().Select(v => v["version"]!.GetValue<string>()).LastOrDefault();
                     item.Remove("versions");
-                    item["platforms"]!["dotnet"]!["latest"] = latest;
-                    item["latest"] = latest;
-                    item["compatible"] = true;
+                    if (item["platforms"]?["dotnet"] is JsonObject dotnet) dotnet["latest"] = latest;
+                    if (platform == null) { items.Add(item); continue; }
+                    // The marketplace's view of the platform asked for; plugins without a package for it left out
+                    var own = item["platforms"]?[platform] as JsonObject;
+                    if (own == null && !IgnorePlatformFilter) continue;
+                    item["latest"] = own?["latest"]?.DeepClone();
+                    item["version"] = own?["latest"]?.DeepClone();
+                    item["compatible"] = own != null;
+                    if (own == null) item["reason"] = $"not available for {platform}";
                     items.Add(item);
                 }
                 return Task.FromResult(Json(HttpStatusCode.OK, new JsonObject { ["items"] = items, ["total"] = items.Count, ["page"] = 1, ["pageSize"] = 50 }));
@@ -357,6 +367,146 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
 
         var (_, details) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins/fixture");
         Assert.All(details!["versions"]!.AsArray(), v => Assert.True(v!["allowed"]!.GetValue<bool>()));
+    }
+
+    /// <summary>fixture (.NET and Node), nodeonly, pythononly (no .NET package) and jobs (.NET only).</summary>
+    private void PublishPlatforms()
+    {
+        PublishFixture();
+        _net.Plugins["fixture"]["platforms"]!["node"]!["latest"] = "1.0.0";
+        _net.Plugins["fixture"]["platforms"]!["python"] = new JsonObject { ["package"] = "qodalis-cli-server-plugin-fixture", ["latest"] = "1.0.0b31" };
+        _net.Publish("nodeonly", "-", [], extra: new JsonObject { ["platforms"] = new JsonObject { ["node"] = new JsonObject { ["package"] = "@acme/nodeonly", ["latest"] = "1.0.0" } } });
+        _net.Publish("pythononly", "-", [], extra: new JsonObject { ["platforms"] = new JsonObject { ["python"] = new JsonObject { ["package"] = "acme-pythononly", ["latest"] = "1.0.0" } } });
+        _net.Publish("jobs", "Acme.Jobs", [FakeServerMarketplaceNet.Version("2.0.0", [1])], extra: new JsonObject { ["platforms"] = new JsonObject { ["dotnet"] = new JsonObject { ["package"] = "Acme.Jobs" } } });
+    }
+
+    private async Task<(int Status, JsonNode? Body, System.Collections.Specialized.NameValueCollection Query, Dictionary<string, JsonNode> Items)> ListAsync(HttpClient client, string token, string? platform)
+    {
+        var path = platform == null ? $"{Base}/plugins" : $"{Base}/plugins?platform={Uri.EscapeDataString(platform)}";
+        var (status, body) = await Send(client, token, HttpMethod.Get, path);
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(_net.Calls.Last()).Query);
+        var items = status == 200 ? body!["items"]!.AsArray().ToDictionary(i => i!["name"]!.GetValue<string>(), i => i!) : [];
+        return (status, body, query, items);
+    }
+
+    private static void AssertNotForDotnet(JsonNode item)
+    {
+        Assert.Null(item["platform"]);
+        Assert.False(item["allowed"]!.GetValue<bool>());
+        Assert.Equal("not available for dotnet", item["blockedReason"]!.GetValue<string>());
+    }
+
+    private static string Keys(System.Collections.Specialized.NameValueCollection query) =>
+        string.Join("&", query.AllKeys.Select(k => $"{k}={query[k]}"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("this")]
+    [InlineData("")]
+    public async Task Search_PlatformThis_TheDefault_ListsThisPlatform_WithThisServerVersion(string? platform)
+    {
+        PublishPlatforms();
+        var (_, client, token) = await StartAsync(TempDir());
+        var (status, body, query, items) = await ListAsync(client, token, platform);
+        Assert.Equal(200, status);
+        Assert.Equal("kind=server&platform=dotnet&serverVersion=", Keys(query)[..^query["serverVersion"]!.Length]);
+        Assert.False(string.IsNullOrEmpty(query["serverVersion"]));
+        Assert.Equal(["fixture", "jobs"], items.Keys.Order());
+        Assert.Equal(2, body!["total"]!.GetValue<int>());
+        Assert.Equal("1.1.0", items["fixture"]["platform"]!["latest"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Search_PlatformAll_HasNoFilter_AndListsOtherPlatformsPlugins_NotInstallable()
+    {
+        PublishPlatforms();
+        var (_, client, token) = await StartAsync(TempDir());
+        var (status, body, query, items) = await ListAsync(client, token, "all");
+        Assert.Equal(200, status);
+        Assert.Equal("kind=server", Keys(query));
+        Assert.Equal(["fixture", "jobs", "nodeonly", "pythononly"], items.Keys.Order());
+        Assert.Equal(4, body!["total"]!.GetValue<int>());
+        AssertNotForDotnet(items["nodeonly"]);
+        AssertNotForDotnet(items["pythononly"]);
+        Assert.Equal(["node"], items["nodeonly"]["otherPlatforms"]!.AsArray().Select(p => p!.GetValue<string>()));
+        Assert.Null(items["nodeonly"]["installed"]);
+        Assert.False(items["nodeonly"]["updateAvailable"]!.GetValue<bool>());
+        Assert.Equal(("1.1.0", true, true), (items["fixture"]["platform"]!["latest"]!.GetValue<string>(), items["fixture"]["platform"]!["compatible"]!.GetValue<bool>(), items["fixture"]["allowed"]!.GetValue<bool>()));
+    }
+
+    [Fact]
+    public async Task Search_PlatformNodePythonDotnet_ArePassedOn_AndTheAnnotationStaysThisServers()
+    {
+        PublishPlatforms();
+        var (_, client, token) = await StartAsync(TempDir());
+        var (_, _, query, items) = await ListAsync(client, token, "dotnet");
+        Assert.StartsWith("kind=server&platform=dotnet&serverVersion=", Keys(query));
+        Assert.Equal(["fixture", "jobs"], items.Keys.Order());
+
+        (var status, var body, query, items) = await ListAsync(client, token, "python");
+        Assert.Equal(200, status);
+        Assert.Equal("kind=server&platform=python", Keys(query));
+        Assert.Equal(["fixture", "pythononly"], items.Keys.Order());
+        Assert.Equal(2, body!["total"]!.GetValue<int>());
+        // the marketplace's latest is Python's (1.0.0b31): this server's annotation keeps the .NET package's
+        Assert.Equal("1.0.0b31", items["fixture"]["latest"]!.GetValue<string>());
+        Assert.Equal(("1.1.0", true), (items["fixture"]["platform"]!["latest"]!.GetValue<string>(), items["fixture"]["allowed"]!.GetValue<bool>()));
+        AssertNotForDotnet(items["pythononly"]);
+
+        (_, _, query, items) = await ListAsync(client, token, "node");
+        Assert.Equal("kind=server&platform=node", Keys(query));
+        Assert.Equal(["fixture", "nodeonly"], items.Keys.Order());
+        AssertNotForDotnet(items["nodeonly"]);
+    }
+
+    [Fact]
+    public async Task Search_AnOlderMarketplaceIgnoringTheFilter_OtherPlatformsPlugins_AreNotInstallable()
+    {
+        PublishPlatforms();
+        _net.IgnorePlatformFilter = true;
+        var (_, client, token) = await StartAsync(TempDir());
+        var (_, _, _, items) = await ListAsync(client, token, "this");
+        Assert.Equal(["fixture", "jobs", "nodeonly", "pythononly"], items.Keys.Order());
+        AssertNotForDotnet(items["nodeonly"]);
+        (_, _, _, items) = await ListAsync(client, token, "python");
+        // Python's view (not available for python) is not this server's: jobs keeps its .NET package
+        Assert.Equal((false, "not available for python"), (items["jobs"]["compatible"]!.GetValue<bool>(), items["jobs"]["reason"]!.GetValue<string>()));
+        Assert.Equal(("Acme.Jobs", true), (items["jobs"]["platform"]!["package"]!.GetValue<string>(), items["jobs"]["platform"]!["compatible"]!.GetValue<bool>()));
+        Assert.NotEqual("not available for python", items["jobs"]["blockedReason"]?.GetValue<string>());
+        AssertNotForDotnet(items["pythononly"]);
+    }
+
+    [Fact]
+    public async Task Search_AnyOtherPlatform_Is400_AskedOfNoMarketplace()
+    {
+        PublishPlatforms();
+        var (_, client, token) = await StartAsync(TempDir());
+        foreach (var platform in new[] { "java", "NODE", "this,all" })
+        {
+            var (status, body) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins?platform={Uri.EscapeDataString(platform)}");
+            Assert.Equal(400, status);
+            Assert.Equal($"invalid platform: {platform} (this, all, node, python, dotnet)", body!["error"]!.GetValue<string>());
+        }
+        var (twice, twiceBody) = await Send(client, token, HttpMethod.Get, $"{Base}/plugins?platform=all&platform=node");
+        Assert.Equal((400, "invalid platform: all,node (this, all, node, python, dotnet)"), (twice, twiceBody!["error"]!.GetValue<string>()));
+        Assert.Empty(_net.Calls);
+    }
+
+    [Fact]
+    public async Task AdminPluginsSearch_Platform()
+    {
+        PublishPlatforms();
+        var (host, client, token) = await StartAsync(TempDir());
+        async Task<string> Run(string line) => (await ConfigCommands.RunAsync(client, host.Services.GetRequiredService<ICliCommandRegistry>(), line, token)).Text;
+        var all = await Run("admin plugins search --platform all");
+        Assert.Matches(@"(?m)^nodeonly\s+\(not for dotnet\)\s+-\s+node\s+Qodalis \(verified\)\s+blocked: not available for dotnet\s*$", all);
+        Assert.Null(System.Web.HttpUtility.ParseQueryString(new Uri(_net.Calls.Last()).Query)["platform"]);
+        var python = await Run("admin plugins search --platform python");
+        Assert.Contains("pythononly", python);
+        Assert.DoesNotContain("nodeonly", python);
+        Assert.Equal("python", System.Web.HttpUtility.ParseQueryString(new Uri(_net.Calls.Last()).Query)["platform"]);
+        Assert.DoesNotContain("nodeonly", await Run("admin plugins search --platform this"));
+        Assert.Equal("Error: invalid platform: java (this, all, node, python, dotnet)", await Run("admin plugins search --platform java"));
     }
 
     // ---------------------------------------------------------------- installing
