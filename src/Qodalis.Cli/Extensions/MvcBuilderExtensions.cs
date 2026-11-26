@@ -353,7 +353,8 @@ internal sealed class CliNotificationsStartup(CliNotificationService notificatio
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _subscription?.Dispose();
+        // Taken once: a second stop (a host disposed while it stops) finds nothing to dispose
+        Interlocked.Exchange(ref _subscription, null)?.Dispose();
         return Task.CompletedTask;
     }
 }

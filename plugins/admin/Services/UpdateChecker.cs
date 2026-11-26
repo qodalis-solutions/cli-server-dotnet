@@ -224,7 +224,16 @@ public sealed class UpdateChecker : IDisposable
     private void AddTimer(TimeSpan due, TimeSpan period)
     {
         var timer = _time.CreateTimer(_ => _ = CheckQuietlyAsync(), null, due, period);
-        lock (_lock) _timers.Add(timer);
+        lock (_lock)
+        {
+            // Stop() ran while Start() was adding its timers: keep none, Stop() already disposed the others
+            if (_started)
+            {
+                _timers.Add(timer);
+                return;
+            }
+        }
+        timer.Dispose();
     }
 
     private async Task CheckQuietlyAsync()
