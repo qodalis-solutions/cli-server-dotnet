@@ -27,16 +27,25 @@ public static class CliEfDialects
     /// Points <paramref name="options"/> at <paramref name="connectionString"/> with the dialect's provider. Throws
     /// <see cref="InvalidOperationException"/> for an unknown dialect or a provider that is not installed.
     /// </summary>
-    public static void Use(DbContextOptionsBuilder options, string dialect, string connectionString)
+    public static void Use(DbContextOptionsBuilder options, string dialect, string connectionString) =>
+        UseMethod(dialect).Invoke(null, [options, connectionString, null]);
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> for an unknown dialect or a provider that is not installed. The
+    /// entries check it while they register, so a missing provider fails the plugin instead of the server's start
+    /// (the context's options are only built when a store is first resolved).
+    /// </summary>
+    public static void EnsureInstalled(string dialect) => UseMethod(dialect);
+
+    private static MethodInfo UseMethod(string dialect)
     {
         if (!Providers.TryGetValue(dialect, out var p)) throw new InvalidOperationException($"unknown dialect: {dialect} ({string.Join(", ", All)})");
         // The copy this plugin's load context sees: another plugin's copy has other EF Core types
         var assembly = CliPluginLoadContext.FindAssembly(p.Assembly, typeof(CliEfDialects).Assembly);
-        var method = assembly?.GetType(p.Type)?.GetMethods(BindingFlags.Public | BindingFlags.Static)
+        return assembly?.GetType(p.Type)?.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .FirstOrDefault(m => m.Name == p.Method && !m.IsGenericMethod && m.GetParameters() is var ps && ps.Length == 3
                 && ps[0].ParameterType == typeof(DbContextOptionsBuilder) && ps[1].ParameterType == typeof(string))
             ?? throw new InvalidOperationException($"the {dialect} provider is not installed ({p.Assembly}: add it to the host, or install it with the plugin)");
-        method.Invoke(null, [options, connectionString, null]);
     }
 
 }
@@ -85,6 +94,8 @@ public static class CliEfPluginEntries
             if (prefix.Length > 0) o.TablePrefix = prefix;
         }
         if (connection.Length == 0) return (settings, null, Tables);
+        // A missing provider fails this plugin now, not the server's start when the store is first resolved
+        CliEfDialects.EnsureInstalled(dialect);
         if (dialect == "sqlite" && !connection.Contains('='))
         {
             var file = Path.IsPathRooted(connection) || connection == ":memory:" ? connection : Path.Combine(context.DataDir, connection);

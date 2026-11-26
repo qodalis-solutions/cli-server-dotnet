@@ -3,6 +3,17 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+Fixes found installing every marketplace plugin on a .NET host built from the published packages:
+
+- **EF Core stores installed from the marketplace work.** Their `Qodalis.Cli.Plugin.*` dependencies (`Qodalis.Cli.Plugin.Databases.EfCore`, `.Databases`, `.Jobs`, `.PublicApi`), which the marketplace does not pin, are installed from the marketplace's own record of that plugin (version inside the range, its sha512 and the pins of its dependencies), instead of `untrusted dependency`. `Qodalis.Cli.Plugin.Databases.EfCore` ships the SQLite provider, so the default dialect works without code, and is marked a library (`needs setup in code`, it has no entry).
+- **A missing EF Core provider fails the plugin, not the server.** An EF Core store whose dialect's provider is not installed (postgres or mssql without the host's package) stopped the server at startup ("Hosting failed to start"), with no way back from the dashboard; it is now `failed` with "the postgres provider is not installed (...)" (`CliEfDialects.EnsureInstalled`). A failed plugin keeps its settings, so they can be corrected before the next restart.
+- **A plugin whose package the host only references is installable.** Installing `filesystem` (its package is part of the server) answered 409 `already added in code`, as did any plugin whose package another package brings (`databases` under the EF Core stores). The install now turns the host's copy on (its entry; the server's `FileSystemPluginEntry`), with nothing downloaded (`CliServerPlugins.HostEntry`); a package the host adds in code is still refused.
+- **Dependencies pinned at several versions**: the marketplace pins the dependency tree, so an id can be there more than once; the newest pin inside the dependency's range is used (it kept the last one and refused the install).
+- **The dashboard tells a missing server plugin.** The API of a plugin assembly the host references but no plugin added (`/api/v1/qcli/databases` with `Qodalis.Cli.Plugin.Databases` brought by an EF Core store) answered 500; its controllers are no longer routed (404). The filesystem API turned off answers 404 without `error` (`{ detail, code: "FS_DISABLED" }`), so the Files page says the filesystem plugin is not installed.
+- **A dashboard plugin whose page the server now adds in code is removed at start** (installed before a server plugin serving the same page): it was dropped from the list but kept on disk, and could not be removed.
+
 ## 1.0.0-beta.33
 
 - The admin plugin embeds dashboard 1.0.0-beta.31: a failed install, update or remove shows the server's message, error texts never show an HTML page, a page whose server plugin is missing says so, and installing a dashboard plugin offers its missing server plugin.

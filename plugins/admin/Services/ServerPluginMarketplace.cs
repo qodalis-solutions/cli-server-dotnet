@@ -203,15 +203,19 @@ public sealed partial class ServerPluginMarketplace : IDisposable
     /// <summary>
     /// The dependencies the marketplace pins for a version, by id: <c>dependencies: [{ id, version, integrity }]</c>
     /// (or <c>package</c> for <c>id</c>), or <c>{ id: { version, integrity } }</c>; entries without a sha512 are left out.
+    /// The marketplace pins the dependency tree, so an id can be pinned at several versions (each for the range of the
+    /// package needing it): all are kept, newest first (see <see cref="PinFor"/>).
     /// </summary>
-    internal static Dictionary<string, (string Version, string Integrity)> PinnedDependencies(JsonObject version)
+    internal static Dictionary<string, List<(string Version, string Integrity)>> PinnedDependencies(JsonObject version)
     {
-        var pinned = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+        var pinned = new Dictionary<string, List<(string Version, string Integrity)>>(StringComparer.OrdinalIgnoreCase);
         void Add(string? id, JsonNode? node)
         {
             var v = Str(node, "version");
             var integrity = Str(node, "integrity");
-            if (id != null && NuGetPackage.IsVersion(v) && integrity != null && Sha512().IsMatch(integrity)) pinned[id] = (v!, integrity);
+            if (id == null || !NuGetPackage.IsVersion(v) || integrity == null || !Sha512().IsMatch(integrity)) return;
+            if (!pinned.TryGetValue(id, out var pins)) pinned[id] = pins = [];
+            if (!pins.Any(p => NuGetPackage.CompareVersions(p.Version, v!) == 0)) pins.Add((v!, integrity));
         }
         switch (version["dependencies"])
         {
@@ -222,7 +226,22 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 foreach (var (id, d) in map) Add(id, d);
                 break;
         }
+        foreach (var pins in pinned.Values) pins.Sort((a, b) => NuGetPackage.CompareVersions(b.Version, a.Version));
         return pinned;
+    }
+
+    /// <summary>
+    /// The pin of <paramref name="id"/> for <paramref name="range"/>: the newest pinned version inside it; null when the id
+    /// is not pinned. Throws (502) when it is pinned only outside the range.
+    /// </summary>
+    internal static (string Version, string Integrity)? PinFor(Dictionary<string, List<(string Version, string Integrity)>> pinned, string id, string? range)
+    {
+        if (!pinned.TryGetValue(id, out var pins) || pins.Count == 0) return null;
+        foreach (var pin in pins)
+        {
+            if (NuGetPackage.SatisfiesNuGetRange(pin.Version, range)) return pin;
+        }
+        throw new DashboardMarketplaceException(502, $"the marketplace pins {id} {string.Join(", ", pins.Select(p => p.Version))}, outside {range}");
     }
 
     /// <summary>The server's runtime plugins.</summary>
@@ -773,10 +792,18 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         if (server != null && !SatisfiesServerRange(server, range))
             throw new DashboardMarketplaceException(400, $"incompatible: {Str(own, "package")}@{Str(target, "version")} needs server {range} (this server has {server})");
         var package = Str(own, "package")!;
-        if (AddedInCode(package) is { } code)
+        if (AddedInCode(package) is { } code && !IsBuiltIn(name, package, code))
             throw new DashboardMarketplaceException(409, $"already added in code: {package}{(code.Version != null ? $"@{code.Version}" : "")}");
         return (plugin, own, target);
     }
+
+    /// <summary>
+    /// A plugin whose package the host has without adding it (<c>filesystem</c>, part of the server on .NET; a dependency
+    /// of another package) and that has an entry there: its install turns the host's copy on, nothing is downloaded (see
+    /// <see cref="CliServerPlugins.HostEntry"/>).
+    /// </summary>
+    private static bool IsBuiltIn(string? name, string package, (string? Version, bool Listed)? code = null) =>
+        code is not { Listed: true } && CliServerPlugins.HostEntry(name, package) != null;
 
     /// <summary>
     /// The package as the host adds it in its code: listed among the installed plugins not from the marketplace, or an
@@ -853,6 +880,39 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         return compared < 0 || (compared == 0 && exclusive) ? version : null;
     }
 
+    /// <summary>A package of the official server plugins (<c>Qodalis.Cli.Plugin.*</c>), which the marketplace lists as plugins of their own.</summary>
+    internal static bool IsServerPluginPackage(string id) => id.StartsWith("Qodalis.Cli.Plugin.", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The marketplace's record of the server plugin whose .NET package is <paramref name="package"/>: its newest listed
+    /// version inside <paramref name="range"/> (and this server's range) with a sha512, and the dependencies it pins. Null
+    /// when the marketplace lists no such plugin or version.
+    /// </summary>
+    private async Task<(string Version, string Integrity, Dictionary<string, List<(string Version, string Integrity)>> Pins)?> MarketplacePinAsync(
+        string package, string? range, CancellationToken cancellationToken)
+    {
+        string? name = null;
+        for (var page = 1; page <= 5 && name == null; page++)
+        {
+            if (await GetJsonAsync($"{Url}{DashboardMarketplace.MarketplaceApiPath}/plugins?{PlatformQuery()}&pageSize=100&page={page}", cancellationToken)
+                is not JsonObject body || body["items"] is not JsonArray items) break;
+            name = items.OfType<JsonObject>()
+                .FirstOrDefault(i => string.Equals(Str(PlatformsOf(i).GetValueOrDefault(Platform), "package"), package, StringComparison.OrdinalIgnoreCase))
+                is { } item ? Str(item, "name") : null;
+            if (items.Count < 100) break;
+        }
+        if (name == null) return null;
+        var plugin = await FetchPluginAsync(name, cancellationToken);
+        if (PlatformsOf(plugin).GetValueOrDefault(Platform) is not { } own
+            || !string.Equals(Str(own, "package"), package, StringComparison.OrdinalIgnoreCase)) return null;
+        var server = ServerVersion;
+        var version = ListedVersions(plugin, own).FirstOrDefault(v =>
+            NuGetPackage.SatisfiesNuGetRange(Str(v, "version")!, range)
+            && (server == null || SatisfiesServerRange(server, RangeOf(v, own)))
+            && Str(v, "integrity") is { } i && Sha512().IsMatch(i));
+        return version == null ? null : (Str(version, "version")!, Str(version, "integrity")!, PinnedDependencies(version));
+    }
+
     /// <summary>Packages the server never downloads: the framework's own.</summary>
     private static bool IsFramework(string id) =>
         id.Equals("NETStandard.Library", StringComparison.OrdinalIgnoreCase)
@@ -872,6 +932,11 @@ public sealed partial class ServerPluginMarketplace : IDisposable
         var integrity = Str(target, "integrity");
         if (integrity == null || !Sha512().IsMatch(integrity))
             throw new DashboardMarketplaceException(502, "the marketplace record has no sha512 integrity");
+        if (IsBuiltIn(Str(plugin, "name"), package, AddedInCode(package)))
+        {
+            // Part of the server: recorded with the server's copy's version, nothing downloaded or extracted
+            return NewRecord(plugin, package, CliPluginLoadContext.HostVersion(package) ?? version, integrity, new Dictionary<string, string>(), actor);
+        }
         var bytes = await DownloadAsync(package, version, cancellationToken);
         if (!CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(Sha512Integrity(bytes)), System.Text.Encoding.ASCII.GetBytes(integrity)))
             throw new DashboardMarketplaceException(502, $"integrity mismatch: {package}@{version}");
@@ -949,12 +1014,24 @@ public sealed partial class ServerPluginMarketplace : IDisposable
                 if (!CliServerPlugins.IsValidPackage(dependency.Id)) throw new DashboardMarketplaceException(502, $"invalid dependency: {dependency.Id}");
                 string resolved;
                 string? expected = null;
-                if (pinned.TryGetValue(dependency.Id, out var pin))
+                if (PinFor(pinned, dependency.Id, dependency.Range) is { } pin)
                 {
-                    if (!NuGetPackage.SatisfiesNuGetRange(pin.Version, dependency.Range))
-                        throw new DashboardMarketplaceException(502, $"the marketplace pins {dependency.Id} {pin.Version}, outside {dependency.Range}");
                     resolved = pin.Version;
                     expected = pin.Integrity;
+                }
+                else if (IsServerPluginPackage(dependency.Id)
+                         && await MarketplacePinAsync(dependency.Id, dependency.Range, cancellationToken) is { } listedPlugin)
+                {
+                    // A server plugin's package (Qodalis.Cli.Plugin.Databases.EfCore under the EF Core stores): the marketplace
+                    // does not pin the host's packages, so its own record gives the version, the sha512 and its dependencies' pins
+                    resolved = listedPlugin.Version;
+                    expected = listedPlugin.Integrity;
+                    foreach (var (id, pins) in listedPlugin.Pins)
+                    {
+                        if (!pinned.TryGetValue(id, out var have)) pinned[id] = have = [];
+                        foreach (var extra in pins.Where(p => !have.Any(h => NuGetPackage.CompareVersions(h.Version, p.Version) == 0))) have.Add(extra);
+                        have.Sort((a, b) => NuGetPackage.CompareVersions(b.Version, a.Version));
+                    }
                 }
                 else if (Trusted(dependency.Id))
                 {
@@ -1003,6 +1080,12 @@ public sealed partial class ServerPluginMarketplace : IDisposable
             throw;
         }
 
+        return NewRecord(plugin, package, version, integrity, files, actor);
+    }
+
+    private CliServerPluginRecord NewRecord(JsonObject plugin, string package, string version, string integrity, Dictionary<string, string> files,
+        DashboardMarketplaceActor actor)
+    {
         var title = new[] { Str(plugin, "title"), Str(plugin, "name") }.First(t => !string.IsNullOrWhiteSpace(t))!.Trim();
         var description = Str(plugin, "description");
         return new CliServerPluginRecord

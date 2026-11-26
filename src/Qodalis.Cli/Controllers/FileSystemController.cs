@@ -37,8 +37,10 @@ public class FileSystemController : ControllerBase, IActionFilter
     [NonAction]
     public void OnActionExecuting(ActionExecutingContext context)
     {
+        // No "error": the dashboard reads a 404 without one as "the filesystem plugin is not installed" (its Files page
+        // then says so), as the Node and Python servers' missing route
         if (!_enabled)
-            context.Result = NotFound(new { Error = "The filesystem API is not enabled", Code = "FS_DISABLED" });
+            context.Result = NotFound(new { detail = "The filesystem API is not enabled", code = "FS_DISABLED" });
     }
 
     /// <inheritdoc />
