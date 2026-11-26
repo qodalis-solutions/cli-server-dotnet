@@ -302,6 +302,7 @@ public class PluginEntriesTests : IAsyncLifetime
         var state = (await States(host)).Single();
         Assert.Equal(CliServerPluginStatuses.Failed, state.Status);
         Assert.StartsWith("the postgres provider is not installed", state.Error);
+        Assert.Contains("install the database-postgres plugin", state.Error);
         Assert.Null(host.Services.GetService<IAuditStore>());
         // Its settings stay, so the dialect can be corrected before the next restart
         Assert.Equal("audit-efcore", state.Settings);
@@ -310,6 +311,91 @@ public class PluginEntriesTests : IAsyncLifetime
         Assert.Throws<InvalidOperationException>(() => CliEfDialects.EnsureInstalled("postgres"));
         Assert.Throws<InvalidOperationException>(() => CliEfDialects.EnsureInstalled("oracle"));
         CliEfDialects.EnsureInstalled("sqlite");
+    }
+
+    /// <summary>A driver plugin of the dialect the tests have (sqlite), as database-postgres and database-mssql are.</summary>
+    [CliPlugin(typeof(SqliteDriverEntry), Id = "database-sqlite", Order = CliPluginOrder.Driver)]
+    public sealed class SqliteDriverEntry() : CliDatabaseDriverPluginEntry("sqlite", "SQLite", "Microsoft.Data.Sqlite", "Microsoft.EntityFrameworkCore.Sqlite");
+
+    public sealed class BrokenDriverEntry() : CliDatabaseDriverPluginEntry("postgres", "PostgreSQL", "Acme.Nowhere");
+
+    [Fact]
+    public async Task ADriverWithoutAConnection_NeedsConfiguration_ItsDialectStillRegistered()
+    {
+        CliBuilder? builder = null;
+        var (host, _) = await StartAsync(cli =>
+        {
+            builder = cli;
+            cli.AddPlugin<SqliteDriverEntry>(id: "database-sqlite");
+        });
+        var state = (await States(host)).Single();
+        Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "database-sqlite"), (state.Status, state.Settings));
+        Assert.Equal(["settings.connectionString"], state.Missing);
+        // Its driver serves the stores that set a connection of their own
+        var driver = builder!.DatabaseDrivers.Find("sqlite")!;
+        Assert.Equal(("database-sqlite", null), (driver.Plugin, driver.ConnectionString));
+        Assert.Null(builder.DatabaseDrivers.ConnectionString("sqlite"));
+        Assert.Null(builder.DatabaseDrivers.Find("postgres"));
+    }
+
+    [Fact]
+    public async Task TheDatabasesPlugin_AndTheEfStores_UseTheDriversConnection_UnlessTheySetTheirOwn()
+    {
+        var dir = TempDir();
+        var shared = Path.Combine(dir, "shared.db");
+        var own = Path.Combine(dir, "own.db");
+        CliBuilder? builder = null;
+        var (host, _) = await StartAsync(cli =>
+        {
+            builder = cli;
+            // Added last: the order (Driver) still runs it first
+            cli.AddPlugin<AuditEfCorePluginEntry>();
+            cli.AddPlugin<JobsPluginEntry>();
+            cli.AddPlugin<JobsEfCorePluginEntry>(new { connectionString = own });
+            cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "sqlite" });
+            cli.AddPlugin<SqliteDriverEntry>(new { connectionString = $"Data Source={shared}" }, "database-sqlite");
+        }, dir);
+        Assert.All(await States(host), s => Assert.Equal(CliServerPluginStatuses.Loaded, s.Status));
+        var providers = host.Services.GetServices<ICliConfigProvider>().Select(p => p.Id).ToList();
+        Assert.True(providers.IndexOf("database-sqlite") < providers.IndexOf("audit-efcore"));
+        var driver = builder!.DatabaseDrivers.Find("sqlite")!;
+        Assert.Equal(("database-sqlite", $"Data Source={shared}"), (driver.Plugin, driver.ConnectionString));
+
+        // The audit store keeps its entries in the driver's database, the jobs store in its own
+        var audit = host.Services.GetRequiredKeyedService<IAuditStore>("Qodalis.Cli.Plugin.Audit.InnerStore");
+        Assert.IsType<EfCoreAuditStore>(audit);
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await host.GetTestClient().GetAsync("/api/v1/qcli/databases")).StatusCode);
+        var main = host.Services.GetRequiredService<CliDatabases>().Require("main");
+        Assert.NotNull(await main.StatusAsync());
+        Assert.True(File.Exists(shared));
+        Assert.True(File.Exists(own));
+    }
+
+    [Fact]
+    public async Task AStoreOfADialectWithADriverPlugin_WithoutAnyConnection_NeedsTheirOne()
+    {
+        var (host, _) = await StartAsync(cli =>
+        {
+            cli.AddPlugin<AuditEfCorePluginEntry>(new { dialect = "postgres" });
+            cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "mssql" });
+            cli.AddPlugin<JobsPluginEntry>();
+            cli.AddPlugin<JobsEfCorePluginEntry>();
+        });
+        var states = await States(host);
+        Assert.All(states.Where(s => s.Name != "jobs"), s => Assert.Equal(CliServerPluginStatuses.NeedsConfiguration, s.Status));
+        Assert.Equal(["settings.connectionString or the database-postgres plugin's connection"], states.Single(s => s.Name == "audit-efcore").Missing);
+        Assert.Equal(["settings.connectionString or the database-mssql plugin's connection"], states.Single(s => s.Name == "databases").Missing);
+        Assert.Equal(["settings.connectionString"], states.Single(s => s.Name == "jobs-efcore").Missing);
+        Assert.Null(host.Services.GetService<IAuditStore>());
+    }
+
+    [Fact]
+    public async Task ADriverMissingAnAssembly_Fails_WithIt()
+    {
+        var (host, _) = await StartAsync(cli => cli.AddPlugin<BrokenDriverEntry>(new { connectionString = "Host=localhost" }, "database-postgres"));
+        var state = (await States(host)).Single();
+        Assert.Equal(CliServerPluginStatuses.Failed, state.Status);
+        Assert.Equal("the postgres driver is incomplete: Acme.Nowhere is missing (reinstall the database-postgres plugin)", state.Error);
     }
 
     [Fact]

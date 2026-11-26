@@ -63,6 +63,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Config.E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Config.Redis", "..\plugins\config-redis\Qodalis.Cli.Plugin.Config.Redis.csproj", "{EF998291-18D5-4E5C-A6A0-A6E61E0B4261}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Database.Postgres", "..\plugins\database-postgres\Qodalis.Cli.Plugin.Database.Postgres.csproj", "{3727F245-C5B4-4A44-9071-5204CA40BAB0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qodalis.Cli.Plugin.Database.SqlServer", "..\plugins\database-mssql\Qodalis.Cli.Plugin.Database.SqlServer.csproj", "{D6950F28-815C-49A8-A5B2-3343C752D237}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -433,6 +437,30 @@ Global
 		{EF998291-18D5-4E5C-A6A0-A6E61E0B4261}.Release|x64.Build.0 = Release|Any CPU
 		{EF998291-18D5-4E5C-A6A0-A6E61E0B4261}.Release|x86.ActiveCfg = Release|Any CPU
 		{EF998291-18D5-4E5C-A6A0-A6E61E0B4261}.Release|x86.Build.0 = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|x64.Build.0 = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Debug|x86.Build.0 = Debug|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|x64.ActiveCfg = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|x64.Build.0 = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|x86.ActiveCfg = Release|Any CPU
+		{3727F245-C5B4-4A44-9071-5204CA40BAB0}.Release|x86.Build.0 = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|x64.Build.0 = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Debug|x86.Build.0 = Debug|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|x64.ActiveCfg = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|x64.Build.0 = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|x86.ActiveCfg = Release|Any CPU
+		{D6950F28-815C-49A8-A5B2-3343C752D237}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

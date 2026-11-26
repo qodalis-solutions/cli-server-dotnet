@@ -3,6 +3,17 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
+## Unreleased
+
+**PostgreSQL and SQL Server for the plugins installed from the marketplace.** The databases plugin and the EF Core stores (audit, config, filesystem, jobs, public-api, users) installed at runtime worked with SQLite only: each runs in a load context of its own with its own dependencies, and nothing brought a PostgreSQL or SQL Server driver.
+
+- **Two driver plugins**, one per database: `Qodalis.Cli.Plugin.Database.Postgres` (id `database-postgres`: Npgsql 10.0.3 and Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3) and `Qodalis.Cli.Plugin.Database.SqlServer` (id `database-mssql`: Microsoft.Data.SqlClient 6.1.7 and Microsoft.EntityFrameworkCore.SqlServer 10.0.13). Each has one setting, `connectionString` (a required secret, read at start; without it the plugin is `needs-configuration`, its driver still usable with the stores' own connections), loads first and registers its dialect and connection.
+- **Shared assemblies** (`CliPluginContext.ShareAssemblies()`): a plugin's folder lends the assemblies neither the host nor another plugin has; each plugin loads them in its own context, bound to its own copy of EF Core. The host's code (a store or the databases plugin the host references, as the server image does with the EF Core libraries) finds them through `CliPluginLoadContext.FindAssembly` too, with what they need in turn, and nothing else is loaded in the server's context.
+- **New load order** `CliPluginOrder.Driver` (1), before users-efcore (5).
+- **`CliBuilder.DatabaseDrivers`** (`CliDatabaseDrivers`, `CliDatabaseDriver`): the drivers installed, their dialect and connection. `CliDatabaseDriverPluginEntry` is the entry of a driver plugin (dialect, title, the assemblies checked at start: "the postgres driver is incomplete: Npgsql is missing").
+- **The databases plugin and the EF Core stores use the driver plugin's connection** when their `connectionString` is empty (no longer a required setting): with neither they are `needs-configuration` (`missing`: `settings.connectionString or the database-postgres plugin's connection`; `settings.connectionString` for SQLite). A missing driver now says how to get it: "the postgres provider is not installed (Npgsql.EntityFrameworkCore.PostgreSQL: install the database-postgres plugin, or add the package to the host)".
+- **Versions aligned with the drivers**, so a host referencing them can still install a driver (the install refuses a dependency older than the host's): `Qodalis.Cli.Plugin.DataExplorer.Postgres` on Npgsql 10.0.3 (was 8.0.5), `Qodalis.Cli.Plugin.DataExplorer.Mssql` on Microsoft.Data.SqlClient 6.1.7 (was 5.2.2) with System.Security.Cryptography.Pkcs 10.0.13 (SqlClient's 9.0.11 has advisories), the admin plugin on System.IdentityModel.Tokens.Jwt 8.14.0 (was 8.3.0: SqlClient's MSAL needs Microsoft.IdentityModel.Abstractions 8.14.0, and every host that installs from the marketplace has the admin plugin).
+
 ## 1.0.0-beta.34
 
 - The admin plugin embeds dashboard 1.0.0-beta.32: notification bell and page, Plugins → Updates, rendered plugin readmes, a link to the marketplace site.

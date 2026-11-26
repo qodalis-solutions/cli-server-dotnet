@@ -1,10 +1,11 @@
 using System.Data.Common;
+using Qodalis.Cli.Plugins;
 
 namespace Qodalis.Cli.Plugin.Databases;
 
 /// <summary>
-/// An ADO.NET connection of a dialect, its driver found at runtime (the host's package, or one installed with the
-/// plugin): sqlite (<c>Microsoft.Data.Sqlite</c>), postgres (<c>Npgsql</c>), mysql (<c>MySqlConnector</c>) and mssql
+/// An ADO.NET connection of a dialect, its driver found at runtime (the host's package, the driver plugin's:
+/// database-postgres, database-mssql, or one installed with the plugin): sqlite (<c>Microsoft.Data.Sqlite</c>), postgres (<c>Npgsql</c>), mysql (<c>MySqlConnector</c>) and mssql
 /// (<c>Microsoft.Data.SqlClient</c>).
 /// </summary>
 public static class CliDbConnections
@@ -27,7 +28,7 @@ public static class CliDbConnections
         // The copy this plugin's load context sees, never another plugin's
         var assembly = Qodalis.Cli.Plugins.CliPluginLoadContext.FindAssembly(d.Assembly, typeof(CliDbConnections).Assembly);
         var type = assembly?.GetType(d.Type)
-            ?? throw new InvalidOperationException($"the {dialect} driver is not installed ({d.Assembly}: add it to the host, or install it with the plugin)");
+            ?? throw new InvalidOperationException($"the {dialect} driver is not installed ({CliDatabaseDrivers.InstallHint(dialect, d.Assembly)})");
         return (DbConnection)Activator.CreateInstance(type, connectionString)!;
     }
 }

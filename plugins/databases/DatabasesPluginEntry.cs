@@ -11,7 +11,8 @@ namespace Qodalis.Cli.Plugin.Databases;
 /// its size, load, largest tables and migrations on the dashboard, in the terminal (<c>databases</c>), over MCP and at
 /// <c>/api/v1/qcli/databases</c>. Loads at order Core, before the plugins that keep their data in it. The settings are
 /// kept in <c>plugin-settings.json</c> and read while the server starts; without a connection it is
-/// <c>needs-configuration</c>. The dialect's driver comes from the host or is installed with the plugin.
+/// <c>needs-configuration</c>. The dialect's driver comes from the host or from its driver plugin (database-postgres,
+/// database-mssql), whose connection it uses when it has none of its own.
 /// </summary>
 public sealed class DatabasesPluginEntry : ICliPluginEntry
 {
@@ -31,8 +32,8 @@ public sealed class DatabasesPluginEntry : ICliPluginEntry
         new()
         {
             Key = "connectionString", Label = "Connection",
-            Description = "A connection string, or the SQLite file (relative: the plugin data folder); kept as a secret",
-            Type = CliConfigEntryTypes.Secret, Required = true, RequiresRestart = true,
+            Description = "A connection string, or the SQLite file (relative: the plugin data folder); kept as a secret. Empty: the connection of the dialect's driver plugin (database-postgres, database-mssql)",
+            Type = CliConfigEntryTypes.Secret, RequiresRestart = true,
         },
         new()
         {
@@ -52,10 +53,15 @@ public sealed class DatabasesPluginEntry : ICliPluginEntry
         {
             Title = "Databases", Description = "The database the databases plugin shows and migrates", Settings = [.. Settings],
         });
-        var connection = settings.Text("connectionString");
-        if (connection.Length == 0) return; // needs-configuration
         var name = settings.Text("name") is { Length: > 0 } n ? n : "main";
         var dialect = settings.Text("dialect") is { Length: > 0 } d ? d : "postgres";
+        // Its own connection, else the one of the dialect's driver plugin (installed before it: CliPluginOrder.Driver)
+        var connection = settings.Text("connectionString") is { Length: > 0 } own ? own : context.Builder.DatabaseDrivers.ConnectionString(dialect) ?? "";
+        if (connection.Length == 0)
+        {
+            context.NeedsConfiguration(CliDatabaseDrivers.MissingConnection(dialect));
+            return;
+        }
         if (dialect == "sqlite" && !connection.Contains('='))
             connection = $"Data Source={(Path.IsPathRooted(connection) || connection == ":memory:" ? connection : Path.Combine(context.DataDir, connection))}";
         var folder = settings.Text("migrationsFolder");

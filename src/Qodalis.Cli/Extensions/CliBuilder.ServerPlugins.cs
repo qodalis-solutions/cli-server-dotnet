@@ -36,6 +36,12 @@ public partial class CliBuilder
         return this;
     }
 
+    /// <summary>
+    /// The database drivers installed on the server (the database-postgres and database-mssql plugins): the dialects whose
+    /// driver they bring and the connection they share with the databases plugin and the EF Core stores.
+    /// </summary>
+    public CliDatabaseDrivers DatabaseDrivers { get; } = new();
+
     private readonly List<(ICliPluginEntry Entry, string? Id, JsonObject Options)> _codePlugins = [];
 
     internal IReadOnlyList<(ICliPluginEntry Entry, string? Id, JsonObject Options)> CodePlugins => _codePlugins;

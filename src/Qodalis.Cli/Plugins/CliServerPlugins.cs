@@ -57,10 +57,24 @@ public sealed class CliServerPluginsOptions
 /// abstractions, the framework, any package the host references) resolves to the host's copy, so there is one copy of the
 /// contracts and of every shared type. The plugin's folder holds its <c>lib</c> assemblies, satellite assemblies in
 /// <c>&lt;culture&gt;/</c>, and the assets of this runtime and its fallbacks in <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c>
-/// (preferred over the <c>lib</c> ones) and <c>runtimes/&lt;rid&gt;/native/</c> (native libraries).
+/// (preferred over the <c>lib</c> ones) and <c>runtimes/&lt;rid&gt;/native/</c> (native libraries). An assembly neither
+/// the host nor the folder has is looked up in the folders other plugins share (<see cref="CliPluginContext.ShareAssemblies"/>:
+/// a database driver) and loaded in this context, so it binds to this plugin's copies of what it builds on.
 /// </summary>
-public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoadContext($"qcli-plugin:{name}", isCollectible: true)
+public sealed class CliPluginLoadContext : AssemblyLoadContext
 {
+    private readonly CliPluginSharedAssemblies? _shared;
+
+    public CliPluginLoadContext(string name, string dir) : this(name, dir, null)
+    {
+    }
+
+    internal CliPluginLoadContext(string name, string dir, CliPluginSharedAssemblies? shared) : base($"qcli-plugin:{name}", isCollectible: true)
+    {
+        Dir = dir;
+        _shared = shared;
+    }
+
     private static readonly Lazy<Dictionary<string, string>> HostAssemblies = new(() =>
     {
         var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +179,7 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
     /// <summary>This runtime's identifier and its fallbacks (<see cref="RuntimeIdentifierChain"/>).</summary>
     public static IReadOnlyList<string> RuntimeIdentifiers => CurrentRids.Value;
 
-    public string Dir { get; } = dir;
+    public string Dir { get; }
 
     /// <summary>
     /// The assembly <paramref name="name"/> as code of <paramref name="owner"/> sees it: the copy in the load context
@@ -176,7 +190,11 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
     public static Assembly? FindAssembly(string name, Assembly owner) =>
         FindAssembly(name, GetLoadContext(owner) ?? Default);
 
-    /// <summary>The assembly <paramref name="name"/> in <paramref name="context"/>, loaded there when it is not yet; null when not found.</summary>
+    /// <summary>
+    /// The assembly <paramref name="name"/> in <paramref name="context"/>, loaded there when it is not yet; null when not
+    /// found. A plugin's context also finds the assemblies other plugins share (a database driver); so does the server's
+    /// own, for the host's code (<see cref="CliPluginContext.ShareAssemblies"/>).
+    /// </summary>
     public static Assembly? FindAssembly(string name, AssemblyLoadContext context)
     {
         var loaded = context.Assemblies.FirstOrDefault(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase));
@@ -184,6 +202,14 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
         try
         {
             return context.LoadFromAssemblyName(new AssemblyName(name));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+        {
+            if (context != Default) return null;
+        }
+        try
+        {
+            return CliPluginSharedAssemblies.LoadIntoDefault(name);
         }
         catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
         {
@@ -196,7 +222,11 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
     /// (<c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/</c>, the most specific RID first), else the <c>lib</c> one; null when the
     /// host has it or the folder does not.
     /// </summary>
-    internal string? ResolveManaged(AssemblyName assemblyName)
+    internal string? ResolveManaged(AssemblyName assemblyName) =>
+        ResolveManagedIn(Dir, assemblyName) ?? _shared?.ResolveManaged(assemblyName);
+
+    /// <summary>The file of a managed assembly in <paramref name="dir"/> (see <see cref="ResolveManaged"/>); null when the host has it or the folder does not.</summary>
+    internal static string? ResolveManagedIn(string dir, AssemblyName assemblyName)
     {
         var name = assemblyName.Name;
         if (name == null || name.IndexOfAny(['/', '\\']) >= 0 || name.Contains("..", StringComparison.Ordinal)) return null;
@@ -204,13 +234,13 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
         {
             var culture = assemblyName.CultureName;
             if (culture.IndexOfAny(['/', '\\', '.']) >= 0) return null;
-            var satellite = Path.Combine(Dir, culture, name + ".dll");
+            var satellite = Path.Combine(dir, culture, name + ".dll");
             return File.Exists(satellite) ? satellite : null;
         }
         if (HostHas(name)) return null;
         foreach (var rid in RuntimeIdentifiers)
         {
-            var ridLib = Path.Combine(Dir, "runtimes", rid, "lib");
+            var ridLib = Path.Combine(dir, "runtimes", rid, "lib");
             if (!Directory.Exists(ridLib)) continue;
             foreach (var tfm in Directory.EnumerateDirectories(ridLib))
             {
@@ -218,7 +248,7 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
                 if (File.Exists(candidate)) return candidate;
             }
         }
-        var path = Path.Combine(Dir, name + ".dll");
+        var path = Path.Combine(dir, name + ".dll");
         return File.Exists(path) ? path : null;
     }
 
@@ -227,11 +257,15 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
     /// fallbacks, then the folder itself, trying the platform's names (<c>e_sqlite3</c>: <c>libe_sqlite3.dylib</c>,
     /// <c>libe_sqlite3.so</c>, <c>e_sqlite3.dll</c>); null when none is there.
     /// </summary>
-    internal string? ResolveUnmanaged(string unmanagedDllName)
+    internal string? ResolveUnmanaged(string unmanagedDllName) =>
+        ResolveUnmanagedIn(Dir, unmanagedDllName) ?? _shared?.ResolveUnmanaged(unmanagedDllName);
+
+    /// <summary>The file of a native library in <paramref name="dir"/> (see <see cref="ResolveUnmanaged"/>); null when none is there.</summary>
+    internal static string? ResolveUnmanagedIn(string dir, string unmanagedDllName)
     {
         if (string.IsNullOrEmpty(unmanagedDllName) || unmanagedDllName.IndexOfAny(['/', '\\', ':']) >= 0 || unmanagedDllName.Contains("..", StringComparison.Ordinal))
             return null;
-        var dirs = RuntimeIdentifiers.Select(rid => Path.Combine(Dir, "runtimes", rid, "native")).Append(Dir);
+        var dirs = RuntimeIdentifiers.Select(rid => Path.Combine(dir, "runtimes", rid, "native")).Append(dir);
         foreach (var folder in dirs)
         {
             if (!Directory.Exists(folder)) continue;
@@ -347,6 +381,7 @@ public sealed partial class CliServerPlugins
     private readonly Dictionary<CliServerPluginState, CliInstalledPlugin> _installed = new();
     private readonly Dictionary<CliServerPluginState, List<string>> _needs = new();
     private readonly HashSet<string> _ownStoreless = new(StringComparer.Ordinal);
+    private readonly CliPluginSharedAssemblies _shared = new();
     private ICliConfigStore? _pluginSettingsStore;
 
     /// <summary>The file of the plugins' settings while the server keeps its settings in memory.</summary>
@@ -710,7 +745,7 @@ public sealed partial class CliServerPlugins
         if (!File.Exists(main)) throw new FileNotFoundException($"not installed in {dir}");
         // Nothing is loaded from a folder that differs from what was verified and extracted at install
         if (!FilesUnchanged(dir, record.Files)) throw new InvalidOperationException("files changed since install");
-        var context = new CliPluginLoadContext(record.Name, dir);
+        var context = new CliPluginLoadContext(record.Name, dir, _shared);
         var assembly = context.LoadFromAssemblyPath(main);
         var attribute = assembly.GetCustomAttribute<CliPluginAttribute>()
             ?? throw new InvalidOperationException("the assembly declares no [assembly: CliPlugin(typeof(...))] entry");
@@ -719,6 +754,17 @@ public sealed partial class CliServerPlugins
         var entry = (ICliPluginEntry)(Activator.CreateInstance(attribute.EntryType)
             ?? throw new InvalidOperationException($"could not create {attribute.EntryType.FullName}"));
         return (entry, attribute.Order);
+    }
+
+    /// <summary>The folders whose assemblies the installed plugins share (<see cref="CliPluginContext.ShareAssemblies"/>).</summary>
+    public IReadOnlyList<string> SharedAssemblyDirs => _shared.Dirs;
+
+    /// <summary>Shares the folder of <paramref name="entry"/>'s plugin; false for an entry the host loaded (it has its assemblies already).</summary>
+    private bool ShareAssemblies(ICliPluginEntry entry)
+    {
+        if (AssemblyLoadContext.GetLoadContext(entry.GetType().Assembly) is not CliPluginLoadContext context) return false;
+        _shared.Add(context.Dir);
+        return true;
     }
 
     /// <summary>The settings with the code options as their defaults (source <c>code</c>).</summary>
@@ -789,7 +835,7 @@ public sealed partial class CliServerPlugins
             builder.AddConfigProvider(provider);
             providers.Add(provider);
             return provider;
-        }, candidate.Source, candidate.Options, PluginSettingsStore);
+        }, candidate.Source, candidate.Options, PluginSettingsStore, () => ShareAssemblies(candidate.Entry));
         try
         {
             candidate.Entry.Register(context);

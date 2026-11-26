@@ -40,6 +40,14 @@ public sealed class CodeGreeterEntry : ICliPluginEntry
 
 public sealed record CodeGreeterContext(string Source, string Options);
 
+/// <summary>A code plugin that asks to share its assemblies (the host has them: nothing is shared).</summary>
+public sealed class SharingCodeEntry : ICliPluginEntry
+{
+    public sealed record Answer(bool Shared);
+
+    public void Register(CliPluginContext context) => context.Services.AddSingleton(new Answer(context.ShareAssemblies()));
+}
+
 public sealed class CodeGreeterProcessor(Func<string> text) : CliCommandProcessor
 {
     public override string Command { get; set; } = "code-greeter";
@@ -188,6 +196,61 @@ public class ServerPluginsTests : IAsyncLifetime
             otherContext.Unload();
             mineContext.Unload();
         }
+    }
+
+    [Fact]
+    public void ASharedFolder_LendsItsAssemblies_ToAnotherPlugin_LoadedInThatPluginsOwnContext()
+    {
+        // A driver's folder holds an assembly the consumer and the host lack; the consumer's folder is empty
+        var driver = TempDir();
+        var consumer = TempDir();
+        File.Copy(FixtureDll, Path.Combine(driver, $"{FixturePackage}.dll"));
+        var shared = new CliPluginSharedAssemblies();
+        var withShare = new CliPluginLoadContext("consumer", consumer, shared);
+        var without = new CliPluginLoadContext("alone", consumer);
+        try
+        {
+            Assert.Null(CliPluginLoadContext.FindAssembly(FixturePackage, withShare));
+            Assert.True(shared.Add(driver));
+            Assert.False(shared.Add(driver + Path.DirectorySeparatorChar + "."));
+            Assert.Equal([Path.GetFullPath(driver)], shared.Dirs);
+
+            var found = CliPluginLoadContext.FindAssembly(FixturePackage, withShare);
+            Assert.NotNull(found);
+            // Loaded in the consumer's own context (bound to its copies), from the driver's folder
+            Assert.Same(withShare, AssemblyLoadContext.GetLoadContext(found!));
+            Assert.Equal(Path.Combine(Path.GetFullPath(driver), $"{FixturePackage}.dll"), found!.Location);
+            // The host's assemblies still come from the host; a context without the shared folders does not see them
+            Assert.Same(typeof(CliServerPlugins).Assembly, CliPluginLoadContext.FindAssembly("Qodalis.Cli", withShare));
+            Assert.Null(CliPluginLoadContext.FindAssembly(FixturePackage, without));
+            Assert.Null(CliPluginLoadContext.FindAssembly("Acme.Nowhere", withShare));
+            // A plugin's failed lookup never loads a shared assembly in the server's own context
+            Assert.DoesNotContain(AssemblyLoadContext.Default.Assemblies, a => a.GetName().Name == FixturePackage);
+        }
+        finally
+        {
+            withShare.Unload();
+            without.Unload();
+        }
+    }
+
+    [Fact]
+    public async Task AnInstalledPlugin_SharesItsFolder_WhenItAsks_APluginTheHostLoads_SharesNothing()
+    {
+        var dir = TempDir();
+        InstallFixture(dir);
+        Directory.CreateDirectory(Path.Combine(dir, "plugin-data", "fixture"));
+        File.WriteAllText(Path.Combine(dir, "plugin-data", "fixture", "share"), "");
+        var host = await StartAsync(dir, cli => cli.AddPlugin<SharingCodeEntry>(id: "sharing"));
+        var plugins = host.Services.GetRequiredService<CliServerPlugins>();
+        Assert.Equal([plugins.VersionDir(FixturePackage, "1.0.0")], plugins.SharedAssemblyDirs);
+        Assert.False(host.Services.GetRequiredService<SharingCodeEntry.Answer>().Shared);
+
+        // Without the file, nothing is shared
+        var plain = TempDir();
+        InstallFixture(plain);
+        var next = await StartAsync(plain);
+        Assert.Empty(next.Services.GetRequiredService<CliServerPlugins>().SharedAssemblyDirs);
     }
 
     [Fact]
@@ -535,6 +598,14 @@ public class ServerPluginsTests : IAsyncLifetime
     public void TheLoadOrder_MatchesTheOtherServers()
     {
         Assert.Equal((10, 20, 30, 50, 70), (CliPluginOrder.Auth, CliPluginOrder.ConfigStore, CliPluginOrder.Core, CliPluginOrder.Default, CliPluginOrder.Source));
+    }
+
+    [Fact]
+    public void DatabaseDrivers_LoadBeforeEveryOtherPlugin()
+    {
+        // users-efcore declares 5, the first of the others
+        Assert.Equal(1, CliPluginOrder.Driver);
+        Assert.True(CliPluginOrder.Driver < 5);
     }
 
     [Fact]

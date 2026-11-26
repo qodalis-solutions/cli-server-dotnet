@@ -7,7 +7,8 @@ using Qodalis.Cli.Plugins;
 namespace Qodalis.Cli.Plugin.Databases.EfCore;
 
 /// <summary>
-/// The EF Core provider of a dialect, found at runtime (the host's package, or one installed with the plugin): sqlite
+/// The EF Core provider of a dialect, found at runtime (the host's package, the driver plugin's: database-postgres,
+/// database-mssql, or one installed with the plugin): sqlite
 /// (<c>Microsoft.EntityFrameworkCore.Sqlite</c>), postgres (<c>Npgsql.EntityFrameworkCore.PostgreSQL</c>) and mssql
 /// (<c>Microsoft.EntityFrameworkCore.SqlServer</c>).
 /// </summary>
@@ -45,7 +46,7 @@ public static class CliEfDialects
         return assembly?.GetType(p.Type)?.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .FirstOrDefault(m => m.Name == p.Method && !m.IsGenericMethod && m.GetParameters() is var ps && ps.Length == 3
                 && ps[0].ParameterType == typeof(DbContextOptionsBuilder) && ps[1].ParameterType == typeof(string))
-            ?? throw new InvalidOperationException($"the {dialect} provider is not installed ({p.Assembly}: add it to the host, or install it with the plugin)");
+            ?? throw new InvalidOperationException($"the {dialect} provider is not installed ({CliDatabaseDrivers.InstallHint(dialect, p.Assembly)})");
     }
 
 }
@@ -53,7 +54,10 @@ public static class CliEfDialects
 /// <summary>The database settings of the EF Core stores' entries (users tokens, audit, jobs, config, files, public API usage).</summary>
 public static class CliEfPluginEntries
 {
-    /// <summary>dialect, connectionString (a required secret; for SQLite a file, relative to the plugin's data directory) and tablePrefix.</summary>
+    /// <summary>
+    /// dialect, connectionString (a secret; for SQLite a file, relative to the plugin's data directory; empty: the
+    /// dialect's driver plugin's connection) and tablePrefix.
+    /// </summary>
     public static List<CliConfigSettingDefinition> DatabaseSettings(string sqliteFile) =>
     [
         new()
@@ -64,8 +68,8 @@ public static class CliEfPluginEntries
         new()
         {
             Key = "connectionString", Label = "Connection",
-            Description = $"A connection string (postgres, mssql), or the SQLite file (relative: the plugin data folder, e.g. {sqliteFile}); kept as a secret",
-            Type = CliConfigEntryTypes.Secret, Required = true, RequiresRestart = true,
+            Description = $"A connection string (postgres, mssql), or the SQLite file (relative: the plugin data folder, e.g. {sqliteFile}); kept as a secret. Empty: the connection of the dialect's driver plugin (database-postgres, database-mssql)",
+            Type = CliConfigEntryTypes.Secret, RequiresRestart = true,
         },
         new()
         {
@@ -76,8 +80,8 @@ public static class CliEfPluginEntries
 
     /// <summary>
     /// Registers an EF Core store's settings (kept in <c>plugin-settings.json</c>, read now: the store is set up while
-    /// the services are registered) and returns how to configure its context, or null while the connection is missing
-    /// (the plugin is then <c>needs-configuration</c>).
+    /// the services are registered) and returns how to configure its context, or null while the connection is missing:
+    /// neither its own nor the dialect's driver plugin's (the plugin is then <c>needs-configuration</c>).
     /// </summary>
     public static (CliStoredConfigProvider Settings, Action<DbContextOptionsBuilder>? Configure, Action<QcliTableNameOptions> Tables) EfStore(
         this CliPluginContext context, string title, string description, string sqliteFile, IEnumerable<CliConfigSettingDefinition>? more = null)
@@ -87,13 +91,18 @@ public static class CliEfPluginEntries
             Title = title, Description = description, Settings = [.. DatabaseSettings(sqliteFile), .. more ?? []],
         });
         var dialect = settings.Text("dialect") is { Length: > 0 } d ? d : "sqlite";
-        var connection = settings.Text("connectionString");
+        // Its own connection, else the one of the dialect's driver plugin (installed before it: CliPluginOrder.Driver)
+        var connection = settings.Text("connectionString") is { Length: > 0 } own ? own : context.Builder.DatabaseDrivers.ConnectionString(dialect) ?? "";
         var prefix = settings.Text("tablePrefix");
         void Tables(QcliTableNameOptions o)
         {
             if (prefix.Length > 0) o.TablePrefix = prefix;
         }
-        if (connection.Length == 0) return (settings, null, Tables);
+        if (connection.Length == 0)
+        {
+            context.NeedsConfiguration(CliDatabaseDrivers.MissingConnection(dialect));
+            return (settings, null, Tables);
+        }
         // A missing provider fails this plugin now, not the server's start when the store is first resolved
         CliEfDialects.EnsureInstalled(dialect);
         if (dialect == "sqlite" && !connection.Contains('='))

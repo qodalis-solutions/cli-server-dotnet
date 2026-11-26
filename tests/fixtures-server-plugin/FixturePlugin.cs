@@ -17,7 +17,8 @@ public sealed class FixtureMarker(string source, string dataDir)
 
 /// <summary>
 /// Registers <c>fixture-hello</c> and its settings (<c>greeting</c>, default Hello; <c>apiKey</c>, a required secret).
-/// A file <c>fail</c> in its data directory makes it throw after adding a service (the loader must take it back).
+/// A file <c>fail</c> in its data directory makes it throw after adding a service (the loader must take it back); a
+/// file <c>share</c> makes it share its folder's assemblies, as a database driver does.
 /// </summary>
 public sealed class FixturePluginEntry : ICliPluginEntry
 {
@@ -32,6 +33,7 @@ public sealed class FixturePluginEntry : ICliPluginEntry
                 new CliConfigSettingDefinition { Key = "apiKey", Type = CliConfigEntryTypes.Secret, Required = true },
             ],
         });
+        if (File.Exists(Path.Combine(context.DataDir, "share"))) context.ShareAssemblies();
         context.Services.AddSingleton(new FixtureMarker(context.Source, context.DataDir));
         if (File.Exists(Path.Combine(context.DataDir, "fail"))) throw new InvalidOperationException("fixture asked to fail");
         context.Logger.LogFixture();
