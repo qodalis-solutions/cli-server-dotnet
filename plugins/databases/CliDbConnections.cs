@@ -1,6 +1,4 @@
 using System.Data.Common;
-using System.Reflection;
-using System.Runtime.Loader;
 
 namespace Qodalis.Cli.Plugin.Databases;
 
@@ -26,22 +24,10 @@ public static class CliDbConnections
     public static DbConnection Create(string dialect, string connectionString)
     {
         if (!Drivers.TryGetValue(dialect, out var d)) throw new InvalidOperationException($"unknown dialect: {dialect} ({string.Join(", ", Dialects)})");
-        var assembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == d.Assembly) ?? Load(d.Assembly);
+        // The copy this plugin's load context sees, never another plugin's
+        var assembly = Qodalis.Cli.Plugins.CliPluginLoadContext.FindAssembly(d.Assembly, typeof(CliDbConnections).Assembly);
         var type = assembly?.GetType(d.Type)
             ?? throw new InvalidOperationException($"the {dialect} driver is not installed ({d.Assembly}: add it to the host, or install it with the plugin)");
         return (DbConnection)Activator.CreateInstance(type, connectionString)!;
-    }
-
-    private static Assembly? Load(string name)
-    {
-        try
-        {
-            var context = AssemblyLoadContext.GetLoadContext(typeof(CliDbConnections).Assembly) ?? AssemblyLoadContext.Default;
-            return context.LoadFromAssemblyName(new AssemblyName(name));
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
-        {
-            return null;
-        }
     }
 }

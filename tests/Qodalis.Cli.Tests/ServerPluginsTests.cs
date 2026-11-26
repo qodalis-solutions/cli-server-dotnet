@@ -156,6 +156,39 @@ public class ServerPluginsTests : IAsyncLifetime
     }
 
     [Fact]
+    public void FindAssembly_TakesTheCopyOfTheCallersLoadContext_NeverAnotherPlugins()
+    {
+        var other = TempDir();
+        var mine = TempDir();
+        File.Copy(FixtureDll, Path.Combine(other, $"{FixturePackage}.dll"));
+        File.Copy(FixtureDll, Path.Combine(mine, $"{FixturePackage}.dll"));
+        var otherContext = new CliPluginLoadContext("other", other);
+        var mineContext = new CliPluginLoadContext("mine", mine);
+        try
+        {
+            // Another plugin loaded its copy first: the AppDomain lists it
+            var theirs = otherContext.LoadFromAssemblyPath(Path.Combine(other, $"{FixturePackage}.dll"));
+            Assert.Contains(AppDomain.CurrentDomain.GetAssemblies(), a => a == theirs);
+
+            var found = CliPluginLoadContext.FindAssembly(FixturePackage, mineContext);
+            Assert.NotNull(found);
+            Assert.NotSame(theirs, found);
+            Assert.Same(mineContext, AssemblyLoadContext.GetLoadContext(found!));
+            // Asked again (now loaded), the same copy; asked by code of that copy, too
+            Assert.Same(found, CliPluginLoadContext.FindAssembly(FixturePackage, mineContext));
+            Assert.Same(found, CliPluginLoadContext.FindAssembly(FixturePackage, found!));
+            // The host's own assemblies come from the host; an unknown one is null
+            Assert.Same(typeof(CliServerPlugins).Assembly, CliPluginLoadContext.FindAssembly("Qodalis.Cli", mineContext));
+            Assert.Null(CliPluginLoadContext.FindAssembly("Acme.Nowhere", mineContext));
+        }
+        finally
+        {
+            otherContext.Unload();
+            mineContext.Unload();
+        }
+    }
+
+    [Fact]
     public async Task AnInstalledPlugin_LoadsThroughItsOwnContext_WithTheHostsContracts_AndRunsItsCommand()
     {
         var dir = TempDir();

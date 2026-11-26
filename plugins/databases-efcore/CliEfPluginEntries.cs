@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.Loader;
 using Microsoft.EntityFrameworkCore;
 using Qodalis.Cli.Abstractions.Config;
 using Qodalis.Cli.Abstractions.Helpers;
@@ -31,7 +30,8 @@ public static class CliEfDialects
     public static void Use(DbContextOptionsBuilder options, string dialect, string connectionString)
     {
         if (!Providers.TryGetValue(dialect, out var p)) throw new InvalidOperationException($"unknown dialect: {dialect} ({string.Join(", ", All)})");
-        var assembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == p.Assembly) ?? Load(p.Assembly);
+        // The copy this plugin's load context sees: another plugin's copy has other EF Core types
+        var assembly = CliPluginLoadContext.FindAssembly(p.Assembly, typeof(CliEfDialects).Assembly);
         var method = assembly?.GetType(p.Type)?.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .FirstOrDefault(m => m.Name == p.Method && !m.IsGenericMethod && m.GetParameters() is var ps && ps.Length == 3
                 && ps[0].ParameterType == typeof(DbContextOptionsBuilder) && ps[1].ParameterType == typeof(string))
@@ -39,18 +39,6 @@ public static class CliEfDialects
         method.Invoke(null, [options, connectionString, null]);
     }
 
-    private static Assembly? Load(string name)
-    {
-        try
-        {
-            var context = AssemblyLoadContext.GetLoadContext(typeof(CliEfDialects).Assembly) ?? AssemblyLoadContext.Default;
-            return context.LoadFromAssemblyName(new AssemblyName(name));
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
-        {
-            return null;
-        }
-    }
 }
 
 /// <summary>The database settings of the EF Core stores' entries (users tokens, audit, jobs, config, files, public API usage).</summary>

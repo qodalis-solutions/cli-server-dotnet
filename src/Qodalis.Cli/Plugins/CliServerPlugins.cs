@@ -57,6 +57,30 @@ public sealed class CliPluginLoadContext(string name, string dir) : AssemblyLoad
 
     public string Dir { get; } = dir;
 
+    /// <summary>
+    /// The assembly <paramref name="name"/> as code of <paramref name="owner"/> sees it: the copy in the load context
+    /// that loaded <paramref name="owner"/> (a plugin's own, else the host's), loaded there when it is not yet. Never
+    /// another plugin's copy, as <c>AppDomain.GetAssemblies()</c> may give (its types would not match the caller's).
+    /// Null when it cannot be found.
+    /// </summary>
+    public static Assembly? FindAssembly(string name, Assembly owner) =>
+        FindAssembly(name, GetLoadContext(owner) ?? Default);
+
+    /// <summary>The assembly <paramref name="name"/> in <paramref name="context"/>, loaded there when it is not yet; null when not found.</summary>
+    public static Assembly? FindAssembly(string name, AssemblyLoadContext context)
+    {
+        var loaded = context.Assemblies.FirstOrDefault(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase));
+        if (loaded != null) return loaded;
+        try
+        {
+            return context.LoadFromAssemblyName(new AssemblyName(name));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
     protected override Assembly? Load(AssemblyName assemblyName)
     {
         var name = assemblyName.Name;
