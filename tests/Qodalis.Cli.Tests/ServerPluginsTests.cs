@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qodalis.Cli.Abstractions;
 using Qodalis.Cli.Abstractions.Config;
+using Qodalis.Cli.Config;
 using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Models;
 using Qodalis.Cli.Plugins;
@@ -291,9 +292,10 @@ public class ServerPluginsTests : IAsyncLifetime
 
         var config = host.Services.GetRequiredService<ICliConfigService>();
         var entries = (await config.GetAsync("greeter", new CliConfigContext(null, _ => true))).Sections.Single().Entries;
-        Assert.Equal(("Hello", CliConfigSources.Code), (entries[0].Value!.GetValue<string>(), entries[0].Source));
+        Assert.Equal(("Hello", CliConfigSources.Code, CliConfigOrigins.Code), (entries[0].Value!.GetValue<string>(), entries[0].Source, entries[0].Origin));
         Assert.Equal(("Ana", CliConfigSources.Code, true), (entries[2].Value!.GetValue<string>(), entries[2].Source, entries[2].Required));
-        Assert.Equal(CliConfigSources.Default, entries[1].Source);
+        Assert.Equal((CliConfigSources.Default, CliConfigOrigins.Default, true), (entries[1].Source, entries[1].Origin, entries[1].Required));
+        Assert.Null(entries[1].Value);
 
         var plugins = await Checked(host);
         var state = plugins.States().Single();
@@ -304,9 +306,76 @@ public class ServerPluginsTests : IAsyncLifetime
         await SetAsync(host, "greeter", "token", "t");
         Assert.Equal("Salut Ana", await Processor(host, "code-greeter")!.HandleAsync(new CliProcessCommand { Command = "code-greeter" }));
         entries = (await config.GetAsync("greeter", new CliConfigContext(null, _ => true))).Sections.Single().Entries;
-        Assert.NotEqual(CliConfigSources.Code, entries[0].Source);
+        Assert.Equal(CliConfigOrigins.Setting, entries[0].Origin);
+        Assert.Equal((CliConfigOrigins.Setting, true, null), (entries[1].Origin, entries[1].IsSet, entries[1].Value));
         await plugins.CheckSettingsAsync();
         Assert.Equal(CliServerPluginStatuses.Loaded, plugins.States().Single().Status);
+    }
+
+    [Fact]
+    public async Task PluginSettings_AreKeptInPluginSettingsJson_WhileTheServerKeepsSettingsInMemory_AndWinAfterARestart()
+    {
+        var dir = TempDir();
+        var host = await StartAsync(dir, cli => cli.AddPlugin<CodeGreeterEntry>(new { name = "Ana" }, id: "greeter"));
+        await SetAsync(host, "greeter", "name", "Ion");
+        await SetAsync(host, "greeter", "token", "t0k3n");
+        var file = Path.Combine(dir, CliServerPlugins.SettingsFile);
+        Assert.True(File.Exists(file));
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(file));
+
+        var again = await StartAsync(dir, cli => cli.AddPlugin<CodeGreeterEntry>(new { name = "Ana" }, id: "greeter"));
+        await again.Services.GetRequiredService<CliConfigRegistry>().ReadyAsync();
+        Assert.Equal("Hi Ion", await Processor(again, "code-greeter")!.HandleAsync(new CliProcessCommand { Command = "code-greeter" }));
+        var entries = (await again.Services.GetRequiredService<ICliConfigService>().GetAsync("greeter", new CliConfigContext(null, _ => true))).Sections.Single().Entries;
+        Assert.Equal(("Ion", CliConfigOrigins.Setting), (entries[2].Value!.GetValue<string>(), entries[2].Origin));
+        Assert.Equal(CliServerPluginStatuses.Loaded, (await Checked(again)).States().Single().Status);
+
+        // A host with a store of its own keeps the plugins' settings there instead
+        var other = TempDir();
+        var stored = await StartAsync(other, cli =>
+        {
+            cli.SetConfigStore(new JsonFileConfigStore(Path.Combine(other, "host.json")));
+            cli.AddPlugin<CodeGreeterEntry>(id: "greeter");
+        });
+        await SetAsync(stored, "greeter", "name", "Ana");
+        Assert.False(File.Exists(Path.Combine(other, CliServerPlugins.SettingsFile)));
+        Assert.Contains("greeter", File.ReadAllText(Path.Combine(other, "host.json")));
+    }
+
+    [Fact]
+    public async Task TheInstalledList_AndInstalledJson_CarryStatusMissingAndSettings()
+    {
+        var dir = TempDir();
+        InstallFixture(dir);
+        var host = await StartAsync(dir, cli => cli.AddPlugin<CodeGreeterEntry>(id: "greeter"));
+        await Checked(host);
+        var all = host.Services.GetRequiredService<CliInstalledPlugins>().All;
+        var fixture = all.Single(p => p.Id == FixturePackage);
+        Assert.Equal((CliInstalledPlugin.MarketplaceSource, CliServerPluginStatuses.NeedsConfiguration, "fixture"), (fixture.Source, fixture.Status, fixture.Settings));
+        Assert.Equal(["fixture.settings.apiKey"], fixture.Missing);
+        var code = all.Single(p => p.Id == typeof(CodeGreeterEntry).Assembly.GetName().Name);
+        Assert.Equal((CliInstalledPlugin.CodeSource, CliServerPluginStatuses.NeedsConfiguration, "greeter"), (code.Source, code.Status, code.Settings));
+        Assert.Equal(["greeter.settings.token", "greeter.settings.name"], code.Missing);
+        var json = System.Text.Json.JsonSerializer.Serialize(fixture);
+        Assert.Contains("\"status\":\"needs-configuration\"", json);
+        Assert.Contains("\"settings\":\"fixture\"", json);
+
+        var record = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir }).Records().Single();
+        Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "fixture", null), (record.Status, record.Settings, record.Error));
+        Assert.Equal(["fixture.settings.apiKey"], record.Missing);
+
+        await SetAsync(host, "fixture", "apiKey", "k");
+        await host.Services.GetRequiredService<CliServerPlugins>().CheckSettingsAsync();
+        Assert.Equal((CliServerPluginStatuses.Loaded, null), (fixture.Status, fixture.Missing));
+        record = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir }).Records().Single();
+        Assert.Equal((CliServerPluginStatuses.Loaded, null), (record.Status, record.Missing));
+    }
+
+    [Fact]
+    public void TheLoadOrder_MatchesTheOtherServers()
+    {
+        Assert.Equal((10, 20, 30, 50, 70), (CliPluginOrder.Auth, CliPluginOrder.ConfigStore, CliPluginOrder.Core, CliPluginOrder.Default, CliPluginOrder.Source));
     }
 
     [Fact]
