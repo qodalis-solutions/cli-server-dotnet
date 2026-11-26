@@ -561,9 +561,12 @@ public sealed class ServerRestartTests : IAsyncLifetime
             lock (order) order.Add(step);
         }
         var app = BuildKestrelApp(cli => cli.ConfigureRestart(o => { o.Mode = CliServerRestartModes.Exit; o.AllowAnonymous = true; }), Log);
+        // The request stays in flight until the host has begun to stop (not a fixed delay, which a slow machine outlasts)
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         app.MapGet("/slow", async () =>
         {
-            await Task.Delay(300);
+            await stopping.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.Delay(100);
             Log("slow done");
             return "ok";
         });
@@ -575,7 +578,11 @@ public sealed class ServerRestartTests : IAsyncLifetime
             return Task.CompletedTask;
         });
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-        lifetime.ApplicationStopping.Register(() => Log("stopping"));
+        lifetime.ApplicationStopping.Register(() =>
+        {
+            Log("stopping");
+            stopping.TrySetResult();
+        });
         lifetime.ApplicationStopped.Register(() => Log("stopped"));
         var baseUrl = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         var previousExitCode = Environment.ExitCode;
