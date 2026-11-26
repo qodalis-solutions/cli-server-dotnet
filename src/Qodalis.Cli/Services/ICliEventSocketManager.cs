@@ -45,4 +45,13 @@ public interface ICliEventSocketManager : ICliSessionBoundSockets, IDisposable
     /// Returns information about all currently connected event clients.
     /// </summary>
     IReadOnlyList<CliWebSocketClientInfo> GetClients();
+
+    /// <summary>
+    /// Rewrites every event of <paramref name="type"/> for each socket it is sent to (one hook per type; null removes
+    /// it): the server's <c>notification:changed</c> carries each reader's own unread count. The hook gets the socket's
+    /// principal on a protected server, else null; returning null skips that socket. A manager without hooks ignores it.
+    /// </summary>
+    void SetPersonalizer(string type, Func<Qodalis.Cli.Abstractions.Events.CliEvent, Qodalis.Cli.Security.CliPrincipal?, Qodalis.Cli.Abstractions.Events.CliEvent?>? personalizer)
+    {
+    }
 }

@@ -155,6 +155,12 @@ public sealed class CliPluginContext
     public ICliServerRestart Restart { get; }
 
     /// <summary>
+    /// The server's notifications (<see cref="CliBuilder.Notifications"/>): <c>Notify(new() { Key, Kind, Severity, Title,
+    /// Message })</c> tells the dashboard's users, <c>Resolve(key)</c> removes it once the condition ended. Usable now.
+    /// </summary>
+    public Qodalis.Cli.Abstractions.Notifications.ICliNotifications Notifications => Builder.Notifications;
+
+    /// <summary>
     /// Registers the plugin's settings as a config provider (defaults, validation, values kept in the config store),
     /// edited from the dashboard's Config page and <c>config set &lt;id&gt;.&lt;section&gt;.&lt;key&gt;</c>. The code
     /// options (<see cref="Options"/>) are the defaults, with source <c>code</c>; saved settings override them. Read a

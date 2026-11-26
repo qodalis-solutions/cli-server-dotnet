@@ -916,6 +916,13 @@ public sealed partial class CliServerPlugins
                 try
                 {
                     await CheckSettingsAsync();
+                    // Plugins that failed to load or need configuration at this start; those of the last start that load now are resolved
+                    if (services.GetService<Qodalis.Cli.Notifications.CliNotificationService>() is { } notifications)
+                        Qodalis.Cli.Notifications.CliSystemNotifications.SyncPlugins(notifications, States());
+                }
+                catch (Exception ex)
+                {
+                    services.GetService<ILoggerFactory>()?.CreateLogger("Qodalis.Cli.Plugins").LogError(ex, "Checking the plugins after start failed");
                 }
                 finally
                 {
