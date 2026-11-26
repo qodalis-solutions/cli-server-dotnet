@@ -65,8 +65,16 @@ public sealed class ServerStatus(ICliEventSocketManager eventSocketManager, ICli
     /// <summary>The status now.</summary>
     public async Task<StatusSnapshot> SnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var jobs = services.GetService<ICliJobManager>();
-        var registeredJobs = jobs == null ? 0 : (await jobs.GetJobsAsync(cancellationToken)).Count;
+        // A host may register its job manager as scoped (SetJobManager<T>()): this singleton holds the root provider,
+        // so it reads the jobs in a scope of its own (resolving a scoped service from the root throws under scope validation)
+        int registeredJobs;
+        bool hasJobs;
+        await using (var scope = services.CreateAsyncScope())
+        {
+            var jobs = scope.ServiceProvider.GetService<ICliJobManager>();
+            hasJobs = jobs != null;
+            registeredJobs = jobs == null ? 0 : (await jobs.GetJobsAsync(cancellationToken)).Count;
+        }
 
         using var process = Process.GetCurrentProcess();
         var started = process.StartTime.ToUniversalTime();
@@ -86,7 +94,7 @@ public sealed class ServerStatus(ICliEventSocketManager eventSocketManager, ICli
             ActiveShellSessions = services.GetService<ICliShellSessions>()?.Count ?? 0,
             RegisteredCommands = commandRegistry.Processors.Count,
             RegisteredJobs = registeredJobs,
-            EnabledFeatures = EnabledFeatures(jobs != null),
+            EnabledFeatures = EnabledFeatures(hasJobs),
             CpuUsagePercent = services.GetService<StatusHistory>()?.Latest?.CpuPercent,
         };
     }
