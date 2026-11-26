@@ -88,6 +88,10 @@ marketplace (the admin plugin's server plugins, loaded at the next start) or add
 cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
 ```
 
+The entry provides the store only: the audit log's routes and dashboard page come from the
+[audit plugin](../audit/README.md) (`cli.AddAudit()`, the users plugin, or `audit` from the marketplace), which keeps this
+store whether it is added before or after. `AddEfCoreAuditStore` in code adds the audit plugin too.
+
 Its settings (config provider `audit-efcore` unless noted; code options are their defaults, saved settings override them):
 `dialect`, `connectionString` (secret; empty: the connection of the dialect's driver plugin, database-postgres or database-mssql, which also brings the postgres and mssql providers when installed from the marketplace), `tablePrefix`; kept in `plugin-settings.json` and read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
 [Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

@@ -23,6 +23,16 @@ public static class EfCoreAuditStoreExtensions
     /// <param name="options">The table's name (<c>TablePrefix</c>, <c>Tables</c>, <c>Schema</c>, <c>LegacyTableNames</c>).</param>
     /// <returns>The builder for chaining.</returns>
     public static CliBuilder AddEfCoreAuditStore(this CliBuilder builder, Action<DbContextOptionsBuilder> configure,
+        Action<EfCoreAuditStoreOptions>? options = null) =>
+        AddEfCoreAuditStorage(builder, configure, options).AddAudit();
+
+    /// <summary>
+    /// The store alone (the plugin entry, <c>audit-efcore</c>): no routes and no dashboard page, which the audit plugin
+    /// adds, in code or from the marketplace, before or after it. Installed from the marketplace, this package carries its
+    /// own copy of the audit plugin's assembly; adding the plugin from that copy too routed <c>/api/v1/qcli/audit</c>
+    /// twice (500).
+    /// </summary>
+    internal static CliBuilder AddEfCoreAuditStorage(CliBuilder builder, Action<DbContextOptionsBuilder> configure,
         Action<EfCoreAuditStoreOptions>? options = null)
     {
         var storeOptions = new EfCoreAuditStoreOptions();
@@ -35,7 +45,7 @@ public static class EfCoreAuditStoreExtensions
             o.UseQcliTables(tables);
         });
         builder.Services.AddSingleton(QcliEfStoreRenames<AuditStorageDbContext>.For(tables, storeOptions, legacy));
-        builder.SetAuditStore<EfCoreAuditStore>();
+        builder.Services.UseAuditStore<EfCoreAuditStore>();
         return builder.AddInstalledPlugin(typeof(EfCoreAuditStore).Assembly);
     }
 
