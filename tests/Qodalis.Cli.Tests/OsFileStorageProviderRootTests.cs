@@ -104,4 +104,29 @@ public sealed class OsFileStorageProviderRootTests : IDisposable
         Assert.Equal(403, status.StatusCode);
         Assert.True(Directory.Exists(_root));
     }
+
+    [Fact]
+    public async Task AFolderAboveAllowedRoots_ListsOnlyTheFoldersLeadingToThem()
+    {
+        // The dashboard's Files page opens at "/": with roots set, it shows the way down to them instead of "Access denied"
+        var baseDir = Path.GetDirectoryName(_root)!;
+        File.WriteAllText(Path.Combine(baseDir, "secret.txt"), "x");
+        Directory.CreateDirectory(Path.Combine(baseDir, "hidden"));
+        var parent = await _provider.ListAsync(baseDir);
+        Assert.Equal(["other", "root"], parent.Select(e => e.Name).Order());
+        Assert.All(parent, e => Assert.Equal(("directory", 0L, ""), (e.Type, e.Size, e.Modified)));
+
+        var top = await _provider.ListAsync("/");
+        var first = Path.GetFullPath(_root).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)[0];
+        Assert.Equal([first], top.Select(e => e.Name));
+
+        // Below the way down, beside it, and files stay refused
+        await Assert.ThrowsAsync<FileStoragePermissionError>(() => _provider.ListAsync(Path.Combine(baseDir, "hidden")));
+        await Assert.ThrowsAsync<FileStoragePermissionError>(() => _provider.ListAsync(Path.Combine(baseDir, "secret.txt")));
+        // A denied root is not shown
+        var denied = new OsFileStorageProvider(new OsProviderOptions { AllowedPaths = [_root, _other], DeniedPaths = [_other] });
+        Assert.Equal(["root"], (await denied.ListAsync(baseDir)).Select(e => e.Name));
+        // Inside a root: the real listing
+        Assert.Contains(await _provider.ListAsync(_root), e => e.Name == "keep.txt" && e.Type == "file");
+    }
 }

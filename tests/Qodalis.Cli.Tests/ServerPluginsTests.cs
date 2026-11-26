@@ -249,8 +249,9 @@ public class ServerPluginsTests : IAsyncLifetime
         var state = host.Services.GetRequiredService<CliServerPlugins>().States().Single();
         Assert.Equal((CliServerPluginStatuses.Failed, "fixture asked to fail"), (state.Status, state.Error));
         Assert.Null(Processor(host, "fixture-hello"));
-        // The service it added before throwing, and its settings, are gone
-        Assert.DoesNotContain(host.Services.GetServices<ICliConfigProvider>(), p => p.Id == "fixture");
+        // The service it added before throwing is gone; its settings stay, so what made it fail can be corrected
+        Assert.Single(host.Services.GetServices<ICliConfigProvider>(), p => p.Id == "fixture");
+        Assert.Equal("fixture", state.Settings);
         Assert.DoesNotContain(host.Services.GetRequiredService<CliInstalledPlugins>().All, p => p.Id == FixturePackage);
         var plugins = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir });
         Assert.Equal("fixture asked to fail", plugins.Records().Single().Error);

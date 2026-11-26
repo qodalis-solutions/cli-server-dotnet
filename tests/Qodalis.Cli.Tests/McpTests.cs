@@ -1181,8 +1181,14 @@ public class McpRevisedRulesTests
             var traversal = await Mcp.CallAsync(h.Client, "fs_write", new { path = Path.Combine(root, "..", "escape.txt"), content = "x" });
             Assert.True(traversal.GetProperty("isError").GetBoolean());
             Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(root)!, "escape.txt")));
+            // Above the root: only the way down to it, nothing else of the disk
             var list = await Mcp.CallAsync(h.Client, "fs_list", new { path = "/" });
-            Assert.True(list.GetProperty("isError").GetBoolean());
+            Assert.False(list.TryGetProperty("isError", out var listError) && listError.GetBoolean());
+            var first = Path.GetFullPath(root).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)[0];
+            Assert.Contains(first, Mcp.Text(list));
+            Assert.DoesNotContain("\"etc\"", Mcp.Text(list));
+            var beside = await Mcp.CallAsync(h.Client, "fs_list", new { path = "/etc" });
+            Assert.True(beside.GetProperty("isError").GetBoolean());
         }
         finally
         {
