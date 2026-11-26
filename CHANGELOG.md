@@ -3,8 +3,9 @@
 Notable changes to the .NET CLI server packages (`Qodalis.Cli`, `Qodalis.Cli.Abstractions`, `Qodalis.Cli.Plugin.*`).
 Every package shares one version with the Node and Python servers.
 
-## Unreleased
+## 1.0.0-beta.33
 
+- The admin plugin embeds dashboard 1.0.0-beta.31: a failed install, update or remove shows the server's message, error texts never show an HTML page, a page whose server plugin is missing says so, and installing a dashboard plugin offers its missing server plugin.
 - **The data directory holds the dashboard plugins too** (as the Node server). The admin plugin keeps dashboard plugins in `<data dir>/dashboard-plugins` (the server's `CliServerPluginsOptions.DataDir`), so one option moves every folder the server writes; an explicit `Marketplace.Dir` still wins. They were in `<content root>/qcli-data/dashboard-plugins`: a host whose content root is not its working directory sets `DataDir` (or `Marketplace.Dir`) to keep them where they were. New environment variable **`QCLI_DATA_DIR`**: the data directory when `DataDir` is not set (`CliServerPluginsOptions.ResolveDataDir`, `DataDirEnvironmentVariable`).
 - **Clear errors when the plugins folder cannot be written.** A file system failure while installing, updating or removing a dashboard or server plugin answered 500 `internal server error`; it now answers 500 `{ "error": "cannot write the plugins folder <folder>: permission denied (EACCES). Set DataDir (or QCLI_DATA_DIR) to a writable folder" }` (only the folder and the error code; `PluginsFolder`), and `admin dashboard install` and `admin plugins install` print it. At startup, when the marketplace is on and a plugins folder cannot be created or written, the admin plugin logs one WARNING naming it and the option.
 

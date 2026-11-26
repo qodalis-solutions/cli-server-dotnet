@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Qodalis.Cli.Plugin.Databases.EfCore</RootNamespace>
-    <Version>1.0.0-beta.32</Version>
+    <Version>1.0.0-beta.33</Version>
     <Description>EF Core for the Qodalis CLI databases plugin: a DbContext's migrations shown, applied and rolled back from the dashboard, the terminal and MCP, and the schema helpers of the CLI's EF Core stores</Description>
     <Authors>Nicolae Lupei</Authors>
     <Company>Qodalis Solutions</Company>
