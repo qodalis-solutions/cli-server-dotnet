@@ -84,6 +84,19 @@ None of its own: it stores the usage counters of the [public-api plugin](../publ
 shown by that plugin's `api usage`. Its migrations show in `databases runs` when the
 [databases plugin](../databases/README.md#terminal-commands) runs them (`AddPublicApiUsageSchema`).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`PublicApiEfCorePluginEntry`, plugin id `public-api-efcore`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<PublicApiEfCorePluginEntry>(new { connectionString = "public-api.db" });
+```
+
+Its settings (config provider `public-api-efcore` unless noted; code options are their defaults, saved settings override them):
+`dialect`, `connectionString` (required secret), `tablePrefix`. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

@@ -555,6 +555,158 @@ restart.OnShutdown("pool", () => pool.CloseAsync());                 // your own
 - **Events** (audience `admin:access`): `server:restart-required` `{ pending }` whenever the list changes,
   `server:restarting` `{ reason, by, pending, mode }` before the shutdown.
 
+## Server plugins from code or the dashboard
+
+Every official plugin except `admin` can be added two ways, through the same entry point and with the same settings:
+
+- **In code:** `cli.AddPlugin<TEntry>(options)`. The options are the defaults of the plugin's settings, with origin `code`.
+- **From the dashboard:** installed at runtime from the marketplace (see the admin plugin's
+  [server plugins](plugins/admin/README.md#server-plugins-from-the-marketplace)) and loaded at the next start.
+
+Either way the plugin's settings appear on the dashboard's Config page, in `config list` and in MCP `config_*`. A
+saved setting overrides the code's value, which overrides the default.
+
+```csharp
+builder.Services.AddControllers().AddCli(cli =>
+{
+    cli.ConfigureServerPlugins(o => o.DataDir = Path.Combine(builder.Environment.ContentRootPath, "qcli-data"));
+    cli.AddPlugin<UsersPluginEntry>(new { protectServer = true });
+    cli.AddPlugin<WeatherPluginEntry>(new { defaultLocation = "Paris" });
+    cli.AddPlugin<PostgresPluginEntry>(new { name = "app" });   // its connection: config set data-explorer-postgres.settings.connectionString ...
+});
+```
+
+### The entry contract
+
+A plugin package declares its entry with an assembly attribute. The entry registers what the host would register in code:
+
+```csharp
+[assembly: CliPlugin(typeof(WeatherPluginEntry), Id = "weather", Order = CliPluginOrder.Default)]
+
+public sealed class WeatherPluginEntry : ICliPluginEntry
+{
+    public void Register(CliPluginContext context)
+    {
+        var settings = context.Settings(new() { Title = "Weather", Settings =
+        [
+            new() { Key = "defaultLocation", Type = CliConfigEntryTypes.String, Default = "London" },
+        ] });
+        context.Builder.AddModule(new WeatherModule(() => settings.GetValue("settings", "defaultLocation")?.ToString()));
+    }
+}
+```
+
+`CliPluginContext` gives the plugin the following:
+
+| Member | What it is |
+|---|---|
+| `PluginId`, `PackageName`, `Version` | Who it is |
+| `Source` | `code` or `marketplace` |
+| `Options` | The code options: `{ key: value }` or `{ section: { key: value } }` |
+| `Builder`, `Services` | Where it registers |
+| `Logger` | Category `Qodalis.Cli.Plugin:<id>`, buffered until logging starts |
+| `DataDir` | `<data dir>/plugin-data/<id>`, created |
+| `ServerDataDir` | The server's data directory |
+| `Restart` | The restart service |
+
+It also has three methods:
+
+- **`Settings(options)`:** returns a `CliStoredConfigProvider`. Read its values lazily: they load when the server starts.
+- **`BootSettings(options)`:** for settings needed while the services are registered, such as a config store's or
+  a database's connection. They are kept in `plugin-settings.json` and read immediately.
+- **`NeedsConfiguration(missing)`:** for a plugin that needs another plugin it builds on.
+
+`[CliPlugin]` may also go on an entry class (the filesystem and data explorer entries live in the server itself).
+
+**Load order.** Plugins added in code and installed plugins run together, after the host's own registrations, in
+their declared order, then in the order they were added:
+
+| Constant | Value | Used by |
+|---|---|---|
+| | 5 | users-efcore |
+| `CliPluginOrder.Auth` | 10 | users |
+| `CliPluginOrder.ConfigStore` | 20 | config-redis, config-efcore |
+| `CliPluginOrder.Core` | 30 | databases, the data explorer |
+| `CliPluginOrder.Default` | 50 | most plugins |
+| | 60 | portal |
+| `CliPluginOrder.Source` | 70 | the data explorer sources |
+
+**Statuses.** Each plugin ends up `loaded`, `failed`, `skipped` (the host already has the package) or
+`needs-configuration`:
+
+- **`needs-configuration`:** a `Required` setting has no value, or the plugin called `NeedsConfiguration`. The
+  missing keys are listed in `missing` (`<provider>.<section>.<key>`). The plugin's settings stay registered so they
+  can be filled in, and it stays idle until then. For example, a data explorer source adds nothing and a storage
+  answers that it needs configuration. A change applies after a restart.
+- **`failed`:** the plugin threw. Its registrations are rolled back, the error is logged and kept, and the server
+  starts all the same.
+
+The state is shown in these places:
+
+- `CliServerPlugins.States()`: `{ name, package, version, status, error?, source, missing?, settings? }`.
+- The installed plugins list (`GET /api/v1/qcli/plugins/installed`: `source`, `status`, `missing`, `settings`).
+- `installed.json`, for installed plugins.
+
+**Settings storage.** When the server keeps its settings in memory (no default store set), the plugins' settings go
+in `<data dir>/plugin-settings.json` (mode 0600), so a value saved from the dashboard survives a restart. A host
+store, or a config store plugin, takes over otherwise.
+
+**Config entries** carry `required` and `origin` (`code`, `setting` or `default`): who decided the value. A secret
+has an origin too, and its value is never returned.
+
+### Plugins installed at runtime
+
+`<data dir>/server-plugins/installed.json` lists the installed plugins:
+
+```json
+{ "plugins": [ { "name": "weather", "package": "Qodalis.Cli.Plugin.Weather", "version": "1.0.0-beta.32",
+  "integrity": "sha512-...", "title": "Weather", "installedAt": "...", "installedBy": "admin",
+  "status": "loaded", "settings": "weather" } ] }
+```
+
+The data directory defaults to `qcli-data` in the working directory; set it with `cli.ConfigureServerPlugins(o => ...)`.
+The admin plugin's marketplace writes this file. Each package's assemblies live in `server-plugins/<package>/<version>/`.
+
+At startup, every package loads into a collectible `CliPluginLoadContext`. An assembly the host already has
+resolves to the host's copy, so the contracts exist once and a plugin never replaces a host assembly. These are
+`Qodalis.Cli*`, the framework, and any package the host references.
+
+`ConfigureServerPlugins(o => o.Enabled = false)` turns runtime plugins off. Plugins added in code still load.
+
+A package that needs the host's code declares
+`[assembly: AssemblyMetadata("QodalisCliAutoInstall", "false")]` (with `QodalisCliAutoInstallReason`). It is listed
+in the marketplace but never installed.
+
+### Official entries
+
+| Plugin | Entry | Order | Settings (required ones marked *) |
+|---|---|---|---|
+| weather | `WeatherPluginEntry` | 50 | defaultLocation |
+| aws | `AwsPluginEntry` | 50 | region, profile, accessKeyId and secretAccessKey (secrets), applied when changed |
+| docs | `DocsPluginEntry` | 50 | folder, basePath, title, name (served without `UseQodalisDocs`) |
+| audit | `AuditPluginEntry` | 50 | maxEntries |
+| filesystem | `FileSystemPluginEntry` (in the server) | 50 | roots*, readOnly |
+| filesystem-json, -sqlite, -s3, -efcore | `JsonFilePluginEntry`, `SqlitePluginEntry`, `S3PluginEntry`, `FileSystemEfCorePluginEntry` | 50 | file / database / bucket* and keys / dialect and connectionString*, readOnly (all read-only by default) |
+| data explorer | `DataExplorerPluginEntry` (in the server) | 30 | forceReadOnly, maxRows, rateLimitQueries, rateLimitWindowSeconds (for the sources added after it) |
+| data-explorer-postgres, -mysql, -mssql, -redis, -mongo, -elasticsearch, -sql | `PostgresPluginEntry`, ... | 70 | name, description, connectionString* (node* for Elasticsearch, database* for MongoDB, filename for SQLite), readOnly, timeoutMs, maxRows |
+| users | `UsersPluginEntry` | 10 | protectServer, allowNonExpiringTokens, defaultAdminPassword (provider `users-plugin`; its middleware first in the pipeline) |
+| users-efcore, audit-efcore, jobs-efcore, public-api-efcore, config-efcore | `UsersEfCorePluginEntry`, ... | 5 / 50 / 50 / 50 / 20 | dialect (sqlite, postgres, mssql), connectionString*, tablePrefix |
+| config-redis | `RedisConfigPluginEntry` | 20 | url*, keyPrefix, ttlSeconds (kept in `plugin-settings.json`, never in Redis) |
+| databases | `DatabasesPluginEntry` | 30 | name, dialect, connectionString*, migrationsFolder, applyOnStartup |
+| jobs | `JobsPluginEntry` | 50 | its `jobs` provider (history retention) |
+| public-api | `PublicApiPluginEntry` | 50 | basePath, title, serverUrl, requestsPerDay, requestsPerMinute, usageRetentionDays (needs the users plugin) |
+| portal | `PortalPluginEntry` | 60 | path, name, logoUrl (needs docs or public-api) |
+| logs-seq | `SeqLogsPluginEntry` | 50 | serverUrl*, apiKey, serviceName, minimumLevel, readHistory |
+
+A few entries find what they depend on at runtime, from the host or from packages installed with the plugin:
+
+- The EF Core entries find their dialect's provider (`Microsoft.EntityFrameworkCore.Sqlite`,
+  `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.EntityFrameworkCore.SqlServer`).
+- The databases entry finds its ADO.NET driver (`Microsoft.Data.Sqlite`, `Npgsql`, `MySqlConnector`,
+  `Microsoft.Data.SqlClient`).
+
+Packages that are part of the server (`Qodalis.Cli`, and with it the filesystem and data explorer) are added in code only.
+
 ## Use with your app's sign-in
 
 When your application already signs users in (cookies, JWT, an identity provider), the users plugin can take its users from your app instead of its own logins. The browser terminal, the MCP endpoint and the admin dashboard then all use your session.

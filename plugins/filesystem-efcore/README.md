@@ -44,6 +44,19 @@ name, `TablePrefix`, `Tables["Files"]` and `Schema` set others.
 None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
 (`scp` in the web CLI).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`FileSystemEfCorePluginEntry`, plugin id `filesystem-efcore`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<FileSystemEfCorePluginEntry>(new { connectionString = "files.db" });
+```
+
+Its settings (config provider `filesystem-efcore` unless noted; code options are their defaults, saved settings override them):
+`dialect` (sqlite, postgres, mssql), `connectionString` (required secret; for SQLite a file in the plugin's data folder), `tablePrefix`, `readOnly` (default true); kept in `plugin-settings.json` and read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

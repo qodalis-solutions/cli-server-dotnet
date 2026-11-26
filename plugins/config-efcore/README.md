@@ -64,3 +64,16 @@ None of its own: it keeps the writable settings of the config providers, managed
 (`config list`, `config get`, `config set`, `config reset`; `config:read` for reading, `config:write` for changes). Its
 migrations show in `databases runs` when the [databases plugin](../databases/README.md#terminal-commands) runs them
 (`AddConfigStoreSchema`).
+
+## Install from the dashboard or in code
+
+The package declares an entry point (`ConfigEfCorePluginEntry`, plugin id `config-efcore`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<ConfigEfCorePluginEntry>(new { connectionString = "config.db" });
+```
+
+Its settings (config provider `config-efcore` unless noted; code options are their defaults, saved settings override them):
+`dialect`, `connectionString` (required secret), `tablePrefix`; order ConfigStore (20): the default config store; its own settings stay in `plugin-settings.json`. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

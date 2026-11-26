@@ -104,6 +104,19 @@ None of its own: it stores the API tokens of the [users plugin](../users/README.
 plugin's `token` commands. Its migrations show in `databases runs` when the
 [databases plugin](../databases/README.md#terminal-commands) runs them (`AddApiTokenStoreSchema`).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`UsersEfCorePluginEntry`, plugin id `users-efcore`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<UsersEfCorePluginEntry>(new { connectionString = "users.db" });
+```
+
+Its settings (config provider `users-efcore` unless noted; code options are their defaults, saved settings override them):
+`dialect`, `connectionString` (required secret), `tablePrefix`; loads at order 5, before the users plugin. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

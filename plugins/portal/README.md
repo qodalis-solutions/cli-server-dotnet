@@ -175,6 +175,19 @@ $ config reset portal.branding.logoUrl
 The theme's colour tokens (`Theme.Dark`, `Theme.Light`) stay in code: 21 tokens per scheme would make a long settings
 page, and a wrong colour is easier to catch in review.
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`PortalPluginEntry`, plugin id `portal`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<PortalPluginEntry>(new { path = "/docs" });
+```
+
+Its settings (config provider `portal` unless noted; code options are their defaults, saved settings override them):
+`path`, `name`, `logoUrl` (provider `portal-plugin`; the branding stays the `portal` provider's), `siteDir` in code only; order 60, needs docs or public-api (else `needs-configuration`). A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

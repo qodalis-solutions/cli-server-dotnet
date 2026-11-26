@@ -86,3 +86,16 @@ removed afterwards.
 
 None of its own: the settings are read and changed with the server's [`config` command](../../README.md#terminal-commands)
 (`config list`, `config get`, `config set`, `config reset`).
+
+## Install from the dashboard or in code
+
+The package declares an entry point (`RedisConfigPluginEntry`, plugin id `config-redis`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<RedisConfigPluginEntry>(new { url = "redis://cache:6379/0" });
+```
+
+Its settings (config provider `config-redis` unless noted; code options are their defaults, saved settings override them):
+`url` (required secret), `keyPrefix`, `ttlSeconds`; order ConfigStore (20): Redis becomes the default config store; its own settings stay in `plugin-settings.json`, never in Redis. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

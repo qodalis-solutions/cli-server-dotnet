@@ -42,6 +42,19 @@ keeps the old names; `TablePrefix` and `Tables["Files"]` set others. To show the
 None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
 (`scp` in the web CLI).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`SqlitePluginEntry`, plugin id `filesystem-sqlite`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<SqlitePluginEntry>(new { readOnly = false });
+```
+
+Its settings (config provider `filesystem-sqlite` unless noted; code options are their defaults, saved settings override them):
+`database` (relative to the plugin's data folder, default `files.db`), `tablePrefix`, `readOnly` (default true). A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

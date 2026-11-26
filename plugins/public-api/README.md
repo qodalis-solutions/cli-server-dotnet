@@ -301,6 +301,19 @@ both ...`), in either order.
 Tokens must be created and revoked from one service only: the users plugin checks token names and the 20-token limit
 in the process that creates the token. Every service may validate tokens over the shared stores.
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`PublicApiPluginEntry`, plugin id `public-api`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<PublicApiPluginEntry>(new { requestsPerDay = 1000 });
+```
+
+Its settings (config provider `public-api` unless noted; code options are their defaults, saved settings override them):
+`basePath`, `title`, `serverUrl`, `requestsPerDay`, `requestsPerMinute`, `usageRetentionDays`; needs the users plugin (else `needs-configuration`); adds the `public` OpenAPI document when the host has none and serves it without `UseQodalisPublicApi()`. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

@@ -171,6 +171,19 @@ This plugin uses the AWS SDK for .NET:
 - `AWSSDK.ECS`
 - `AWSSDK.SecurityToken`
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`AwsPluginEntry`, plugin id `aws`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<AwsPluginEntry>(new { region = "eu-north-1" });
+```
+
+Its settings (config provider `aws` unless noted; code options are their defaults, saved settings override them):
+`region`, `profile`, `accessKeyId` and `secretAccessKey` (secrets, never returned), applied at start and when changed; without keys the AWS default credential chain is used. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

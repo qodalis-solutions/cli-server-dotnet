@@ -102,3 +102,16 @@ No command of its own. With this plugin installed, `admin logs` of the [admin pl
 and `logs:read`) reads the history from Seq, and `server logs` (web CLI plugin
 [`@qodalis/cli-server-logs`](https://www.npmjs.com/package/@qodalis/cli-server-logs)) follows the live log
 (`/ws/v1/qcli/logs`, `logs:read`).
+
+## Install from the dashboard or in code
+
+The package declares an entry point (`SeqLogsPluginEntry`, plugin id `logs-seq`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<SeqLogsPluginEntry>(new { serverUrl = "http://seq:5341" });
+```
+
+Its settings (config provider `logs-seq` unless noted; code options are their defaults, saved settings override them):
+`serverUrl` (required), `apiKey` (secret), `serviceName`, `minimumLevel`, `readHistory`; read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

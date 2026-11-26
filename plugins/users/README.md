@@ -591,6 +591,19 @@ command (`config get users`).
 | `link approve <code> [--yes]`, `link deny <code>` | signed in | Approves or denies another terminal's link request (as the dashboard does) |
 | `last [user]`, `audit`, `audit clear` | `audit:read`, `audit:clear` | Sign-in history and the audit log (the [audit plugin](../audit/README.md)) |
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`UsersPluginEntry`, plugin id `users`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<UsersPluginEntry>(new { protectServer = true });
+```
+
+Its settings (config provider `users` unless noted; code options are their defaults, saved settings override them):
+`protectServer`, `allowNonExpiringTokens`, `defaultAdminPassword` (secret), provider `users-plugin`, read at start; order Auth (10) and its middleware first in the pipeline (do not call `UseQodalisUsers()` too); stores, adapters and guard-only mode need `cli.AddUsers` in code. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

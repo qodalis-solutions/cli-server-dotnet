@@ -137,3 +137,16 @@ names, keeping the data) work on every dialect. `CliMigrationRunner` runs a stor
 `MigrationsRunnerTests` (runner and stats) run on SQLite, and on PostgreSQL, MySQL and SQL Server when
 `QCLI_TEST_POSTGRES_CS`, `QCLI_TEST_MYSQL_CS` and `QCLI_TEST_MSSQL_CS` hold ADO.NET connection strings to databases
 the tests may write to.
+
+## Install from the dashboard or in code
+
+The package declares an entry point (`DatabasesPluginEntry`, plugin id `databases`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<DatabasesPluginEntry>(new { dialect = "sqlite", connectionString = "app.db" });
+```
+
+Its settings (config provider `databases` unless noted; code options are their defaults, saved settings override them):
+`name`, `dialect` (postgres, mysql, mssql, sqlite), `connectionString` (required secret), `migrationsFolder`, `applyOnStartup`; order Core (30); the driver (Npgsql, MySqlConnector, Microsoft.Data.SqlClient, Microsoft.Data.Sqlite) comes from the host or is installed with the plugin. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).

@@ -51,6 +51,19 @@ Weather for Paris, France
   Pressure:    1015 hPa
 ```
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`WeatherPluginEntry`, plugin id `weather`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<WeatherPluginEntry>(new { defaultLocation = "Paris" });
+```
+
+Its settings (config provider `weather` unless noted; code options are their defaults, saved settings override them):
+`defaultLocation` (default London), read on every command. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

@@ -503,6 +503,95 @@ the `nuget` entry of the marketplace's list form `[{ ecosystem, name }]`), else 
 
 `hasConfig`: the plugin has settings (the section `dashboard-plugins.<id>`).
 
+## Server plugins from the marketplace
+
+The admin plugin also installs the marketplace's server plugins (`kind=server`), the .NET package of each, using the
+same options as dashboard plugins:
+
+```csharp
+cli.AddAdmin(o => o.Marketplace = new DashboardMarketplaceOptions
+{
+    Install = "verified",                                       // or "listed", "off"
+    NuGetFeed = "https://api.nuget.org/v3-flatcontainer",       // the default
+    TrustedDependencies = ["Npgsql", "Npgsql.*"],
+});
+```
+
+An install runs these steps, and nothing is stored when a check fails:
+
+1. **Checks.** The trust policy, the plugin's `.NET` platform, `autoInstall`, and the server range of the version
+   record (NuGet `[1.0.0-beta.29, )` or npm `^1.0.0-beta.29` syntax, compared with the running `Qodalis.Cli`).
+   A package the host already has is refused with 409.
+2. **Download.** The `.nupkg` comes from the NuGet flat container (50 MB at most) and must match the version
+   record's `integrity` (`sha512-…`). A record without one is refused.
+3. **Package.** The nuspec's id and version must match. The `lib/<tfm>` folder is the best one for this runtime
+   (`net10.0`, else the nearest lower `netX.Y`, `netcoreapp`, `netstandard2.1`/`2.0`). The main assembly must
+   declare `[assembly: CliPlugin(...)]` and must not say `QodalisCliAutoInstall=false`; both are read with
+   `System.Reflection.Metadata`, without loading it. A `Qodalis.Cli` dependency's range must include the server's version.
+4. **Dependencies.** The server's own packages (`Qodalis.Cli*`, the framework, anything the host references) are
+   never downloaded. Every other dependency is installed only in one of two cases; otherwise the install is refused
+   with 400 `untrusted dependency: <id>`:
+   - The version record pins it with a hash: `dependencies: [{ id, version, integrity }]`. The version must fit the
+     nuspec range and the sha512 is checked.
+   - Its id matches `TrustedDependencies` (ids, or `Prefix.*`). It is then downloaded from the same feed at the lowest
+     version of its range, without a hash.
+5. **Extraction.** The `lib` files of the plugin and its dependencies go into a staging folder, then move to
+   `<data dir>/server-plugins/<package>/<version>/`. An assembly the host has is never extracted.
+6. **Record.** `installed.json` is written atomically and a restart is marked as required (`plugin:<name>`). The
+   plugin loads at the next start (see [Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard)).
+
+The admin plugin itself has no entry: it is added in code (`cli.AddAdmin(...)`).
+
+An update installs the new version and deletes the old folder unless this process runs it. A removal deletes the
+record (and the files unless they are running), and the plugin keeps running until a restart.
+
+Restart handling, permission, audit and events:
+
+- A restart is marked while the installed list differs from what runs, and cleared when it no longer does.
+- Changes run one at a time and need **`plugins:install`** (core catalog, group Server, `CliRoutePolicy.PluginsInstall`).
+- They are audited as `server.plugin.install|update|remove` (`details` `<package>@<version>`) and published as
+  `server:plugins-changed` (audience `admin:access`).
+
+### Server marketplace API
+
+Routes under `/api/v1/qcli/server/marketplace` need `admin:access` to read and `plugins:install` to change; they
+answer 404 when the marketplace is off.
+
+| Route | Does |
+|---|---|
+| `GET /` | `{ marketplaceUrl, install, platform: "dotnet", serverVersion, enabled }` |
+| `GET /plugins?query=&page=&pageSize=` | Fetched with `kind=server&platform=dotnet&serverVersion=<this server's>`, each item annotated with `platform: { package, latest, installed, compatible, reason? }`, `otherPlatforms`, `autoInstall`, `updateAvailable`, `allowed`, `blockedReason` |
+| `GET /plugins/{name}` | One plugin with its platforms and versions (this platform's with `allowed` and `blockedReason`) |
+| `GET /installed` | The installed plugins and how they run |
+| `POST /installed` `{ name, version? }` | 202: the installed plugin with `restartRequired` |
+| `PUT /installed/{name}` `{ version? }` | 202 with `changed` and `previousVersion`; 200 `changed: false` when it already is that version |
+| `DELETE /installed/{name}` | 202: the removed plugin |
+
+An installed plugin as `GET /installed` lists it:
+
+```json
+{
+  "name": "data-explorer-postgres", "package": "Qodalis.Cli.Plugin.DataExplorer.Postgres", "version": "1.0.0-beta.32",
+  "title": "Data explorer: PostgreSQL", "icon": "🐘", "description": "...",
+  "installedAt": "2026-11-26T10:00:00.000Z", "installedBy": "admin",
+  "status": "needs-configuration", "loadedVersion": "1.0.0-beta.32",
+  "missing": ["data-explorer-postgres.settings.connectionString"], "settings": "data-explorer-postgres",
+  "updateAvailable": false
+}
+```
+
+`status` is one of:
+
+- `loaded`
+- `needs-configuration`
+- `pending`: installed or updated, runs after a restart
+- `failed`, with `error`
+- `skipped`: the host has the package
+- `removed`: still running until a restart
+
+`settings` is the config provider of its settings: `config set <settings>.settings.<key> <value>`.
+Plugins added in code (`cli.AddPlugin`) are not listed here.
+
 ## Without CLI routes
 
 On a service built with `cli.WithoutCliRoutes()` the dashboard's API does not exist, so `UseQodalisAdmin()` serves
@@ -512,7 +601,8 @@ nothing and logs `[qcli] the CLI routes are turned off (WithoutCliRoutes); the a
 
 The plugin brings the `admin` command (registered by `cli.AddAdmin()`). It reads the same services as the admin
 routes. On a protected server every sub-command needs `admin:access`; `admin logs` also needs `logs:read`,
-`admin dashboard install|update|remove` also `dashboard:install`, `admin restart` (but not `admin restart status`)
+`admin dashboard install|update|remove` also `dashboard:install`, `admin plugins install|update|remove` also
+`plugins:install`, `admin restart` (but not `admin restart status`)
 `server:restart`. Server settings are the core [`config`](../../README.md#config-providers) command; a dashboard plugin's settings are changed after its install with
 `config set dashboard-plugins.<id>.<key> <value>` (`config:write`). Lists take `--json` (the payload of the matching
 route).
@@ -523,6 +613,11 @@ route).
 | `admin status --history [--minutes 60] [--json]` | `admin:access` | Summary of the status samples of the last minutes (1-1440): count, min/avg/max memory and CPU, peak connections (`GET /status/history`) |
 | `admin plugins`, `admin plugins list [--json]` | `admin:access` | Command modules: id, name, version, enabled or disabled, commands (`GET /plugins`) |
 | `admin plugins enable <id>`, `admin plugins disable <id>` | `admin:access` | Turns a module's commands on or off, like `POST /plugins/{id}/toggle` but idempotent (`... is already enabled.`); the `admin` module itself cannot be disabled from the terminal |
+| `admin plugins search [<query>] [--json]` | `admin:access` | The marketplace's server plugins: package, version, platforms, publisher, installable or blocked and why (`GET /server/marketplace/plugins`) |
+| `admin plugins installed [--json]` | `admin:access` | The server plugins installed from the marketplace: package, version (update available), status (loaded, needs-configuration, pending restart, failed with the reason), when and by whom |
+| `admin plugins install <name>[@version]` | `admin:access`, `plugins:install` | Installs this server's package (the newest compatible version, or the one given); runs after a restart (`POST /server/marketplace/installed`) |
+| `admin plugins update <name>[@version]` | `admin:access`, `plugins:install` | Updates an installed server plugin; runs after a restart |
+| `admin plugins remove <name>` | `admin:access`, `plugins:install` | Removes it; it runs until a restart |
 | `admin clients [--json]` | `admin:access` | Connected WebSocket clients: id, type, connected since, address (`GET /ws/clients`) |
 | `admin logs [--level warn,error] [--search <text>] [--service <name>] [--since 5m\|1h\|7d\|<ISO date>] [-n 50] [--json]` | `admin:access`, `logs:read` | The newest matching log entries (1-1000), oldest first, from the log store `GET /logs` reads: the in-memory history, or Seq with `Qodalis.Cli.Plugin.Logs.Seq` (`--service` filters by the service that wrote the entries, which only a persistent store such as Seq records) |
 | `admin restart [--yes] [--reason <text>]` | `admin:access`, `server:restart` | Without `--yes` (server commands cannot ask): the changes waiting for a restart and how to confirm; with it, restarts the server like `POST /server/restart` (audited with `via: command`; see [Restart](../../README.md#restart)) |
@@ -534,7 +629,14 @@ route).
 | `admin dashboard update <name> [--config '<json>']` | `admin:access`, `dashboard:install` | Updates to the newest version, reporting the settings it drops (`PUT /dashboard/marketplace/installed/{name}`) |
 | `admin dashboard remove <name>` | `admin:access`, `dashboard:install` | Removes the page and its files (`DELETE /dashboard/marketplace/installed/{name}`) |
 
-`admin dashboard` is left out when the marketplace is turned off (`config.Marketplace.Enabled = false`).
+`admin dashboard` and `admin plugins search|installed|install|update|remove` are left out when the marketplace is
+turned off (`config.Marketplace.Enabled = false`).
+
+```
+> admin plugins install weather
+Installed weather: Qodalis.Cli.Plugin.Weather@1.0.0-beta.32.
+Restart the server to apply it: admin restart (or the dashboard).
+```
 
 On a server without the users plugin, `/execute` is open, and so are these commands. To follow the log live, use
 `server logs` of the web CLI plugin `@qodalis/cli-server-logs` (the `/ws/v1/qcli/logs` socket, `logs:read`).

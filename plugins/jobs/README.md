@@ -338,6 +338,19 @@ changes.
 
 History retention is also a setting: `config get jobs` / `config set jobs.history.<key> <value>` (core `config` command).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`JobsPluginEntry`, plugin id `jobs`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<JobsPluginEntry>();
+```
+
+Its settings (config provider `jobs` unless noted; code options are their defaults, saved settings override them):
+none of its own: the `jobs` config provider (history retention) is the scheduler's; runs are in memory unless jobs-efcore sets a storage. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

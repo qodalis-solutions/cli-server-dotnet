@@ -79,6 +79,19 @@ None of its own: it stores the log of the [audit plugin](../audit/README.md#term
 plugin's commands (`audit`, `last`, `audit clear`). Its migrations show in `databases runs` when the
 [databases plugin](../databases/README.md#terminal-commands) runs them (`AddAuditStoreSchema`).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`AuditEfCorePluginEntry`, plugin id `audit-efcore`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<AuditEfCorePluginEntry>(new { connectionString = "audit.db" });
+```
+
+Its settings (config provider `audit-efcore` unless noted; code options are their defaults, saved settings override them):
+`dialect`, `connectionString` (required secret), `tablePrefix`; kept in `plugin-settings.json` and read at start. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

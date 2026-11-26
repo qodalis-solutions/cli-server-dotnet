@@ -47,6 +47,19 @@ When `ServiceURL` is set, path-style addressing is automatically enabled for com
 None of its own: the storage is reached through the [filesystem plugin](../filesystem/README.md#terminal-commands)
 (`scp` in the web CLI).
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`S3PluginEntry`, plugin id `filesystem-s3`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<S3PluginEntry>(new { bucket = "files" });
+```
+
+Its settings (config provider `filesystem-s3` unless noted; code options are their defaults, saved settings override them):
+`bucket` (required), `region`, `prefix`, `endpoint`, `accessKeyId` and `secretAccessKey` (secrets), `readOnly` (default true); nothing is served until a bucket is set. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

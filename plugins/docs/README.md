@@ -106,6 +106,19 @@ Send `Authorization: Bearer <token>` to {{ baseUrl }}/v1/rates. Questions: {{ su
 `duplicate docs page: <slug>`, `docs folder not found: <path>`, `invalid order in docs page: <slug>`,
 `invalid docs variable: <key>`, `docs variable is built in: <key>` (`baseUrl`, `name`), `invalid docs base path: <path>`.
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`DocsPluginEntry`, plugin id `docs`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<DocsPluginEntry>(new { folder = "guides", basePath = "/help" });
+```
+
+Its settings (config provider `docs` unless noted; code options are their defaults, saved settings override them):
+`folder` (relative to `<data dir>/plugin-data/docs`, default `pages`), `basePath`, `title`, `name`; served without `UseQodalisDocs()` (do not call it too). A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT

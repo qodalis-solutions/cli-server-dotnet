@@ -83,6 +83,19 @@ reads the log through `GET/DELETE /api/v1/qcli/audit`.
 | `last [user]` | `audit:read` | Sign-in history (logins, logouts, failures) |
 | `audit clear` | `audit:clear` | Clears the audit log (asks first) |
 
+## Install from the dashboard or in code
+
+The package declares an entry point (`AuditPluginEntry`, plugin id `audit`), so it can be installed from the dashboard's
+marketplace (the admin plugin's server plugins, loaded at the next start) or added in code through the same entry:
+
+```csharp
+cli.AddPlugin<AuditPluginEntry>(new { maxEntries = 5000 });
+```
+
+Its settings (config provider `audit` unless noted; code options are their defaults, saved settings override them):
+`maxEntries` (the in-memory log's size); a store the host set is kept. A required setting without a value lists the plugin as `needs-configuration` with `missing`; see
+[Server plugins](../../README.md#server-plugins-from-code-or-the-dashboard).
+
 ## License
 
 MIT
