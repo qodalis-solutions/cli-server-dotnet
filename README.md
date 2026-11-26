@@ -555,6 +555,43 @@ restart.OnShutdown("pool", () => pool.CloseAsync());                 // your own
 - **Events** (audience `admin:access`): `server:restart-required` `{ pending }` whenever the list changes,
   `server:restarting` `{ reason, by, pending, mode }` before the shutdown.
 
+## System notifications
+
+What the server tells its users and admins (the dashboard's bell and Notifications page, the `notifications` command):
+updates, restarts, plugin problems, security warnings. The same keys, routes, JSON and events as the Node and Python
+servers (`docs/notifications-spec.md` of `@qodalis/cli-server-node`).
+
+```csharp
+// The host's code and plugins' registrations (CliPluginContext.Notifications); ICliNotifications in the container
+cli.Notifications.Notify(new() { Key = "billing:quota", Kind = "billing", Severity = "warning",
+    Title = "Quota almost used", Message = "92% of this month's quota", Link = "/billing", RequiredPermission = "billing:read" });
+cli.Notifications.Resolve("billing:quota");        // the condition ended
+cli.ConfigureNotifications(o => o.MaxAgeDays = 7); // File (<data dir>/notifications.json), Persist, MaxItems (500), MaxAgeDays (30)
+```
+
+- **A key names a condition**: publishing it again updates the notification (same id); identical content changes
+  nothing, changed content is unread and shown again for everyone. `ResolveMissing(prefix, keep)` resolves what a source
+  no longer sees.
+- **Visibility**: a user sees a notification without `RequiredPermission` or whose permission they hold; each user has
+  their own read and dismissed state. On a server without sign-in there is one reader, `anonymous`, who sees everything.
+- **Kept** in `<data dir>/notifications.json` (atomic writes), at most 500, 30 days after their last change.
+- **API** `/api/v1/qcli/notifications` (any signed-in user): `GET ?unread=true&severity=&limit=` `{ items, unreadCount }`,
+  `POST /read-all`, `POST /{id}/read`, `DELETE /{id}` (dismiss), `DELETE /{id}?scope=all` (clear for everyone, permission
+  **`notifications:manage`**). The command `notifications [list|read <id>|--all|clear <id> [--all]]`, the MCP tool
+  `notifications_list`.
+- **Event** `notification:changed` `{ action, id, key, item?, unreadCount }`: each events socket gets its own `unreadCount`
+  and `item.read` (`ICliEventSocketManager.SetPersonalizer`).
+- **The server's own** (`admin:access`): `server.restart-required` (changes wait for a restart), `security.anonymous-admin`
+  (`AllowAnonymousAdmin` without sign-in), `plugin.failed:<name>` and `plugin.needs-configuration:<name>` (at this start;
+  resolved at the next start when the plugin loads).
+- **Updates** (admin plugin, while the marketplace is on): `GET /api/v1/qcli/updates` and `POST /api/v1/qcli/updates/check`
+  (permission **`updates:read`** or `plugins:install`; MCP `updates_list`) list the dashboard and server plugins installed
+  from the marketplace with a newer version, the plugins added in code with a newer package (and the install command per
+  platform) and the server package (`Qodalis.Cli`'s newest version on NuGet). Checked 60 s after a start, then every 6
+  hours: the jobs plugin's job `updates:check` when it is mounted, else a timer (`AddAdmin(o => o.UpdateChecks.Enabled =
+  false)` turns it off; Check now still works). Each update is a notification (`update:*`, `updates:read`); the last
+  result is kept in `<data dir>/updates.json`, and a marketplace that does not answer keeps the last items.
+
 ## Server plugins from code or the dashboard
 
 Every official plugin except `admin` can be added two ways, through the same entry point and with the same settings:
@@ -608,6 +645,7 @@ public sealed class WeatherPluginEntry : ICliPluginEntry
 | `DataDir` | `<data dir>/plugin-data/<id>`, created |
 | `ServerDataDir` | The server's data directory |
 | `Restart` | The restart service |
+| `Notifications` | The server's notifications (see [System notifications](#system-notifications)) |
 
 It also has three methods:
 
@@ -784,6 +822,7 @@ Details: [plugins/users/README.md](plugins/users/README.md#external-auth-adapter
 | POST | `/api/qcli/data-explorer/execute` | Run a query |
 | POST | `/api/qcli/mcp` | MCP endpoint, with `AddMcp()` |
 | GET, PATCH | `/api/v1/qcli/config[/{provider}[/{section}]]` | Config providers, with the admin plugin (see [Config providers](#config-providers)) |
+| GET, POST, DELETE | `/api/v1/qcli/notifications[/read-all\|/{id}/read\|/{id}]` | System notifications (see [System notifications](#system-notifications)) |
 | WS | `/ws/v1/qcli/events` | Server events (see [Server events](#server-events)) |
 | WS | `/ws/v1/qcli/logs` | Log stream (`?level=` filter) |
 | WS | `/ws/v1/qcli/shell` | Interactive PTY shell, with `EnableShell()` |
