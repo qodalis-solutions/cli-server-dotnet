@@ -635,7 +635,7 @@ their declared order, then in the order they were added:
 `needs-configuration`:
 
 - **`needs-configuration`:** a `Required` setting has no value, or the plugin called `NeedsConfiguration`. The
-  missing keys are listed in `missing` (`<provider>.<section>.<key>`). The plugin's settings stay registered so they
+  missing keys are listed in `missing` (`<section>.<key>` of the provider in `settings`, e.g. `settings.connectionString`). The plugin's settings stay registered so they
   can be filled in, and it stays idle until then. For example, a data explorer source adds nothing and a storage
   answers that it needs configuration. A change applies after a restart.
 - **`failed`:** the plugin threw. Its registrations are rolled back, the error is logged and kept, and the server

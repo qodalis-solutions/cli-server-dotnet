@@ -292,7 +292,7 @@ public sealed class CliServerPluginState
     /// <summary><see cref="CliServerPluginSources"/>: <c>marketplace</c> or <c>code</c>.</summary>
     [JsonPropertyName("source")] public string Source { get; init; } = CliServerPluginSources.Marketplace;
 
-    /// <summary>The required settings without a value (<c>&lt;provider&gt;.&lt;section&gt;.&lt;key&gt;</c>), while <c>needs-configuration</c>.</summary>
+    /// <summary>The required settings without a value (<c>&lt;section&gt;.&lt;key&gt;</c> of the <see cref="Settings"/> provider, as on the Node and Python servers), and the plugins it needs, while <c>needs-configuration</c>.</summary>
     [JsonPropertyName("missing")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Missing { get; set; }

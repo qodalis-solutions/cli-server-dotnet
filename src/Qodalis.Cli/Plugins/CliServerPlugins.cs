@@ -869,7 +869,7 @@ public sealed partial class CliServerPlugins
                 try
                 {
                     await provider.ReadyAsync();
-                    missing.AddRange(provider.Missing().Select(m => $"{provider.Id}.{m}"));
+                    missing.AddRange(provider.Missing());
                 }
                 catch (Exception)
                 {

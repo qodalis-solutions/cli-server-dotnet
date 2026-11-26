@@ -178,7 +178,7 @@ public class PluginEntriesTests : IAsyncLifetime
         var (host, _) = await StartAsync(cli => cli.AddPlugin<FileSystemPluginEntry>());
         var state = (await States(host)).Single();
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "filesystem"), (state.Status, state.Name));
-        Assert.Equal(["filesystem-os.settings.roots"], state.Missing);
+        Assert.Equal(["settings.roots"], state.Missing);
         var storage = host.Services.GetRequiredService<IFileStorageProvider>();
         await Assert.ThrowsAsync<FileStorageNotConfiguredError>(() => storage.ListAsync(root));
 
@@ -221,7 +221,7 @@ public class PluginEntriesTests : IAsyncLifetime
 
         var (s3, _) = await StartAsync(cli => cli.AddPlugin<S3PluginEntry>());
         var state = (await States(s3)).Single();
-        Assert.Equal(["filesystem-s3.settings.bucket"], state.Missing);
+        Assert.Equal(["settings.bucket"], state.Missing);
         await Assert.ThrowsAsync<FileStorageNotConfiguredError>(() => s3.Services.GetRequiredService<IFileStorageProvider>().ListAsync("/"));
         var view = await s3.Services.GetRequiredService<ICliConfigService>().GetAsync("filesystem-s3", new CliConfigContext(null, _ => true));
         Assert.True(view.Sections.Single().Entries.Single(e => e.Key == "bucket").Required);
@@ -244,7 +244,7 @@ public class PluginEntriesTests : IAsyncLifetime
         Assert.Equal(["data-explorer", "data-explorer-sql", "data-explorer-postgres"], providers);
         var postgres = states.Single(s => s.Name == "data-explorer-postgres");
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "data-explorer-postgres"), (postgres.Status, postgres.Settings));
-        Assert.Equal(["data-explorer-postgres.settings.connectionString"], postgres.Missing);
+        Assert.Equal(["settings.connectionString"], postgres.Missing);
 
         var registry = host.Services.GetRequiredService<Qodalis.Cli.Services.DataExplorerRegistry>();
         Assert.Equal(["host", "local"], registry.GetSources().Select(s => s.Name).Order());
@@ -274,7 +274,7 @@ public class PluginEntriesTests : IAsyncLifetime
         });
         Assert.IsNotType<EfCoreJobStorageProvider>(memory.Services.GetRequiredService<Qodalis.Cli.Abstractions.Jobs.ICliJobStorageProvider>());
         var storage = (await States(memory)).Single(s => s.Name == "jobs-efcore");
-        Assert.Equal(["jobs-efcore.settings.connectionString"], storage.Missing);
+        Assert.Equal(["settings.connectionString"], storage.Missing);
     }
 
     [Fact]
@@ -315,7 +315,7 @@ public class PluginEntriesTests : IAsyncLifetime
 
         var (redis, _) = await StartAsync(cli => cli.AddPlugin<RedisConfigPluginEntry>());
         Assert.IsType<InMemoryConfigStore>(redis.Services.GetRequiredService<CliConfigRegistry>().DefaultStore);
-        Assert.Equal(["config-redis.settings.url"], (await States(redis)).Single().Missing);
+        Assert.Equal(["settings.url"], (await States(redis)).Single().Missing);
     }
 
     [Fact]
@@ -361,7 +361,7 @@ public class PluginEntriesTests : IAsyncLifetime
         Assert.True(Directory.Exists(Path.Combine(dir, "plugin-data", "databases", "migrations")));
         var states = await States(host);
         Assert.Equal(CliServerPluginStatuses.Loaded, states.Single(s => s.Name == "databases").Status);
-        Assert.Equal(["logs-seq.settings.serverUrl"], states.Single(s => s.Name == "logs-seq").Missing);
+        Assert.Equal(["settings.serverUrl"], states.Single(s => s.Name == "logs-seq").Missing);
         Assert.Throws<InvalidOperationException>(() => CliDbConnections.Create("oracle", "x"));
     }
 

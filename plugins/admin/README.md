@@ -575,7 +575,7 @@ An installed plugin as `GET /installed` lists it:
   "title": "Data explorer: PostgreSQL", "icon": "🐘", "description": "...",
   "installedAt": "2026-11-26T10:00:00.000Z", "installedBy": "admin",
   "status": "needs-configuration", "loadedVersion": "1.0.0-beta.32",
-  "missing": ["data-explorer-postgres.settings.connectionString"], "settings": "data-explorer-postgres",
+  "missing": ["settings.connectionString"], "settings": "data-explorer-postgres",
   "updateAvailable": false
 }
 ```

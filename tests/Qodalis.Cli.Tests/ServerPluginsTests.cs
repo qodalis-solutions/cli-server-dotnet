@@ -220,7 +220,7 @@ public class ServerPluginsTests : IAsyncLifetime
         var plugins = await Checked(host);
         var state = plugins.States().Single();
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, CliServerPluginSources.Marketplace), (state.Status, state.Source));
-        Assert.Equal(["fixture.settings.apiKey"], state.Missing);
+        Assert.Equal(["settings.apiKey"], state.Missing);
         // Its settings are there to be filled in: required, the secret hidden
         var view = await host.Services.GetRequiredService<ICliConfigService>().GetAsync("fixture", new CliConfigContext(null, _ => true));
         var apiKey = view.Sections.Single().Entries.Single(e => e.Key == "apiKey");
@@ -427,7 +427,7 @@ public class ServerPluginsTests : IAsyncLifetime
         var plugins = await Checked(host);
         var state = plugins.States().Single();
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, CliServerPluginSources.Code, "greeter"), (state.Status, state.Source, state.Name));
-        Assert.Equal(["greeter.settings.token"], state.Missing);
+        Assert.Equal(["settings.token"], state.Missing);
 
         await SetAsync(host, "greeter", "greeting", "Salut");
         await SetAsync(host, "greeter", "token", "t");
@@ -480,17 +480,17 @@ public class ServerPluginsTests : IAsyncLifetime
         var all = host.Services.GetRequiredService<CliInstalledPlugins>().All;
         var fixture = all.Single(p => p.Id == FixturePackage);
         Assert.Equal((CliInstalledPlugin.MarketplaceSource, CliServerPluginStatuses.NeedsConfiguration, "fixture"), (fixture.Source, fixture.Status, fixture.Settings));
-        Assert.Equal(["fixture.settings.apiKey"], fixture.Missing);
+        Assert.Equal(["settings.apiKey"], fixture.Missing);
         var code = all.Single(p => p.Id == typeof(CodeGreeterEntry).Assembly.GetName().Name);
         Assert.Equal((CliInstalledPlugin.CodeSource, CliServerPluginStatuses.NeedsConfiguration, "greeter"), (code.Source, code.Status, code.Settings));
-        Assert.Equal(["greeter.settings.token", "greeter.settings.name"], code.Missing);
+        Assert.Equal(["settings.token", "settings.name"], code.Missing);
         var json = System.Text.Json.JsonSerializer.Serialize(fixture);
         Assert.Contains("\"status\":\"needs-configuration\"", json);
         Assert.Contains("\"settings\":\"fixture\"", json);
 
         var record = new CliServerPlugins(new CliServerPluginsOptions { DataDir = dir }).Records().Single();
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "fixture", null), (record.Status, record.Settings, record.Error));
-        Assert.Equal(["fixture.settings.apiKey"], record.Missing);
+        Assert.Equal(["settings.apiKey"], record.Missing);
 
         await SetAsync(host, "fixture", "apiKey", "k");
         await host.Services.GetRequiredService<CliServerPlugins>().CheckSettingsAsync();

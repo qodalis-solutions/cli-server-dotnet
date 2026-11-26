@@ -400,7 +400,7 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
         var (_, installed) = await Send(nextClient, nextToken, HttpMethod.Get, $"{Base}/installed");
         var view = installed!.AsArray().Single()!;
         Assert.Equal((CliServerPluginStatuses.NeedsConfiguration, "1.0.0"), (view["status"]!.GetValue<string>(), view["loadedVersion"]!.GetValue<string>()));
-        Assert.Equal(["fixture.settings.apiKey"], view["missing"]!.AsArray().Select(m => m!.GetValue<string>()));
+        Assert.Equal(["settings.apiKey"], view["missing"]!.AsArray().Select(m => m!.GetValue<string>()));
         Assert.Empty(next.Services.GetRequiredService<ICliServerRestart>().Pending());
     }
 
