@@ -385,6 +385,30 @@ public partial class CliBuilder
     }
 
     /// <summary>
+    /// Registers a data explorer source built when the data explorer is first used (from a plugin's settings, which load
+    /// after the services are registered): <paramref name="create"/> returns the provider and its options, or null to
+    /// leave the source out (its settings missing).
+    /// </summary>
+    /// <param name="create">Builds the provider and its options (null: not configured).</param>
+    /// <param name="package">Its package, listed among the installed plugins (a plugin's entry is listed already).</param>
+    public CliBuilder AddDataExplorerProvider(Func<(IDataExplorerProvider Provider, DataExplorerProviderOptions Options)?> create, Assembly? package = null)
+    {
+        ArgumentNullException.ThrowIfNull(create);
+        HasDataExplorer = true;
+        if (package != null) AddInstalledPlugin(package);
+        AddDashboardModule(CliDashboardModules.DataExplorer, typeof(CliBuilder).Assembly);
+        Services.AddSingleton(new DataExplorerProviderRegistration
+        {
+            Options = new DataExplorerProviderOptions { Name = package?.GetName().Name ?? "source", Description = string.Empty },
+            Deferred = create,
+        });
+        return this;
+    }
+
+    /// <summary>The number of data explorer sources registered so far.</summary>
+    internal int DataExplorerSourceCount => Services.Count(d => d.ServiceType == typeof(DataExplorerProviderRegistration));
+
+    /// <summary>
     /// Registers a data explorer provider instance with the specified options.
     /// </summary>
     /// <param name="provider">The provider instance.</param>

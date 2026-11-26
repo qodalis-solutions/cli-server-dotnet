@@ -15,6 +15,38 @@ public class DataExplorerProviderRegistration
 
     /// <summary>Gets or sets the provider configuration options.</summary>
     public required DataExplorerProviderOptions Options { get; set; }
+
+    /// <summary>
+    /// A source built from settings that load after the services are registered (a plugin's): called when the data
+    /// explorer is first used; null leaves the source out (its settings missing). Its options replace <see cref="Options"/>.
+    /// </summary>
+    public Func<(IDataExplorerProvider Provider, DataExplorerProviderOptions Options)?>? Deferred { get; set; }
+}
+
+/// <summary>
+/// Rules of the data explorer plugin's entry for the sources added after it (<c>cli.AddPlugin</c> or the dashboard):
+/// read-only for all, a row cap, a rate limit for sources without their own. Read when the data explorer is first used.
+/// </summary>
+public sealed class DataExplorerSourcePolicy
+{
+    /// <summary>The number of source registrations before it: those keep their own rules.</summary>
+    public required int After { get; init; }
+
+    public required Func<bool> ForceReadOnly { get; init; }
+
+    /// <summary>The most rows any source returns; 0: each its own.</summary>
+    public required Func<int> MaxRows { get; init; }
+
+    public required Func<DataExplorerRateLimit?> RateLimit { get; init; }
+
+    /// <summary>Applies the rules to a source's options.</summary>
+    public void Apply(DataExplorerProviderOptions options)
+    {
+        if (ForceReadOnly()) options.ReadOnly = true;
+        var max = MaxRows();
+        if (max > 0 && (options.MaxRows <= 0 || options.MaxRows > max)) options.MaxRows = max;
+        if (options.RateLimit == null && RateLimit() is { } limit) options.RateLimit = limit;
+    }
 }
 
 /// <summary>

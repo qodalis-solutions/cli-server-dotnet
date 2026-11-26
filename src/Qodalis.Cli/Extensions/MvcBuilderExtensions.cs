@@ -125,12 +125,21 @@ public static class MvcBuilderExtensions
         builder.Services.AddSingleton<DataExplorerRegistry>(sp =>
         {
             var registry = new DataExplorerRegistry();
-            var registrations = sp.GetServices<DataExplorerProviderRegistration>();
+            var registrations = sp.GetServices<DataExplorerProviderRegistration>().ToList();
+            var policies = sp.GetServices<DataExplorerSourcePolicy>().ToList();
 
-            foreach (var registration in registrations)
+            for (var index = 0; index < registrations.Count; index++)
             {
+                var registration = registrations[index];
                 IDataExplorerProvider provider;
-                if (registration.ProviderInstance != null)
+                var options = registration.Options;
+                if (registration.Deferred != null)
+                {
+                    // A plugin's source: built from its settings now, left out while they are missing
+                    if (registration.Deferred() is not { } built) continue;
+                    (provider, options) = built;
+                }
+                else if (registration.ProviderInstance != null)
                 {
                     provider = registration.ProviderInstance;
                 }
@@ -143,7 +152,8 @@ public static class MvcBuilderExtensions
                     continue;
                 }
 
-                registry.Register(provider, registration.Options);
+                foreach (var policy in policies.Where(p => p.After <= index)) policy.Apply(options);
+                registry.Register(provider, options);
             }
 
             return registry;
