@@ -449,7 +449,7 @@ public sealed partial class CliServerPlugins
             builder.AddConfigProvider(provider);
             providers.Add(provider);
             return provider;
-        }, candidate.Source, candidate.Options);
+        }, candidate.Source, candidate.Options, PluginSettingsStore);
         try
         {
             candidate.Entry.Register(context);

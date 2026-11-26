@@ -97,11 +97,13 @@ public sealed class CliPluginSettingsOptions
 public sealed class CliPluginContext
 {
     private readonly Func<CliPluginSettingsOptions, CliStoredConfigProvider> _settings;
+    private readonly ICliConfigStore? _settingsFile;
 
     internal CliPluginContext(string pluginId, string packageName, string version, CliBuilder builder, ILogger logger, string dataDir,
         string serverDataDir, ICliServerRestart restart, Func<CliPluginSettingsOptions, CliStoredConfigProvider> settings,
-        string source = CliServerPluginSources.Marketplace, System.Text.Json.Nodes.JsonObject? options = null)
+        string source = CliServerPluginSources.Marketplace, System.Text.Json.Nodes.JsonObject? options = null, ICliConfigStore? settingsFile = null)
     {
+        _settingsFile = settingsFile;
         Source = source;
         Options = options ?? [];
         PluginId = pluginId;
@@ -161,6 +163,22 @@ public sealed class CliPluginContext
     /// <c>missing</c>); it should then stay idle until the value is set.
     /// </summary>
     public CliStoredConfigProvider Settings(CliPluginSettingsOptions options) => _settings(options ?? new CliPluginSettingsOptions());
+
+    /// <summary>
+    /// Settings needed while the services are registered (a config store's own connection, a database's): kept in
+    /// <c>&lt;data dir&gt;/plugin-settings.json</c> (never in the store they may set up) and read now, so
+    /// <c>provider.GetValue</c> already returns the saved values. A change applies after a restart.
+    /// </summary>
+    public CliStoredConfigProvider BootSettings(CliPluginSettingsOptions options)
+    {
+        var store = options?.Store ?? _settingsFile ?? throw new InvalidOperationException("no plugin settings file");
+        var provider = _settings(new CliPluginSettingsOptions
+        {
+            Id = options?.Id, Title = options?.Title, Description = options?.Description, Settings = options?.Settings, Sections = options?.Sections, Store = store,
+        });
+        provider.AttachStoreAsync(store).GetAwaiter().GetResult();
+        return provider;
+    }
 }
 
 /// <summary>How a server plugin was added.</summary>
