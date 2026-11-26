@@ -844,11 +844,23 @@ public sealed partial class CliServerPlugins
                 {
                     // logged by the config startup
                 }
-                await CheckSettingsAsync();
+                try
+                {
+                    await CheckSettingsAsync();
+                }
+                finally
+                {
+                    _startupCheck.TrySetResult();
+                }
             }));
         }
         return Task.CompletedTask;
     }
+
+    private readonly TaskCompletionSource _startupCheck = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes once the settings check run after the server started has finished (and published the states).</summary>
+    public Task StartupCheck => _startupCheck.Task;
 
     /// <summary>Marks the loaded plugins whose required settings have no value <c>needs-configuration</c> with <c>missing</c> (and back).</summary>
     public async Task CheckSettingsAsync()

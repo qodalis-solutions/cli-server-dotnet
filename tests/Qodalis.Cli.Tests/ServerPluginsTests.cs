@@ -127,6 +127,8 @@ public class ServerPluginsTests : IAsyncLifetime
             });
         }).StartAsync();
         _hosts.Add(host);
+        // Its own settings check after start publishes the states: done before a test reads them or starts another server
+        await host.Services.GetRequiredService<CliServerPlugins>().StartupCheck.WaitAsync(TimeSpan.FromSeconds(10));
         return host;
     }
 
