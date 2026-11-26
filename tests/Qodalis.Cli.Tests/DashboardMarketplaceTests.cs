@@ -778,7 +778,7 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
         var list = (await h.Run("admin dashboard list")).Split('\n');
         Assert.Equal($"1 dashboard plugin(s) from {Market} (install: verified)", list[0]);
         Assert.Equal("ID       Package                      Version                   Installed            By", list[1]);
-        Assert.Matches($@"^tickets  {Regex.Escape(Tickets)}  1\.0\.0 \(update available\)  \d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d  anonymous$", list[2]);
+        Assert.Matches($@"^tickets  {Regex.Escape(Tickets)}  1\.0\.0 \(update available\)  \d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d  admin$", list[2]);
         var json = JsonNode.Parse(await h.Run("admin dashboard --json"))!.AsArray();
         Assert.Equal(Tickets, json[0]!["name"]!.GetValue<string>());
         Assert.Equal("1.0.0", json[0]!["version"]!.GetValue<string>());
@@ -790,7 +790,7 @@ public sealed class DashboardMarketplaceTests : IAsyncLifetime
         Assert.Equal("Error: not installed: @acme/none", await h.Run("admin dashboard update @acme/none"));
         Assert.Equal($"Removed {Tickets}@1.1.0 (the page tickets).", await h.Run($"admin dashboard remove {Tickets}"));
         Assert.Equal($"Error: not installed: {Tickets}", await h.Run($"admin dashboard remove {Tickets}"));
-        Assert.Equal(["dashboard.plugin.install anonymous", "dashboard.plugin.update anonymous", "dashboard.plugin.remove anonymous"],
+        Assert.Equal(["dashboard.plugin.install admin", "dashboard.plugin.update admin", "dashboard.plugin.remove admin"],
             h.Audit.Entries.Select(a => $"{a.Event} {a.Username}"));
     }
 

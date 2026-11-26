@@ -577,8 +577,8 @@ public class ServerPluginMarketplaceTests : IAsyncLifetime
     public async Task AdminPlugins_SearchInstalledInstallUpdateRemove()
     {
         PublishFixture();
-        var (host, client, _) = await StartAsync(TempDir());
-        async Task<string> Run(string line) => (await ConfigCommands.RunAsync(client, host.Services.GetRequiredService<ICliCommandRegistry>(), line)).Text;
+        var (host, client, token) = await StartAsync(TempDir());
+        async Task<string> Run(string line) => (await ConfigCommands.RunAsync(client, host.Services.GetRequiredService<ICliCommandRegistry>(), line, token)).Text;
 
         var search = await Run("admin plugins search fixture");
         Assert.Contains("Plugin", search);

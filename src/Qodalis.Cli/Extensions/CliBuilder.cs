@@ -107,6 +107,17 @@ public partial class CliBuilder
     }
 
     /// <summary>
+    /// Lets callers who are not signed in install server and dashboard plugins and change settings on a server without
+    /// authentication (<see cref="CliServerOptions.AllowAnonymousAdmin"/>). Unsafe outside a trusted network; logs a
+    /// startup warning.
+    /// </summary>
+    public CliBuilder AllowAnonymousAdmin(bool allow = true)
+    {
+        ServerOptions.AllowAnonymousAdmin = allow;
+        return this;
+    }
+
+    /// <summary>
     /// Enables (or disables) the interactive shell WebSockets. Disabled by default.
     /// Enabling alone does not grant access: with the users plugin the session needs
     /// <c>shell:execute</c>; without it configure a token, an authorize callback or

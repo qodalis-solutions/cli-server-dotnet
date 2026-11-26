@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Qodalis.Cli.Abstractions.Config;
+using Qodalis.Cli.Extensions;
 using Qodalis.Cli.Security;
 
 namespace Qodalis.Cli.Mcp;
@@ -26,7 +27,7 @@ public sealed class ConfigMcpToolProvider : IMcpToolProvider
     private CliConfigContext Context(McpToolContext context)
     {
         var principal = context.Principal;
-        if (!_serverOptions.RequireAuthentication || principal == null) return CliConfigContext.For(null, "mcp");
+        if (principal == null) return CliConfigContexts.Anonymous(_serverOptions, "mcp");
         return new CliConfigContext(new CliConfigCaller(principal.UserId, principal.UserName, principal.Permissions),
             principal.Can, "mcp");
     }

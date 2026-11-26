@@ -249,16 +249,23 @@ public static class MvcBuilderExtensions
 public static class CliConfigContexts
 {
     /// <summary>
-    /// The context of a request: the caller's principal on a protected server, else every permission (a server without
-    /// authentication).
+    /// The context of a request: the caller's principal when signed in (on a protected server, or the admin dashboard's
+    /// sign-in), else <see cref="Anonymous"/>.
     /// </summary>
     public static CliConfigContext Of(HttpContext? httpContext, CliServerOptions options, string via)
     {
         var principal = httpContext?.GetCliPrincipal();
-        if (!options.RequireAuthentication || principal == null) return CliConfigContext.For(null, via);
+        if (principal == null) return Anonymous(options, via);
         return new CliConfigContext(new CliConfigCaller(principal.UserId, principal.UserName, principal.Permissions),
             principal.Can, via);
     }
+
+    /// <summary>
+    /// A caller who is not signed in: nothing on a protected server; on a server without authentication every permission
+    /// but <c>config:write</c> (unless <see cref="CliServerOptions.AllowAnonymousAdmin"/>).
+    /// </summary>
+    public static CliConfigContext Anonymous(CliServerOptions options, string via) =>
+        new(null, permission => !options.RequireAuthentication && CliCommandPermissions.AnonymousCan(options, permission), via);
 }
 
 /// <summary>Creates the restart service when the server starts (its <c>startedAt</c>).</summary>

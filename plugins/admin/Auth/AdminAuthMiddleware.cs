@@ -36,11 +36,13 @@ public class AdminAuthMiddleware
     public async Task Invoke(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
+        var bridge = context.RequestServices.GetService<ICliAuthBridge>();
 
         // Only protect /api/v1/qcli/ admin routes
         if (!path.StartsWith("/api/v1/qcli/", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug("Path {Path} is not an admin route, skipping auth", path);
+            AttachStaticAdmin(context, bridge, path);
             await _next(context);
             return;
         }
@@ -55,15 +57,17 @@ public class AdminAuthMiddleware
 
         // Skip auth for non-admin qcli routes (commands, execute, version, etc.)
         // Only protect admin-specific routes
-        if (!IsAdminRoute(path))
+        // Restart: behind the dashboard's sign-in when it is the server's only one; with the users plugin the server's
+        // auth gate checks server:restart (POST) and admin:access (GET) itself.
+        if (!IsAdminRoute(path) && !(bridge == null && IsRestartRoute(path)))
         {
             _logger.LogDebug("Path {Path} is not a protected admin route, skipping auth", path);
+            AttachStaticAdmin(context, bridge, path);
             await _next(context);
             return;
         }
 
         // When the users plugin is installed, authenticate through it and require admin:access.
-        var bridge = context.RequestServices.GetService<ICliAuthBridge>();
         if (bridge != null)
         {
             CliPrincipal? user;
@@ -125,8 +129,39 @@ public class AdminAuthMiddleware
 
         _logger.LogDebug("Admin auth succeeded for {Path}", path);
         context.Items["AdminUser"] = principal;
+        // The static admin may do everything: restart, install plugins, change settings
+        if (context.GetCliPrincipal() == null) context.SetCliPrincipal(StaticAdmin(principal));
         await _next(context);
     }
+
+    /// <summary>The static admin of the dashboard's password sign-in as the server's caller: every permission.</summary>
+    internal static CliPrincipal StaticAdmin(ClaimsPrincipal user)
+    {
+        var name = user.Identity?.Name ?? "admin";
+        return new CliPrincipal(name, name, ["*"]);
+    }
+
+    /// <summary>
+    /// On a CLI route outside the admin API (<c>/execute</c>, MCP, ...) of a server whose only sign-in is the dashboard's,
+    /// a valid dashboard token makes the static admin the caller, so it may run the commands an anonymous caller may not
+    /// (installing plugins, changing settings, restarting). Without a token, or with another one, nothing changes.
+    /// </summary>
+    private void AttachStaticAdmin(HttpContext context, ICliAuthBridge? bridge, string path)
+    {
+        if (bridge != null || context.GetCliPrincipal() != null || !CliRoutePolicy.IsCliPath(path)) return;
+        if (context.RequestServices.GetService<CliServerOptions>() is { RequireAuthentication: true }) return;
+        var header = context.Request.Headers.Authorization.FirstOrDefault();
+        if (string.IsNullOrEmpty(header) || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return;
+        if (_jwtService.ValidateToken(header["Bearer ".Length..].Trim()) is { } user)
+        {
+            context.Items["AdminUser"] = user;
+            context.SetCliPrincipal(StaticAdmin(user));
+        }
+    }
+
+    private static bool IsRestartRoute(string path) =>
+        path.TrimEnd('/').Equals("/api/v1/qcli/server/restart", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api/v1/qcli/server/restart/", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsAdminRoute(string path)
     {

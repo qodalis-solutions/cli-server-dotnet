@@ -231,8 +231,13 @@ internal sealed class MarketplaceTestHost(IHost host, string dir, FakeMarketplac
     public Task<HttpResponseMessage> Put(string name, object? body = null) => Send(HttpMethod.Put, $"{Base}/installed/{name}", body ?? new { });
     public Task<HttpResponseMessage> Delete(string name) => Send(HttpMethod.Delete, $"{Base}/installed/{name}");
 
+    /// <summary>Runs a command as the static admin (the dashboard's sign-in).</summary>
     public async Task<string> Run(string line) =>
-        (await ConfigCommands.RunAsync(Client, Service<ICliCommandRegistry>(), line)).Text;
+        (await ConfigCommands.RunAsync(Client, Service<ICliCommandRegistry>(), line, Token.Length > 0 ? Token : null)).Text;
+
+    /// <summary>Runs a command without signing in.</summary>
+    public Task<(int Status, string Text, System.Text.Json.JsonElement Body)> RunAnonymous(string line) =>
+        ConfigCommands.RunAsync(Client, Service<ICliCommandRegistry>(), line);
 
     public async ValueTask DisposeAsync()
     {

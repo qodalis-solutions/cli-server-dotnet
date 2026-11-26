@@ -38,6 +38,8 @@ internal sealed class ConfigTestHost : IAsyncDisposable
             web.UseTestServer();
             web.ConfigureServices(s => s.AddControllers().AddCli(cli =>
             {
+                // These hosts test the config features without sign-in; AllowAnonymousAdmin(false) tests the refusal
+                cli.AllowAnonymousAdmin();
                 configure?.Invoke(cli);
                 if (admin) cli.AddAdmin();
             }));

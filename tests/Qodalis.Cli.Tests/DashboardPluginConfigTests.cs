@@ -594,8 +594,8 @@ public sealed class DashboardPluginConfigTests : IAsyncLifetime
             "  mode            compact  [enum, default]"), await h.Run("config get dashboard-plugins.tickets"));
         Assert.Equal(
         [
-            Data("""{"provider":"dashboard-plugins","section":"tickets","keys":["refreshSeconds"],"version":"1","requiresRestart":false,"store":"memory"}"""),
-            Data("""{"provider":"dashboard-plugins","section":"tickets","keys":["columns"],"version":"2","requiresRestart":false,"store":"memory"}"""),
+            Data("""{"provider":"dashboard-plugins","section":"tickets","keys":["refreshSeconds"],"version":"1","requiresRestart":false,"store":"memory","user":"admin"}"""),
+            Data("""{"provider":"dashboard-plugins","section":"tickets","keys":["columns"],"version":"2","requiresRestart":false,"store":"memory","user":"admin"}"""),
         ], ConfigEventData(h));
         Assert.Equal(
         [
@@ -735,7 +735,7 @@ public sealed class DashboardPluginConfigTests : IAsyncLifetime
         var info = (await h.Run($"admin dashboard info {Tickets}")).Split('\n');
         Assert.Equal($"{Tickets}@1.0.0", info[0]);
         Assert.Equal("  Page        Tickets (/x/tickets)", info[1]);
-        Assert.Matches(@"^ {2}Installed {3}\d{4}-\d\d-\d\d \d\d:\d\d:\d\d by anonymous$", info[2]);
+        Assert.Matches(@"^ {2}Installed {3}\d{4}-\d\d-\d\d \d\d:\d\d:\d\d by admin$", info[2]);
         Assert.Matches(@"^ {2}Files {7}extension\.js \(\d+ bytes\), extension\.css \(\d+ bytes\)$", info[3]);
         Assert.Equal(
         [

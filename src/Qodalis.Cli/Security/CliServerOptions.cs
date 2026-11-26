@@ -31,6 +31,15 @@ public sealed class CliServerOptions
     public bool RequireAuthentication { get; set; }
 
     /// <summary>
+    /// On a server without authentication, let callers who are not signed in install server and dashboard plugins and
+    /// change settings (<c>plugins:install</c>, <c>dashboard:install</c>, <c>config:write</c>) through <c>/execute</c>,
+    /// MCP and the config API. Default <c>false</c>: those need a signed-in caller (the users plugin, or the admin
+    /// dashboard's sign-in); reading stays open. Unsafe: anyone who reaches the server can then run code on it (a startup
+    /// warning says so). Set with <c>CliBuilder.AllowAnonymousAdmin()</c>.
+    /// </summary>
+    public bool AllowAnonymousAdmin { get; set; }
+
+    /// <summary>
     /// Permissions of plugins' routes on a protected server (<c>CliBuilder.AddRoutePermission</c>), checked before
     /// the core table.
     /// </summary>

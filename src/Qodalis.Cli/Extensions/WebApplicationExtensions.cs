@@ -25,6 +25,7 @@ public static class WebApplicationExtensions
         if (app.ApplicationServices.GetService<CliServerOptions>()?.CliRoutes == false)
             throw new InvalidOperationException("UseCli() is not available: the CLI routes are turned off (WithoutCliRoutes)");
         LogShellConfiguration(app.ApplicationServices);
+        LogAnonymousAdmin(app.ApplicationServices);
 
         app.Use(async (context, next) =>
         {
@@ -163,6 +164,17 @@ public static class WebApplicationExtensions
             AuthBridge = access.Principal != null ? bridge : null,
             RemoteAddress = remoteAddress,
         }, context.RequestAborted);
+    }
+
+    /// <summary>Startup WARNING when callers who are not signed in may install plugins and change settings.</summary>
+    private static void LogAnonymousAdmin(IServiceProvider services)
+    {
+        var options = services.GetService<CliServerOptions>();
+        if (options is not { AllowAnonymousAdmin: true } || options.RequireAuthentication) return;
+        services.GetRequiredService<ILoggerFactory>().CreateLogger("Qodalis.Cli.Security").LogWarning(
+            "WARNING: AllowAnonymousAdmin is on and the server has no sign-in: anyone who can reach this server may install " +
+            "server and dashboard plugins and change settings ({Permissions}), which runs code on it.",
+            string.Join(", ", CliCommandPermissions.SignInRequired));
     }
 
     /// <summary>Startup diagnostics: ERROR when the shell is locked, WARNING when anonymous.</summary>

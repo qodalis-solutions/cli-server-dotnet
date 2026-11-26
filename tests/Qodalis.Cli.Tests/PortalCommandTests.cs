@@ -42,6 +42,8 @@ public sealed class PortalCommandTests
                 services?.Invoke(s);
                 s.AddControllers().AddCli(cli =>
                 {
+                    // config set without sign-in, as on a trusted development server
+                    cli.AllowAnonymousAdmin();
                     if (store != null) cli.SetConfigStore(store);
                     if (sections)
                     {

@@ -139,7 +139,8 @@ public sealed partial class CliMcpServer
 
     /// <summary>
     /// Tools visible to the caller: allowed by <see cref="McpOptions.Tools"/> / <see cref="McpOptions.Exclude"/>
-    /// and — when the server is protected — covered by the caller's permissions.
+    /// and covered by the caller's permissions (a caller who is not signed in: on a server without authentication, every
+    /// tool but those that install plugins or change settings, see <see cref="CliCommandPermissions.SignInRequired"/>).
     /// </summary>
     public async Task<List<McpToolDefinition>> VisibleToolsAsync(McpToolContext context, CancellationToken cancellationToken) =>
         (await CollectToolsAsync(context, cancellationToken)).Tools.Where(t => IsVisible(t, context.Principal)).ToList();
@@ -150,8 +151,12 @@ public sealed partial class CliMcpServer
         if (options.Tools is { Count: > 0 } allow && !allow.Any(p => MatchesPattern(tool.Name, p))) return false;
         if (options.Exclude is { Count: > 0 } deny && deny.Any(p => MatchesPattern(tool.Name, p))) return false;
         if (options.ReadOnly && tool.Annotations?.ReadOnlyHint != true) return false;
-        if (!_serverOptions.RequireAuthentication) return true;
-        if (principal == null) return false;
+        if (principal == null)
+        {
+            // Without sign-in: nothing on a protected server; on an unprotected one all but installing and changing settings
+            return !_serverOptions.RequireAuthentication &&
+                   CliCommandPermissions.RefusedAnonymously(_serverOptions, tool.RequiredPermissions).Count == 0;
+        }
         return CliCommandPermissions.Missing(principal, tool.RequiredPermissions).Count == 0;
     }
 

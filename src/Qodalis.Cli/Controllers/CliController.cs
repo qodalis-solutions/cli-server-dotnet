@@ -59,19 +59,24 @@ public class CliController : ControllerBase
     }
 
     /// <summary>
-    /// When the server is protected, enforces the processor's declared
-    /// <see cref="ICliCommandProcessor.RequiredPermissions"/> (every processor from the root to the resolved sub-command).
+    /// Enforces the processor's declared <see cref="ICliCommandProcessor.RequiredPermissions"/> (every processor from
+    /// the root to the resolved sub-command) for a signed-in caller. On a server without authentication a caller who is
+    /// not signed in may run everything but the commands that install plugins or change settings
+    /// (<see cref="CliCommandPermissions.SignInRequired"/>), unless the host set <see cref="CliServerOptions.AllowAnonymousAdmin"/>.
     /// </summary>
     private ObjectResult? CheckCommandPermissions(CliProcessCommand command)
     {
-        if (!_serverOptions.RequireAuthentication) return null;
-
-        var principal = HttpContext.GetCliPrincipal();
-        if (principal == null)
+        var principal = HttpContext?.GetCliPrincipal();
+        if (principal == null && _serverOptions.RequireAuthentication)
             return StatusCode(401, new { error = "unauthorized" });
 
         // Every processor on the path counts, not only the root and the resolved one
         var required = CliCommandPermissions.RequiredFor(_registry, command.Command, command.ChainCommands);
+        if (principal == null)
+        {
+            var refused = CliCommandPermissions.RefusedAnonymously(_serverOptions, required);
+            return refused.Count == 0 ? null : StatusCode(403, new { error = CliCommandPermissions.SignInRequiredMessage(refused) });
+        }
         var missing = CliCommandPermissions.Missing(principal, required);
         return missing.Count == 0
             ? null
